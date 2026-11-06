@@ -7,7 +7,7 @@ Fork of HMCL **v3.17.0.361** (19 Oct 2026), the last release before HMCL disable
 - Look: our SAO UI family (blue log-in panel, bubbles, SAO font, title wallpaper, crossing field + lyrics); Launch = Link Start.
 - Accounts: offline name, Microsoft (正版), sao_auth log-in inside the launcher.
 - Windows, macOS, Linux.
-- Distribution (James, 6 Nov): players download the launcher and the pack together as one Quark zip. First start installs the pack from the folder beside the launcher (no pack download); MC 1.20.1 + NeoForge 47.1.106 come through HMCL's downloader (BMCLAPI in China). Updates: a newer Quark zip, or an update zip dropped on the window; the launcher applies it and keeps options, saves, screenshots. An optional small version notice (any static file host) can say a new zip is out.
+- Distribution (James, 6 Nov): players download one launcher from Quark with the pack built in ("i mean pack", "so players dont have to do anything"). The pack (~450 MB) is embedded in the launcher (jar resource / .app Resources / exe); first start unpacks it into the fixed instance by itself, no folder to pick, no button but Link Start; MC 1.20.1 + NeoForge 47.1.106 come through HMCL's downloader (BMCLAPI in China). Updates: a newer Quark zip, or an update zip dropped on the window; the launcher applies it and keeps options, saves, screenshots. An optional small version notice (any static file host) can say a new zip is out.
 - Base on an HMCL version that still has the download functions.
 
 ## Phases
