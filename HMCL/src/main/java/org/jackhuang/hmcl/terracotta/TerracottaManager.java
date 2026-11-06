@@ -140,7 +140,7 @@ public final class TerracottaManager {
 
     /// Marshals legacy property updates to JavaFX while allowing explicit headless lifecycle tests.
     private static void publish(Runnable action) {
-        if (Boolean.getBoolean("java.awt.headless") || Platform.isFxApplicationThread()) { action.run(); return; }
+        if (Platform.isFxApplicationThread()) { action.run(); return; }
         try { Platform.runLater(action); }
         catch (IllegalStateException noToolkit) { action.run(); }
     }

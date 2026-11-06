@@ -752,7 +752,6 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     }
     /// Uses the JavaFX thread in the app and a synchronous fallback only when no toolkit exists.
     private static void publish(Runnable action) {
-        if (Boolean.getBoolean("java.awt.headless")) { action.run(); return; }
         if (Platform.isFxApplicationThread()) { action.run(); return; }
         try { Platform.runLater(action); }
         catch (IllegalStateException uninitializedToolkit) { action.run(); }
