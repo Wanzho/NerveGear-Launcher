@@ -154,7 +154,7 @@
 .holo-fill { -fx-background-color: #7ceeff; -fx-effect: dropshadow(gaussian, rgba(124,238,255,0.8), 6, 0.3, 0, 0); }
 
 /* ---- Floating VR windows (6 Nov: "更像vr里窗口的样式", "真实VR系统", "给我几个样式").
-   Base = visionOS-like frosted glass; .theme-quest / .theme-sao / .theme-smoke override it. No neon, no glow. */
+   Base = visionOS-like frosted glass; .theme-sao (James's pick, 6 Nov) overrides it. No neon, no glow. */
 .vr-window {
     -fx-background-color: linear-gradient(to bottom, rgba(158,158,168,0.46) 0%, rgba(118,118,128,0.40) 100%);
     -fx-background-radius: 26;
@@ -257,25 +257,6 @@
 .vr-log-error { -fx-fill: #ff6b5e; }
 
 /* ---- Quest: solid dark grey panels, blue for the main action */
-.theme-quest .vr-window { -fx-background-color: rgba(30,32,36,0.97); -fx-background-radius: 18; -fx-border-radius: 18; -fx-border-color: transparent; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.5), 30, 0, 0, 10); }
-.theme-quest .vr-window-start { -fx-background-radius: 18; -fx-border-radius: 18; }
-.theme-quest .vr-dim, .theme-quest .vr-key { -fx-fill: #a9adb3; }
-.theme-quest .vr-button, .theme-quest .vr-round, .theme-quest .vr-chip { -fx-background-color: #3a3d43; -fx-background-radius: 10; }
-.theme-quest .vr-round { -fx-background-radius: 30; }
-.theme-quest .vr-button:hover, .theme-quest .vr-round:hover, .theme-quest .vr-chip:hover { -fx-background-color: #4a4e55; }
-.theme-quest .vr-chip:selected { -fx-background-color: #e8eaed; -fx-text-fill: #1a1c1f; }
-.theme-quest .vr-accent, .theme-quest .vr-start { -fx-background-color: #1877f2; -fx-background-radius: 10; }
-.theme-quest .vr-accent:hover, .theme-quest .vr-start:hover { -fx-background-color: #2d88ff; }
-.theme-quest .vr-field, .theme-quest .vr-field:focused { -fx-background-color: #16171a; -fx-background-radius: 8; -fx-border-radius: 8; -fx-border-color: #3a3d43; }
-.theme-quest .vr-field:focused { -fx-border-color: #1877f2; }
-.theme-quest .vr-tile { -fx-background-color: #26282c; -fx-background-radius: 10; }
-.theme-quest .vr-tile:hover { -fx-background-color: #2f3236; }
-.theme-quest .vr-stage, .theme-quest .vr-thumb, .theme-quest .vr-console { -fx-background-color: #18191c; -fx-background-radius: 10; }
-.theme-quest .vr-dock-on { -fx-background-color: #1877f2; }
-.theme-quest .vr-switch:selected .vr-switch-track { -fx-background-color: #1877f2; }
-.theme-quest .vr-fill { -fx-background-color: #1877f2; }
-.theme-quest .vr-tip { -fx-background-color: #3a3d43; }
-.theme-quest .vr-rule { -fx-background-color: #3a3d43; }
 
 /* ---- SAO anime menu: light panels, grey ink, orange for hover and the chosen one */
 .theme-sao .vr-window { -fx-background-color: rgba(243,243,245,0.94); -fx-background-radius: 6; -fx-border-radius: 6; -fx-border-color: rgba(255,255,255,0.95); -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.30), 26, 0, 0, 8); }
@@ -306,20 +287,7 @@
 .theme-sao .vr-slider .thumb { -fx-background-color: #f2a43a; }
 .theme-sao .vr-scroll .scroll-bar .thumb { -fx-background-color: #c4c4c4; }
 .theme-sao .vr-pill { -fx-background-color: rgba(255,255,255,0.75); }
+.theme-sao .vr-chip:selected:disabled { -fx-background-color: #e6e6e8; -fx-border-color: #d6d6d6; -fx-text-fill: #555555; }
 .theme-sao .vr-logo { -fx-effect: dropshadow(gaussian, rgba(40,50,70,0.85), 3, 0.6, 0, 0); }
 
 /* ---- Dark glass, minimal: smoked panels with a hairline, white for the main action */
-.theme-smoke .vr-window { -fx-background-color: rgba(14,16,20,0.64); -fx-background-radius: 22; -fx-border-radius: 22; -fx-border-color: rgba(255,255,255,0.10); -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.42), 30, 0, 0, 10); }
-.theme-smoke .vr-dim, .theme-smoke .vr-key { -fx-fill: rgba(255,255,255,0.50); }
-.theme-smoke .vr-button, .theme-smoke .vr-round, .theme-smoke .vr-chip { -fx-background-color: rgba(255,255,255,0.06); -fx-border-color: rgba(255,255,255,0.10); -fx-border-width: 1; -fx-border-radius: 30; }
-.theme-smoke .vr-button:hover, .theme-smoke .vr-round:hover, .theme-smoke .vr-chip:hover { -fx-background-color: rgba(255,255,255,0.14); }
-.theme-smoke .vr-chip:selected { -fx-background-color: rgba(255,255,255,0.90); -fx-text-fill: #111111; }
-.theme-smoke .vr-accent, .theme-smoke .vr-start { -fx-background-color: #f4f4f5; -fx-text-fill: #111111; }
-.theme-smoke .vr-accent:hover, .theme-smoke .vr-start:hover { -fx-background-color: #ffffff; }
-.theme-smoke .vr-field, .theme-smoke .vr-field:focused { -fx-background-color: rgba(255,255,255,0.05); -fx-border-color: rgba(255,255,255,0.10); }
-.theme-smoke .vr-field:focused { -fx-border-color: rgba(255,255,255,0.5); }
-.theme-smoke .vr-tile { -fx-background-color: rgba(255,255,255,0.04); -fx-border-color: rgba(255,255,255,0.06); -fx-border-radius: 14; }
-.theme-smoke .vr-dock-button { -fx-border-color: transparent; }
-.theme-smoke .vr-dock-on { -fx-background-color: rgba(255,255,255,0.20); }
-.theme-smoke .vr-switch:selected .vr-switch-track { -fx-background-color: #f4f4f5; }
-.theme-smoke .vr-switch:selected .vr-knob { -fx-background-color: #111111; }

@@ -53,11 +53,10 @@ public final class SaoScreenShotTool {
             Thread.sleep(2500);
             String p = w + "x" + h + "-";
             if (big) {
-                for (String theme : SaoHelmetPage.THEMES) {
-                    fx(() -> page[0].setTheme(theme));
-                    shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + theme + "-1-home.png"));
-                    shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, 0, out.resolve(p + theme + "-2-settings.png"));
-                    shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, 1, out.resolve(p + theme + "-3-worlds.png"));
+                String[] apps = {"settings", "worlds", "multiplayer", "packs", "screenshots", "logs", "java", "downloads", "about"};
+                shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "00-home.png"));
+                for (int i = 0; i < apps.length; i++) {
+                    shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, i, out.resolve(p + String.format("%02d-%s.png", i + 1, apps[i])));
                 }
             } else {
                 shot(scene[0], page[0], fake, SaoPackState.WORKING, 0.42, "安装 NeoForge", 0, 0, -1, out.resolve(p + "01-home-installing.png"));

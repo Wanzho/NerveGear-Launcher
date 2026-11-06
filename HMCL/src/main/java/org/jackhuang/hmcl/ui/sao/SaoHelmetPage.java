@@ -213,7 +213,9 @@ public final class SaoHelmetPage extends StackPane {
         windows.getChildren().addAll(news, server, player, link, dock);
 
         buildPad();
-        setTheme(service.preference("theme", "vision"));
+        // The window style James picked (6 Nov, from four): the anime's light menu panels with orange highlights.
+        getStyleClass().add("theme-sao");
+        space.getStyleClass().add("theme-sao");
         SaoApps.onSoundChanged = () -> {
             stopSound();
             if (poweredOn) startSound();
@@ -470,7 +472,7 @@ public final class SaoHelmetPage extends StackPane {
         }
         if (appButton != null) appButton.getStyleClass().remove("vr-dock-on");
         SaoFloatWindow w = a.make().make(service, this::closeApp);
-        w.home(660, 52, -60, 0, 0);
+        w.home(660, 72, 0, 0, 0);
         windows.getChildren().add(w);
         w.flyIn(320);
         app = w;
@@ -786,21 +788,6 @@ public final class SaoHelmetPage extends StackPane {
     }
 
     // ------------------------------------------------------------------ tools
-
-    /// The window styles James is choosing between (6 Nov: "给我几个样式").
-    static final String[] THEMES = {"vision", "quest", "sao", "smoke"};
-
-    /// Puts the windows in a style: a class on the page and on the space (a SubScene does not inherit classes).
-    ///
-    /// @param theme one of [#THEMES]
-    void setTheme(String theme) {
-        for (String t : THEMES) {
-            getStyleClass().remove("theme-" + t);
-            space.getStyleClass().remove("theme-" + t);
-        }
-        getStyleClass().add("theme-" + theme);
-        space.getStyleClass().add("theme-" + theme);
-    }
 
     /// Skips the power-on (screenshot tools).
     void forceLit() {
