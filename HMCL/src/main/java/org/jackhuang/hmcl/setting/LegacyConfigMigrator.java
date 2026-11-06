@@ -1091,42 +1091,8 @@ public final class LegacyConfigMigrator {
         return LEGACY_DEFAULT_PROFILE.equals(name) || LEGACY_HOME_PROFILE.equals(name);
     }
 
-    /// Finds a legacy config file with the same precedence as old HMCL versions.
+    /// Never discovers HMCL workspace settings; this fork must not import adjacent or current-directory HMCL data.
     private static @Nullable Path locateLegacyConfig() {
-        // Keep this order aligned with old HMCL versions so the same legacy file wins during migration.
-        Path defaultConfigFile = Metadata.HMCL_LOCAL_HOME.resolve(LEGACY_CONFIG_FILENAME);
-        if (Files.isRegularFile(defaultConfigFile)) {
-            return defaultConfigFile;
-        }
-
-        try {
-            @Nullable Path jarPath = JarUtils.thisJarPath();
-            if (jarPath != null && Files.isRegularFile(jarPath) && Files.isWritable(jarPath)) {
-                Path jarDirectory = jarPath.getParent();
-
-                Path config = jarDirectory.resolve(LEGACY_CONFIG_FILENAME);
-                if (Files.isRegularFile(config)) {
-                    return config;
-                }
-
-                Path dotConfig = jarDirectory.resolve(LEGACY_CONFIG_FILENAME_LINUX);
-                if (Files.isRegularFile(dotConfig)) {
-                    return dotConfig;
-                }
-            }
-        } catch (Throwable ignore) {
-        }
-
-        Path config = Paths.get(LEGACY_CONFIG_FILENAME);
-        if (Files.isRegularFile(config)) {
-            return config;
-        }
-
-        Path dotConfig = Paths.get(LEGACY_CONFIG_FILENAME_LINUX);
-        if (Files.isRegularFile(dotConfig)) {
-            return dotConfig;
-        }
-
         return null;
     }
 

@@ -26,11 +26,19 @@ public final class SaoServices {
         service = s;
     }
 
+    /// Releases the installed backend and wipes any pending one-use password before application shutdown.
+    /// Frontend preview services are simply detached.
+    public static void close() {
+        @Nullable SaoLauncherService installed = service;
+        service = null;
+        if (installed instanceof SaoPackEngine engine) engine.close();
+    }
+
     /// The installed service.
     ///
     /// @throws IllegalStateException when nothing is installed yet
     static SaoLauncherService service() {
-        SaoLauncherService s = service;
+        @Nullable SaoLauncherService s = service;
         if (s == null) throw new IllegalStateException("SaoLauncherService not installed");
         return s;
     }

@@ -7,7 +7,7 @@ package org.jackhuang.hmcl.sao;
 
 import org.jetbrains.annotations.NotNullByDefault;
 
-/// The three ways a player can enter, as James chose them (6 Nov 2026).
+/// The two supported HMCL account kinds; sao_auth is a separate one-use server password.
 @NotNullByDefault
 public enum SaoAccountKind {
     /// An offline name; the 誓约 server's sao_auth password guards it.

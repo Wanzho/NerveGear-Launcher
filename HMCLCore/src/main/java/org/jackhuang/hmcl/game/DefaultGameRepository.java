@@ -205,11 +205,15 @@ public abstract class DefaultGameRepository implements GameRepository {
 
     /// Runs an action on the JavaFX application thread and waits for its completion.
     ///
-    /// The action runs on the calling thread when the JavaFX toolkit has not been initialized.
+    /// The action runs on the calling thread in explicit headless mode or before toolkit initialization.
     /// Interruptions are restored after a queued JavaFX action completes.
     ///
     /// @param action the action to run
     private static void runOnFxThreadAndWait(Runnable action) {
+        if (Boolean.getBoolean("java.awt.headless")) {
+            action.run();
+            return;
+        }
         if (Platform.isFxApplicationThread()) {
             action.run();
             return;

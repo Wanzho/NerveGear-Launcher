@@ -379,10 +379,20 @@ public abstract class Task<T> {
     }
     //endregion updateProgressImmediately
 
+    /// Publishes progress on JavaFX, or directly when running headless before toolkit initialization.
     protected void updateProgressImmediately(double progress) {
-        // assert progress >= 0 && progress <= 1.0;
+        if (Boolean.getBoolean("java.awt.headless")) {
+            this.progress.set(progress);
+            return;
+        }
         if ((double) PENDING_PROGRESS_HANDLE.getAndSet(this, progress) == -1.0) {
-            Platform.runLater(() -> this.progress.set((double) PENDING_PROGRESS_HANDLE.getAndSet(this, -1.0)));
+            Runnable publish = () -> this.progress.set((double) PENDING_PROGRESS_HANDLE.getAndSet(this, -1.0));
+            try {
+                Platform.runLater(publish);
+            } catch (IllegalStateException uninitializedToolkit) {
+                // Headless installer/proof tools intentionally never start the JavaFX toolkit.
+                publish.run();
+            }
         }
     }
 
