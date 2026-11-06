@@ -8,11 +8,15 @@ package org.jackhuang.hmcl.sao;
 import javafx.beans.property.ReadOnlyDoubleProperty;
 import javafx.beans.property.ReadOnlyObjectProperty;
 import javafx.beans.property.ReadOnlyStringProperty;
+import javafx.beans.property.SimpleObjectProperty;
+import javafx.collections.FXCollections;
+import javafx.collections.ObservableList;
 import org.jackhuang.hmcl.auth.Account;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 
 import java.nio.file.Path;
+import java.util.List;
 
 /// The seam between the SAO screen (frontend, Claude) and the pack engine (backend, Codex).
 ///
@@ -81,6 +85,210 @@ public interface SaoLauncherService {
 
     /// The fixed instance folder (opened from the settings sheet).
     Path instanceDir();
+
+    // ---------------------------------------------------------------- windows (added 6 Nov, defaults until built)
+    //
+    // Everything below feeds one floating window of the screen. Each has a default so an engine that does not
+    // offer a window yet still compiles; the screen shows an empty state for it. Lists change on the JavaFX
+    // thread, items are replaced (records), never mutated.
+
+    /// News for the news window, newest first: server notices and the pack's update notes.
+    default ObservableList<SaoData.News> news() {
+        return FXCollections.emptyObservableList();
+    }
+
+    /// The 誓约 server's list ping, or null while unknown or when no server is configured.
+    default ReadOnlyObjectProperty<SaoData.@Nullable ServerStatus> serverStatus() {
+        return new SimpleObjectProperty<>();
+    }
+
+    /// Fetches the news and pings the server again (the screen calls it on open and every minute).
+    default void refreshOnline() {
+    }
+
+    /// The instance's singleplayer saves, last played first.
+    default ObservableList<SaoData.World> worlds() {
+        return FXCollections.emptyObservableList();
+    }
+
+    /// Every world backup, newest first.
+    default ObservableList<SaoData.Backup> backups() {
+        return FXCollections.emptyObservableList();
+    }
+
+    /// Backs a world up as a zip in the backups folder (HMCL's WorldBackupTask).
+    default void backupWorld(SaoData.World world) {
+    }
+
+    /// Puts a backup back in place of its world, after backing up the current one first.
+    default void restoreBackup(SaoData.Backup backup) {
+    }
+
+    /// Exports a world as a zip the player can share.
+    ///
+    /// @param world the world
+    /// @param zip   where to write
+    default void exportWorld(SaoData.World world, Path zip) {
+    }
+
+    /// The shader packs in the instance.
+    default ObservableList<SaoData.Pack> shaderPacks() {
+        return FXCollections.emptyObservableList();
+    }
+
+    /// Picks the shader pack the game uses, or null for none (written to the shader mod's config).
+    default void setShader(SaoData.@Nullable Pack pack) {
+    }
+
+    /// The resource packs in the instance, in the order the game applies them.
+    default ObservableList<SaoData.Pack> resourcePacks() {
+        return FXCollections.emptyObservableList();
+    }
+
+    /// Turns a resource pack on or off (written to options.txt; the pack's own required packs stay on).
+    default void setResourcePackEnabled(SaoData.Pack pack, boolean enabled) {
+    }
+
+    /// Copies files the player dropped on the shader or resource window into the right folder.
+    ///
+    /// @param files the dropped zips
+    /// @param shaders true for shaderpacks, false for resourcepacks
+    default void addPacks(List<Path> files, boolean shaders) {
+    }
+
+    /// The game's screenshots, newest first.
+    default ObservableList<Path> screenshots() {
+        return FXCollections.emptyObservableList();
+    }
+
+    /// The running or last game's log, one line per item, capped at a few thousand lines.
+    default ObservableList<String> gameLog() {
+        return FXCollections.emptyObservableList();
+    }
+
+    /// HMCL's crash analysis of the last run, or null when it did not crash.
+    default ReadOnlyObjectProperty<SaoData.@Nullable Crash> lastCrash() {
+        return new SimpleObjectProperty<>();
+    }
+
+    /// Zips the logs and crash reports for sending to the team.
+    ///
+    /// @param zip where to write
+    default void exportLogs(Path zip) {
+    }
+
+    /// The multiplayer room (HMCL's Terracotta).
+    default ReadOnlyObjectProperty<SaoData.Room> room() {
+        return new SimpleObjectProperty<>(SaoData.Room.OFF);
+    }
+
+    /// Opens a room friends can join with its code.
+    default void hostRoom() {
+    }
+
+    /// Joins a friend's room.
+    ///
+    /// @param code the code the friend shared
+    default void joinRoom(String code) {
+    }
+
+    /// Leaves or closes the room.
+    default void leaveRoom() {
+    }
+
+    /// Every Java found or downloaded that can run the pack (Java 17).
+    default ObservableList<SaoData.JavaRuntime> javas() {
+        return FXCollections.emptyObservableList();
+    }
+
+    /// The Java picked by the player, or null for automatic.
+    default @Nullable Path java() {
+        return null;
+    }
+
+    /// Picks a Java, or null for automatic.
+    default void setJava(@Nullable Path executable) {
+    }
+
+    /// Downloads the right Java into the launcher's folder.
+    default void downloadJava() {
+    }
+
+    /// Where downloads come from.
+    default SaoData.Source downloadSource() {
+        return SaoData.Source.AUTO;
+    }
+
+    /// Sets where downloads come from.
+    default void setDownloadSource(SaoData.Source source) {
+    }
+
+    /// Parallel downloads, 1 to 256.
+    default int downloadThreads() {
+        return 64;
+    }
+
+    /// Sets the parallel downloads.
+    default void setDownloadThreads(int threads) {
+    }
+
+    /// The running and recent downloads, for the downloads window.
+    default ObservableList<SaoData.Task> tasks() {
+        return FXCollections.emptyObservableList();
+    }
+
+    /// Whether the memory follows the machine (HMCL's automatic memory).
+    default boolean autoMemory() {
+        return false;
+    }
+
+    /// Sets automatic memory.
+    default void setAutoMemory(boolean auto) {
+    }
+
+    /// The machine's memory in MiB, for the memory slider's end.
+    default int systemMemoryMiB() {
+        return 16384;
+    }
+
+    /// The game window.
+    default SaoData.GameWindow gameWindow() {
+        return new SaoData.GameWindow(1280, 720, false);
+    }
+
+    /// Sets the game window.
+    default void setGameWindow(SaoData.GameWindow window) {
+    }
+
+    /// Extra JVM arguments, empty for none.
+    default String jvmArgs() {
+        return "";
+    }
+
+    /// Sets extra JVM arguments.
+    default void setJvmArgs(String args) {
+    }
+
+    /// A small screen preference kept in the launcher's config (for example "sound" = "helmet").
+    ///
+    /// @param key      the key
+    /// @param fallback when unset
+    /// @return the value
+    default String preference(String key, String fallback) {
+        return fallback;
+    }
+
+    /// Keeps a small screen preference.
+    default void setPreference(String key, String value) {
+    }
+
+    /// Opens a folder in the system file manager.
+    default void openFolder(SaoData.Folder folder) {
+    }
+
+    /// Opens a file with its default app (a screenshot) or shows it in the file manager when it cannot.
+    default void openFile(Path file) {
+    }
 
     /// The service the running launcher uses.
     static SaoLauncherService get() {
