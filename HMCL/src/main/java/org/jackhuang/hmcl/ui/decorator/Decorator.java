@@ -96,10 +96,10 @@ import static org.jackhuang.hmcl.ui.FXUtils.onEscPressed;
 @NotNullByDefault
 public final class Decorator {
     /// The minimum width, in pixels, of the visible window content.
-    private static final double MIN_CONTENT_WIDTH = 800.0;
+    private static final double MIN_CONTENT_WIDTH = org.jackhuang.hmcl.ui.sao.SaoUi.enabled() ? 1000.0 : 800.0;
 
     /// The minimum height, in pixels, including the 450-pixel background and 40-pixel title bar.
-    private static final double MIN_CONTENT_HEIGHT = 450.0 + 40.0;
+    private static final double MIN_CONTENT_HEIGHT = org.jackhuang.hmcl.ui.sao.SaoUi.enabled() ? 620.0 : 450.0 + 40.0;
 
     /// The minimum visible overlap, in pixels, used to accept a persisted window position.
     private static final double MIN_VISIBLE_WINDOW_AREA = 20.0;
@@ -702,8 +702,9 @@ public final class Decorator {
     ///
     /// @return the initial content bounds in JavaFX screen coordinates
     private Rectangle2D initialContentBounds() {
-        double initialContentWidth = Math.max(MIN_CONTENT_WIDTH, SettingsManager.state().getWidth());
-        double initialContentHeight = Math.max(MIN_CONTENT_HEIGHT, SettingsManager.state().getHeight());
+        // The SAO screen opens at 1100×660 or the size the player left it at, whichever is larger.
+        double initialContentWidth = Math.max(org.jackhuang.hmcl.ui.sao.SaoUi.enabled() ? 1100.0 : MIN_CONTENT_WIDTH, SettingsManager.state().getWidth());
+        double initialContentHeight = Math.max(org.jackhuang.hmcl.ui.sao.SaoUi.enabled() ? 660.0 : MIN_CONTENT_HEIGHT, SettingsManager.state().getHeight());
         double initialContentX = SettingsManager.state().getX() * PRIMARY_SCREEN_BOUNDS.getWidth();
         double initialContentY = SettingsManager.state().getY() * PRIMARY_SCREEN_BOUNDS.getHeight();
 
@@ -1009,7 +1010,7 @@ public final class Decorator {
     }
 
     /// Minimizes the attached stage, using the configured window animation when supported.
-    void minimizeWindow() {
+    public void minimizeWindow() {
         @Nullable Stage currentStage = getStage();
         if (currentStage == null) {
             return;
@@ -1045,7 +1046,7 @@ public final class Decorator {
     }
 
     /// Closes the application, using the configured window animation when enabled.
-    void closeWindow() {
+    public void closeWindow() {
         if (!nativeDecorationEnabled && AnimationUtils.playWindowAnimation()) {
             Timeline timeline = new Timeline(
                     new KeyFrame(Duration.ZERO,

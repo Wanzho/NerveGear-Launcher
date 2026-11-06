@@ -77,3 +77,4 @@ language-subtag-registry
 !/.gemini/config.yaml
 .codex
 /.gradle-*/
+/HMCL/src/main/resources/assets/sao-launcher/

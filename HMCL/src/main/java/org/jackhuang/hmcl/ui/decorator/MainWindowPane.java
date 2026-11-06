@@ -137,6 +137,12 @@ final class MainWindowPane extends StackPane {
 
         decorator.capableDraggingWindow(titleBar);
 
+        if (org.jackhuang.hmcl.ui.sao.SaoUi.enabled()) {
+            // The SAO screen fills the whole window and draws its own buttons.
+            titleBar.setVisible(false);
+            titleBar.setManaged(false);
+        }
+
         getChildren().setAll(backgroundNode, frame);
     }
 

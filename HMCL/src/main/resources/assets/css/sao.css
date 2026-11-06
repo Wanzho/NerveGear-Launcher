@@ -1,0 +1,89 @@
+/* 刀剑神域·誓约 启动器: the SAO screen. Colours follow the in-game sao_auth log-in panel (S01E01 look). */
+.sao-root { -fx-background-color: #0b1020; }
+.sao-dim { -fx-background-color: linear-gradient(to bottom, rgba(4,10,24,0.20) 0%, rgba(4,10,24,0.10) 45%, rgba(4,10,24,0.62) 100%); }
+
+.sao-panel {
+    -fx-background-color: linear-gradient(to bottom, #2490dc 0%, #1b7cc6 55%, #1872b9 100%);
+    -fx-background-radius: 16;
+    -fx-border-color: rgba(160,215,255,0.55);
+    -fx-border-width: 2;
+    -fx-border-radius: 16;
+    -fx-effect: dropshadow(gaussian, rgba(0,20,60,0.45), 26, 0.15, 0, 6);
+}
+.sao-title { -fx-fill: white; }
+.sao-title-en { -fx-fill: white; }
+.sao-label { -fx-fill: white; }
+.sao-label-cn { -fx-fill: rgba(255,255,255,0.9); }
+.sao-small { -fx-fill: rgba(255,255,255,0.92); }
+.sao-error { -fx-fill: #ffe14d; -fx-effect: dropshadow(gaussian, rgba(80,0,0,0.55), 4, 0.3, 0, 1); }
+
+.sao-field, .sao-field:focused {
+    -fx-background-color: white;
+    -fx-background-radius: 0;
+    -fx-background-insets: 0;
+    -fx-border-width: 0;
+    -fx-text-fill: #1a2b3c;
+    -fx-prompt-text-fill: #9aa8b6;
+    -fx-padding: 2 8 2 8;
+    -fx-pref-height: 28;
+    -fx-highlight-fill: #8fd0ff;
+}
+.sao-field:focused { -fx-effect: dropshadow(gaussian, rgba(150,225,255,0.95), 10, 0.35, 0, 0); }
+
+.sao-chip {
+    -fx-background-color: rgba(255,255,255,0.14);
+    -fx-background-radius: 14;
+    -fx-border-color: rgba(255,255,255,0.55);
+    -fx-border-radius: 14;
+    -fx-border-width: 1;
+    -fx-text-fill: white;
+    -fx-padding: 3 12 3 12;
+    -fx-cursor: hand;
+}
+.sao-chip:hover { -fx-background-color: rgba(255,255,255,0.24); }
+.sao-chip:selected { -fx-background-color: white; -fx-text-fill: #1b7cc6; -fx-border-color: white; }
+
+.sao-tick { -fx-text-fill: white; -fx-cursor: hand; }
+.sao-tick .box { -fx-background-color: white; -fx-background-radius: 2; -fx-border-width: 0; }
+.sao-tick:selected .mark { -fx-background-color: #1b7cc6; }
+
+.sao-link {
+    -fx-background-color: transparent;
+    -fx-text-fill: white;
+    -fx-underline: true;
+    -fx-padding: 0;
+    -fx-cursor: hand;
+}
+
+.sao-start {
+    -fx-background-color: linear-gradient(to bottom, #2ea0ff 0%, #1688f0 100%);
+    -fx-background-radius: 12;
+    -fx-border-color: rgba(190,230,255,0.85);
+    -fx-border-width: 2;
+    -fx-border-radius: 12;
+    -fx-text-fill: white;
+    -fx-padding: 4 44 4 44;
+    -fx-cursor: hand;
+    -fx-effect: dropshadow(gaussian, rgba(30,140,255,0.55), 18, 0.2, 0, 2);
+}
+.sao-start:hover { -fx-effect: dropshadow(gaussian, rgba(140,215,255,0.95), 26, 0.35, 0, 0); }
+.sao-start:pressed { -fx-background-color: linear-gradient(to bottom, #1a86e6 0%, #126fcc 100%); }
+.sao-start:disabled { -fx-opacity: 0.7; }
+
+.sao-progress { -fx-background-color: rgba(255,255,255,0.28); -fx-background-radius: 1; }
+.sao-progress-fill { -fx-background-color: white; -fx-background-radius: 1; }
+
+.sao-icon {
+    -fx-background-color: rgba(255,255,255,0.88);
+    -fx-background-radius: 20;
+    -fx-min-width: 34; -fx-min-height: 34; -fx-max-width: 34; -fx-max-height: 34;
+    -fx-padding: 0;
+    -fx-cursor: hand;
+    -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.35), 8, 0.1, 0, 1);
+}
+.sao-icon:hover { -fx-background-color: white; -fx-effect: dropshadow(gaussian, rgba(140,215,255,0.95), 14, 0.3, 0, 0); }
+.sao-icon-off { -fx-background-color: rgba(255,255,255,0.45); }
+
+.sao-lyric-main { }
+.sao-lyric-sub { -fx-fill: rgba(255,255,255,0.86); -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.8), 6, 0.2, 0, 1); }
+.sao-version { -fx-fill: rgba(255,255,255,0.7); }

@@ -66,6 +66,7 @@ dependencies {
     implementation(libs.monet.fx)
     implementation(libs.nayuki.qrcodegen)
     implementation(libs.uuid.tools)
+    implementation("org.jcraft:jorbis:0.0.17") // SAO title music (Ogg Vorbis), LGPL
 
     testImplementation(libs.jimfs)
 
@@ -491,4 +492,13 @@ tasks.register<UpdateAddonProjectInfos>("updateModpackProjectInfos") {
     inputFile.set(layout.projectDirectory.file("modpack.json"))
     outputFile.set(layout.projectDirectory.file("src/main/resources/assets/addon/modpack.csv"))
     projectType.set(UpdateAddonProjectInfos.AddonProjectType.MODPACK)
+}
+
+// SAO screen: renders the screen off-screen to PNGs (no window, no focus, no sound).
+tasks.register<JavaExec>("saoShots") {
+    dependsOn("testClasses")
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("org.jackhuang.hmcl.ui.sao.SaoScreenShotTool")
+    args(layout.buildDirectory.dir("sao-shots").get().asFile.absolutePath)
+    jvmArgs("-Dglass.taskbarApplication=false", "-Dsao.mute=true", "-Djava.awt.headless=true")
 }

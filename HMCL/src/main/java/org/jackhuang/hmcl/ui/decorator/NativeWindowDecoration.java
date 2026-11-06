@@ -110,6 +110,8 @@ final class NativeWindowDecoration {
     ///
     /// @return the resolved support, or `null` when disabled by policy or unavailable on the runtime
     static @Nullable NativeWindowDecoration create() {
+        // The SAO screen draws its own window buttons, so it always uses the undecorated window.
+        if (org.jackhuang.hmcl.ui.sao.SaoUi.enabled()) return null;
         @Nullable String preference = System.getProperty("hmcl.nativeDecoration", System.getenv("HMCL_NATIVE_DECORATION"));
         if (preference != null) {
             preference = preference.trim();

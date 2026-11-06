@@ -241,7 +241,8 @@ public final class Controllers {
 
         configureMainStage(stage);
 
-        decorator = new Decorator(getRootPage(), Controllers::configureMainStage);
+        decorator = new Decorator(org.jackhuang.hmcl.ui.sao.SaoUi.enabled() ? new org.jackhuang.hmcl.ui.sao.SaoMainPage() : getRootPage(),
+                Controllers::configureMainStage);
         Scene mainScene = decorator.attachStage(stage);
         getRootPage().getMainPage().showUpdateProperty().bind(UpdateChecker.checkingUpdateProperty().not().and(UpdateChecker.outdatedProperty()));
         getRootPage().getMainPage().showUpdateDialogProperty().bind(
