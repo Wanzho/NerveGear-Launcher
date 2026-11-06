@@ -240,7 +240,9 @@ val prepareSaoPack = tasks.register("prepareSaoPack") {
     description = "Hashes overrides and embeds all external pack dependencies, verified by SHA-1 and size."
     onlyIf { saoPack.isPresent }
     if (saoPack.isPresent) inputs.file(file(saoPack.get()))
+    inputs.property("packOffline", providers.gradleProperty("saoPackOffline").getOrElse("false"))
     inputs.property("packVersion", providers.gradleProperty("saoPackVersion").getOrElse("auto"))
+    inputs.property("newsUrl", providers.gradleProperty("saoNewsUrl").getOrElse(""))
     inputs.property("server", providers.gradleProperty("saoServer").getOrElse(""))
     providers.gradleProperty("saoPackBaseline").orNull?.let { inputs.file(file(it).let { source -> if (source.isDirectory) source.resolve("oath08-receipt.json") else source }) }
     outputs.dir(saoPackOutput)
@@ -309,6 +311,7 @@ val prepareSaoPack = tasks.register("prepareSaoPack") {
                 manifest.addProperty("version", providers.gradleProperty("saoPackVersion").orNull ?: namedVersion ?: index["versionId"].asString)
                 manifest.addProperty("minecraft", "1.20.1")
                 manifest.addProperty("neoforge", "47.1.106")
+                manifest.addProperty("newsUrl", providers.gradleProperty("saoNewsUrl").getOrElse(""))
                 manifest.addProperty("server", providers.gradleProperty("saoServer").getOrElse(""))
                 manifest.add("files", JsonArray().apply { files.values.forEach { add(it) } })
                 manifest.add("removals", JsonArray())
@@ -327,6 +330,8 @@ val prepareSaoPack = tasks.register("prepareSaoPack") {
                 val baseline = baselineFiles[hash]
                 if (baseline != null && matches(baseline, hash, size)) baseline.copyTo(destination, overwrite = true)
                 else {
+                    if (providers.gradleProperty("saoPackOffline").getOrElse("false").toBoolean())
+                        throw GradleException("Offline pack build requires verified baseline payload: " + item["path"].asString)
                     var obtained = false
                     item.getAsJsonArray("downloads").forEach download@{ url ->
                         if (obtained) return@download

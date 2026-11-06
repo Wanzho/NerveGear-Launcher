@@ -21,10 +21,11 @@ import java.util.*;
 /// @param minecraft the fixed Minecraft version
 /// @param neoforge the fixed NeoForge version
 /// @param server empty until an actual server address has been configured
+/// @param newsUrl HTTPS news JSON endpoint, empty when unconfigured
 /// @param files complete managed inventory, including defaults that are preserved after installation
 /// @param removals explicit managed paths removed by this release
 @NotNullByDefault
-public record SaoPackManifest(String version, String minecraft, String neoforge, String server,
+public record SaoPackManifest(String version, String minecraft, String neoforge, String server, String newsUrl,
                               @Unmodifiable List<PackFile> files, @Unmodifiable List<String> removals) {
     /// Resource and update-archive location of the preprocessed manifest.
     public static final String NAME = "sao-manifest.json";
@@ -43,6 +44,11 @@ public record SaoPackManifest(String version, String minecraft, String neoforge,
         if (server.length() > 255 || server.chars().anyMatch(Character::isWhitespace)
                 || server.indexOf('/') >= 0 || server.indexOf('\\') >= 0)
             throw new IllegalArgumentException("Invalid server address");
+        if (!newsUrl.isEmpty()) {
+            java.net.URI uri = java.net.URI.create(newsUrl);
+            if (!"https".equals(uri.getScheme()) || uri.getHost() == null || uri.getUserInfo() != null || newsUrl.length() > 2048)
+                throw new IllegalArgumentException("News URL must be an HTTPS endpoint without credentials");
+        }
         files = List.copyOf(files);
         removals = List.copyOf(removals);
         if (files.isEmpty() || files.size() > 100000) throw new IllegalArgumentException("Invalid pack inventory size");
@@ -67,6 +73,12 @@ public record SaoPackManifest(String version, String minecraft, String neoforge,
             if (folded.contains(path.toLowerCase(Locale.ROOT)))
                 throw new IllegalArgumentException("Removed path is also in the inventory: " + path);
         }
+    }
+
+    /// Constructs an older manifest with online news disabled for backwards compatibility.
+    public SaoPackManifest(String version, String minecraft, String neoforge, String server,
+                           @Unmodifiable List<PackFile> files, @Unmodifiable List<String> removals) {
+        this(version, minecraft, neoforge, server, "", files, removals);
     }
 
     /// One checksum-verified local archive member or remote dependency.
@@ -139,7 +151,8 @@ public record SaoPackManifest(String version, String minecraft, String neoforge,
             List<String> removals = new ArrayList<>();
             if (root.has("removals")) for (JsonElement item : root.getAsJsonArray("removals")) removals.add(item.getAsString());
             return new SaoPackManifest(root.get("version").getAsString(), root.get("minecraft").getAsString(),
-                    root.get("neoforge").getAsString(), root.has("server") ? root.get("server").getAsString() : "", files, removals);
+                    root.get("neoforge").getAsString(), root.has("server") ? root.get("server").getAsString() : "",
+                    root.has("newsUrl") ? root.get("newsUrl").getAsString() : "", files, removals);
         } catch (RuntimeException e) {
             throw new IOException("Invalid SAO pack manifest: " + e.getMessage(), e);
         }

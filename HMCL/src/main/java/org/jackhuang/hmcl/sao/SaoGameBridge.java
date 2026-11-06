@@ -21,7 +21,9 @@ import org.jackhuang.hmcl.launch.ProcessListener;
 import org.jackhuang.hmcl.setting.DownloadSource;
 import org.jackhuang.hmcl.task.FileDownloadTask;
 import org.jackhuang.hmcl.task.Task;
-import org.jackhuang.hmcl.task.TaskExecutor;
+import org.jackhuang.hmcl.task.TaskListener;
+import org.jetbrains.annotations.Unmodifiable;
+import java.util.function.BiConsumer;
 import org.jackhuang.hmcl.util.platform.ManagedProcess;
 import org.jackhuang.hmcl.util.platform.OperatingSystem;
 import org.jackhuang.hmcl.util.platform.Platform;
@@ -32,7 +34,6 @@ import org.jetbrains.annotations.Nullable;
 import java.io.IOException;
 import java.nio.file.*;
 import java.util.*;
-import java.util.function.BiConsumer;
 
 /// Narrow bridge to HMCL's installers, Java runtime repository, account authentication and process launcher.
 /// All entry points execute on an engine worker; none opens HMCL version/account/download screens.
@@ -44,7 +45,7 @@ final class SaoGameBridge {
     private final Path root;
     /// Own repository; never discovers or imports a player's HMCL repository.
     private final DefaultGameRepository repository;
-    /// Explicit BMCLAPI-first provider with official fallbacks, including China downloads.
+    /// Configurable HMCL provider with regional automatic defaults and explicit official/mirror preferences.
     private final HMCLDownloadProvider provider;
     /// HMCL dependency manager scoped to this repository and cache.
     private final DefaultDependencyManager dependencies;
@@ -52,6 +53,13 @@ final class SaoGameBridge {
     private final BiConsumer<String, Double> progress;
     /// Selected compatible Java 17, cached only after verification.
     private @Nullable JavaRuntime java;
+    /// Explicit runtime choice; null delegates to JavaManager and the managed repository.
+    private volatile @Nullable Path selectedJava;
+    /// Live HMCL task changes forwarded to immutable download-window records.
+    private BiConsumer<Task<?>, Boolean> taskObserver = (task, done) -> { };
+    /// Owns task start/cancel ordering, including shutdown races before a graph starts.
+    private final SaoTaskRunner taskRunner = new SaoTaskRunner();
+
 
     /// Creates the bridge without network, toolkit startup, account login or game launch.
     SaoGameBridge(Path root, BiConsumer<String, Double> progress) {
@@ -105,8 +113,8 @@ final class SaoGameBridge {
 
     /// Authenticates an existing supported HMCL account, starts the fixed instance and hands off stdin once.
     /// Password ownership transfers to this method; it is wiped even when authentication or process creation fails.
-    void launch(Account account, SaoPackManifest manifest, int memoryMiB, char @Nullable [] password,
-                java.util.function.BooleanSupplier cancelled, Runnable exited) throws Exception {
+    void launch(Account account, SaoPackManifest manifest, int memoryMiB, SaoData.GameWindow window, String jvmArgs, char @Nullable [] password,
+                java.util.function.BooleanSupplier cancelled, ProcessListener listener) throws Exception {
         try {
             if (!(account instanceof OfflineAccount) && !(account instanceof MicrosoftAccount))
                 throw new IOException("Only existing offline and Microsoft accounts are supported");
@@ -122,14 +130,10 @@ final class SaoGameBridge {
             LaunchOptions.Builder options = new LaunchOptions.Builder().setInstanceId(INSTANCE_ID)
                     .setGameDir(instanceDir()).setJava(selectJava()).setMaxMemory(memoryMiB)
                     .setVersionName("SAO Oath " + manifest.version()).setVersionType("SAO Oath")
-                    .setProfileName(account.getProfileName()).setDisableAutoGameOptions(true);
+                    .setProfileName(account.getProfileName()).setDisableAutoGameOptions(true)
+                    .setWidth(window.width()).setHeight(window.height()).setFullscreen(window.fullscreen())
+                    .setJavaArguments(org.jackhuang.hmcl.util.StringUtils.tokenize(jvmArgs));
             if (!manifest.server().isEmpty()) options.setQuickPlayOption(new QuickPlayOption.MultiPlayer(manifest.server()));
-            ProcessListener listener = new ProcessListener() {
-                /// Discards game output here; neither credentials nor command lines enter launcher logs.
-                @Override public void onLog(String line, boolean error) { }
-                /// Returns the service to an idle state when HMCL's process monitor observes exit.
-                @Override public void onExit(int code, ExitType type) { exited.run(); }
-            };
             if (cancelled.getAsBoolean()) throw new IOException("Launcher has closed");
             ManagedProcess process = new HMCLGameLauncher(instance, instance.getResolvedManifest(), auth, options.create(), listener).launch();
             try {
@@ -153,58 +157,123 @@ final class SaoGameBridge {
             throw new IOException("Fixed SAO instance must use Minecraft 1.20.1 + NeoForge 47.1.106");
     }
 
-    /// Finds a compatible local Java 17 or downloads Java 17 through HMCL into this launcher's runtime folder.
+    /// Uses the player's verified Java 17 or selects a compatible local runtime before downloading one.
     private JavaRuntime selectJava() throws Exception {
-        if (java != null) return java;
-        progress.accept("选择 Java 17", -1.0);
+        @Nullable Path selected = selectedJava;
+        if (selected != null) return validateJava(selected, selected.startsWith(root.resolve("java")));
+        if (java != null && Files.isRegularFile(java.getBinary())) return java;
+        @Unmodifiable List<JavaRuntime> available = availableJava();
+        if (!available.isEmpty()) { java = available.get(0); return java; }
+        return downloadJava();
+    }
+
+    /// Sets an explicit choice only after checking its executable version and architecture.
+    void setJava(@Nullable Path executable) throws Exception {
+        if (executable != null) validateJava(executable, executable.toAbsolutePath().normalize().startsWith(root.resolve("java")));
+        selectedJava = executable == null ? null : executable.toRealPath();
+        java = null;
+    }
+
+    /// Restores a persisted choice without running an executable on the JavaFX thread; launch validates it again.
+    void restoreJava(@Nullable Path executable) { selectedJava = executable; java = null; }
+
+    /// Downloads only Java 17 through HMCL's runtime repository and chosen provider.
+    JavaRuntime downloadJava() throws Exception {
+        progress.accept("下载 Java 17", -1.0);
+        JavaRuntime downloaded = Objects.requireNonNull(runTask(new HMCLJavaRepository(root.resolve("java"))
+                .getDownloadJavaTask(provider, Platform.SYSTEM_PLATFORM, GameJavaVersion.get(17))), "Java download returned no runtime");
+        if (downloaded.getParsedVersion() != 17) throw new IOException("Downloaded Java runtime is not Java 17");
+        java = downloaded;
+        return downloaded;
+    }
+
+    /// Lists compatible Java 17 runtimes using JavaManager plus this launcher's managed runtime repository.
+    @Unmodifiable List<JavaRuntime> availableJava() throws Exception {
         Set<Path> candidates = new LinkedHashSet<>();
+        if (org.jackhuang.hmcl.java.JavaManager.isInitialized()) {
+            for (JavaRuntime runtime : org.jackhuang.hmcl.java.JavaManager.getAllJava())
+                if (runtime.getParsedVersion() == 17) candidates.add(runtime.getBinary());
+        }
+        @Nullable Path selected = selectedJava;
+        if (selected != null) candidates.add(selected);
         @Nullable String override = System.getProperty("sao.java");
         if (override != null && !override.isBlank()) candidates.add(Path.of(override));
         candidates.add(JavaRuntime.CURRENT_JAVA.getBinary());
-        if (org.jackhuang.hmcl.java.JavaManager.isInitialized()) {
-            for (JavaRuntime installed : org.jackhuang.hmcl.java.JavaManager.getAllJava()) candidates.add(installed.getBinary());
-        }
+        candidates.addAll(new HMCLJavaRepository(root.resolve("java")).getAllJava(Platform.SYSTEM_PLATFORM));
         candidates.add(Path.of("/opt/homebrew/opt/openjdk@17/bin/java"));
         candidates.add(Path.of("/usr/local/opt/openjdk@17/bin/java"));
         @Nullable String javaHome = System.getenv("JAVA_HOME");
         if (javaHome != null && !javaHome.isBlank()) candidates.add(Path.of(javaHome, "bin", OperatingSystem.CURRENT_OS.getJavaExecutable()));
-        HMCLJavaRepository runtimes = new HMCLJavaRepository(root.resolve("java"));
-        candidates.addAll(runtimes.getAllJava(Platform.SYSTEM_PLATFORM));
-        List<Path> homes = new ArrayList<>();
         for (Path directory : List.of(Path.of("/Library/Java/JavaVirtualMachines"), Path.of("/usr/lib/jvm"))) {
             if (!Files.isDirectory(directory)) continue;
-            try (var children = Files.list(directory)) { homes.addAll(children.toList()); }
-        }
-        for (Path home : homes) {
-            candidates.add(home.resolve("bin/java"));
-            candidates.add(home.resolve("Contents/Home/bin/java"));
-        }
-        for (Path candidate : candidates) {
-            if (!Files.isRegularFile(candidate)) continue;
-            try {
-                JavaRuntime runtime = JavaRuntime.of(candidate.toRealPath(), JavaInfoUtils.fromExecutable(candidate), false);
-                if (runtime.getParsedVersion() == 17 && org.jackhuang.hmcl.java.JavaManager.isCompatible(runtime.getPlatform())) {
-                    java = runtime;
-                    return runtime;
+            try (var children = Files.list(directory)) {
+                for (Path home : children.toList()) {
+                    candidates.add(home.resolve("bin/java")); candidates.add(home.resolve("Contents/Home/bin/java"));
                 }
-            } catch (IOException ignored) { /* Try other installed runtimes before downloading. */ }
+            }
         }
-        progress.accept("下载 Java 17", -1.0);
-        java = runTask(runtimes.getDownloadJavaTask(provider, Platform.SYSTEM_PLATFORM, GameJavaVersion.get(17)));
-        if (java.getParsedVersion() != 17) throw new IOException("Downloaded Java runtime is not Java 17");
-        return java;
+        Map<Path, JavaRuntime> result = new LinkedHashMap<>();
+        for (Path executable : candidates) {
+            if (!Files.isRegularFile(executable)) continue;
+            try {
+                JavaRuntime runtime = validateJava(executable, executable.toAbsolutePath().normalize().startsWith(root.resolve("java")));
+                result.put(runtime.getBinary(), runtime);
+            } catch (IOException ignored) { /* Other Java releases are deliberately excluded. */ }
+        }
+        return List.copyOf(result.values());
     }
 
+    /// Verifies an executable using HMCL's JavaManager when initialized, with a headless-safe direct probe otherwise.
+    private static JavaRuntime validateJava(Path executable, boolean managed) throws IOException, InterruptedException {
+        Path real = executable.toRealPath();
+        // The current runtime's metadata is already verified by this live JVM. A loose test/development
+        // classpath cannot use java-info's packaged-jar probe, so reuse HMCL's authoritative current value.
+        JavaRuntime runtime = real.equals(JavaRuntime.CURRENT_JAVA.getBinary().toRealPath()) ? JavaRuntime.CURRENT_JAVA
+                : org.jackhuang.hmcl.java.JavaManager.isInitialized()
+                ? org.jackhuang.hmcl.java.JavaManager.getJava(real)
+                : JavaRuntime.of(real, JavaInfoUtils.fromExecutable(real), managed);
+        if (runtime.getParsedVersion() != 17 || !org.jackhuang.hmcl.java.JavaManager.isCompatible(runtime.getPlatform()))
+            throw new IOException("This pack requires a compatible Java 17 runtime");
+        return runtime;
+    }
+
+    /// Applies the explicit source to both remote version metadata and payload downloads.
+    void setDownloadSource(SaoData.Source source) {
+        DownloadSource choice = switch (source) {
+            case AUTO -> org.jackhuang.hmcl.util.i18n.LocaleUtils.IS_CHINA_MAINLAND ? DownloadSource.MIRROR : DownloadSource.DEFAULT;
+            case BMCLAPI -> DownloadSource.MIRROR;
+            case OFFICIAL -> DownloadSource.OFFICIAL;
+        };
+        provider.setFileSource(choice); provider.setVersionListSource(choice);
+    }
+
+    /// Connects live task-graph updates to the engine's download list.
+    void observeTasks(BiConsumer<Task<?>, Boolean> observer) { taskObserver = observer; }
+
+    /// Cancels a graph still running when the launcher is closed.
+    void close() { taskRunner.close(); }
+
     /// Runs HMCL's complete task graph, including pre/post execution, and propagates failures to the engine.
-    private static <T> T runTask(Task<T> task) throws Exception {
-        TaskExecutor executor = task.executor();
-        if (!executor.test()) {
-            if (Thread.currentThread().isInterrupted()) executor.cancel();
-            @Nullable Exception exception = executor.getException();
-            if (exception != null) throw exception;
-            throw new IOException("HMCL download or installation was cancelled");
+    <T> @Nullable T runTask(Task<T> task) throws Exception {
+        Map<Task<?>, javafx.beans.value.ChangeListener<Number>> listeners = new java.util.concurrent.ConcurrentHashMap<>();
+        TaskListener observer = new TaskListener() {
+            /// Observes actual progress changes from each HMCL task, without creating fake transfer records.
+            @Override public void onRunning(Task<?> running) {
+                if (!(running instanceof org.jackhuang.hmcl.task.FetchTask)) return;
+                javafx.beans.value.ChangeListener<Number> listener = (observable, oldValue, newValue) -> taskObserver.accept(running, false);
+                listeners.put(running, listener); running.progressProperty().addListener(listener);
+                taskObserver.accept(running, false);
+            }
+            /// Removes the listener when a task finishes and marks its immutable record complete.
+            @Override public void onFinished(Task<?> finished) {
+                @Nullable javafx.beans.value.ChangeListener<Number> listener = listeners.remove(finished);
+                if (listener != null) { finished.progressProperty().removeListener(listener); taskObserver.accept(finished, true); }
+            }
+        };
+        try { return taskRunner.run(task, observer); }
+        finally {
+            listeners.forEach((running, listener) -> running.progressProperty().removeListener(listener));
         }
-        return task.getResult();
     }
     /// Repository implementation that has exactly one isolated instance and no HMCL profile settings.
     @NotNullByDefault

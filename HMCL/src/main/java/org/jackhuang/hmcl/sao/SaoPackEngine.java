@@ -7,6 +7,13 @@ package org.jackhuang.hmcl.sao;
 
 import javafx.application.Platform;
 import javafx.beans.property.*;
+import javafx.collections.FXCollections;
+import javafx.collections.ObservableList;
+import org.jackhuang.hmcl.launch.ProcessListener;
+import org.jetbrains.annotations.Unmodifiable;
+import org.jetbrains.annotations.UnmodifiableView;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ScheduledExecutorService;
 import org.jackhuang.hmcl.Metadata;
 import org.jackhuang.hmcl.auth.Account;
 import org.jackhuang.hmcl.util.versioning.VersionNumber;
@@ -21,7 +28,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /// Production SAO screen backend: serialized background installation, incremental updates, repair and launch.
-/// Uses only its fixed repository and publishes observable changes on JavaFX when a toolkit exists.
+/// Uses its fixed repository for game data and window inventories, with persisted settings and lazy room transport.
+/// Publishes observable changes on JavaFX when a toolkit exists.
 @NotNullByDefault
 public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     /// Initial/checking/working/ready/running state exposed read-only to the screen.
@@ -58,8 +66,89 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     private volatile @Nullable SaoPackArchive source;
     /// Human-readable embedded/development release; a missing pack is explicit.
     private volatile String embeddedVersion = "未内置整合包";
-    /// Volatile memory choice used by launch work.
-    private volatile int memoryMiB = 4096;
+    /// Settings survive restarts and never share Minecraft's options storage.
+    private final SaoSettings settings;
+    /// Local windows share the fixed-instance file helper.
+    private final SaoInstanceFiles files;
+    /// News cache and bounded server-list protocol client.
+    private final SaoOnlineData online;
+    /// Sanitized process output and support-export reader.
+    private final SaoGameLogs logs;
+    /// Embedded update note remains tied to this launcher rather than a subsequently dropped update.
+    private volatile SaoData.News embeddedNews = new SaoData.News(SaoData.NewsKind.UPDATE, "v未内置整合包", "", "");
+    /// Independent online work cannot delay pack writes or game startup.
+    private final ExecutorService onlineWorker = Executors.newSingleThreadExecutor(r -> {
+        Thread thread = new Thread(r, "sao-online"); thread.setDaemon(true); return thread;
+    });
+    /// Coalesces process-output and task publications so JavaFX never receives one runnable per log line.
+    private final ScheduledExecutorService publications = Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread thread = new Thread(r, "sao-window-publications"); thread.setDaemon(true); return thread;
+    });
+    /// Prevents overlapping network refreshes when windows/timers request the same data.
+    private final AtomicBoolean onlineRefreshing = new AtomicBoolean();
+    /// Prevents local refresh requests from accumulating behind a long installer task.
+    private final AtomicBoolean localRefreshing = new AtomicBoolean();
+    /// Coalesces explicit Java-window refreshes independently of screenshots and world scans.
+    private final AtomicBoolean javaRefreshing = new AtomicBoolean();
+    /// Last Java inventory probe time; listings do not repeatedly execute each runtime probe.
+    private volatile long javaRefreshedAt;
+    /// Coalesces high-frequency game log callbacks.
+    private final AtomicBoolean logPublication = new AtomicBoolean();
+    /// Coalesces download progress callbacks.
+    private final AtomicBoolean taskPublication = new AtomicBoolean();
+    /// True from launch preparation until the real process listener reports exit.
+    private final AtomicBoolean gameRunning = new AtomicBoolean();
+    /// Invalidates queued room callbacks when leaving, replacing a session, or closing the launcher.
+    private final java.util.concurrent.atomic.AtomicLong roomGeneration = new java.util.concurrent.atomic.AtomicLong();
+    /// Last local refresh time, preventing listeners that reread getters from scheduling a loop.
+    private volatile long localRefreshedAt;
+    /// Last public notices, copied before publication.
+    private volatile @Unmodifiable List<SaoData.News> remoteNews = List.of();
+    /// Mutable list backing the read-only news view; changes are published on JavaFX.
+    private final ObservableList<SaoData.News> news = FXCollections.observableArrayList();
+    /// Stable read-only news view retained for the screen's listener lifetime.
+    private final @UnmodifiableView ObservableList<SaoData.News> newsView = FXCollections.unmodifiableObservableList(news);
+    /// Mutable list backing the read-only world view.
+    private final ObservableList<SaoData.World> worlds = FXCollections.observableArrayList();
+    /// Stable read-only worlds view retained for the screen's listener lifetime.
+    private final @UnmodifiableView ObservableList<SaoData.World> worldsView = FXCollections.unmodifiableObservableList(worlds);
+    /// Mutable list backing the read-only backup view.
+    private final ObservableList<SaoData.Backup> backups = FXCollections.observableArrayList();
+    /// Stable read-only backups view retained for the screen's listener lifetime.
+    private final @UnmodifiableView ObservableList<SaoData.Backup> backupsView = FXCollections.unmodifiableObservableList(backups);
+    /// Mutable list backing the read-only shader view.
+    private final ObservableList<SaoData.Pack> shaders = FXCollections.observableArrayList();
+    /// Stable read-only shaders view retained for the screen's listener lifetime.
+    private final @UnmodifiableView ObservableList<SaoData.Pack> shadersView = FXCollections.unmodifiableObservableList(shaders);
+    /// Mutable list backing the read-only resource view.
+    private final ObservableList<SaoData.Pack> resources = FXCollections.observableArrayList();
+    /// Stable read-only resources view retained for the screen's listener lifetime.
+    private final @UnmodifiableView ObservableList<SaoData.Pack> resourcesView = FXCollections.unmodifiableObservableList(resources);
+    /// Mutable list backing the read-only screenshot view.
+    private final ObservableList<Path> screenshots = FXCollections.observableArrayList();
+    /// Stable read-only screenshots view retained for the screen's listener lifetime.
+    private final @UnmodifiableView ObservableList<Path> screenshotsView = FXCollections.unmodifiableObservableList(screenshots);
+    /// Mutable list backing the read-only process-output view.
+    private final ObservableList<String> gameLog = FXCollections.observableArrayList();
+    /// Stable read-only gameLog view retained for the screen's listener lifetime.
+    private final @UnmodifiableView ObservableList<String> gameLogView = FXCollections.unmodifiableObservableList(gameLog);
+    /// Mutable list backing the read-only Java 17 runtime view.
+    private final ObservableList<SaoData.JavaRuntime> javas = FXCollections.observableArrayList();
+    /// Stable read-only javas view retained for the screen's listener lifetime.
+    private final @UnmodifiableView ObservableList<SaoData.JavaRuntime> javasView = FXCollections.unmodifiableObservableList(javas);
+    /// Mutable list backing the read-only download view.
+    private final ObservableList<SaoData.Task> tasks = FXCollections.observableArrayList();
+    /// Stable read-only tasks view retained for the screen's listener lifetime.
+    private final @UnmodifiableView ObservableList<SaoData.Task> tasksView = FXCollections.unmodifiableObservableList(tasks);
+    /// Retains recent real HMCL task records by identity, guarded by this map's monitor.
+    private final Map<org.jackhuang.hmcl.task.Task<?>, SaoData.Task> taskRecords = new LinkedHashMap<>();
+    /// Last server status; null means no configured server or no completed probe.
+    private final ReadOnlyObjectWrapper<SaoData.@Nullable ServerStatus> serverStatus = new ReadOnlyObjectWrapper<>();
+    /// Last run analysis, cleared before a new launch.
+    private final ReadOnlyObjectWrapper<SaoData.@Nullable Crash> crash = new ReadOnlyObjectWrapper<>();
+    /// Explicitly requested Terracotta room state; never initialized by reading this property.
+    private final ReadOnlyObjectWrapper<SaoData.Room> room = new ReadOnlyObjectWrapper<>(SaoData.Room.OFF);
+
 
     /// Creates the engine under the launcher's isolated local storage.
     public SaoPackEngine() { this(Metadata.HMCL_LOCAL_HOME); }
@@ -70,7 +159,17 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     /// Injects a release in headless tests without consulting resources or development properties.
     SaoPackEngine(Path dataRoot, @Nullable SaoPackArchive supplied, boolean loadEmbedded) {
         root = dataRoot.toAbsolutePath().normalize();
+        try { settings = new SaoSettings(root); }
+        catch (IOException failure) { throw new java.io.UncheckedIOException("Cannot read launcher settings", failure); }
         game = new SaoGameBridge(root, this::reportProgress);
+        game.observeTasks(this::recordTask);
+        game.setDownloadSource(downloadSource());
+        game.restoreJava(java());
+        publish(() -> org.jackhuang.hmcl.task.FetchTask.setDownloadExecutorConcurrency(downloadThreads()));
+        files = new SaoInstanceFiles(game.instanceDir(), game);
+        online = new SaoOnlineData(root);
+        logs = new SaoGameLogs(game.instanceDir());
+        remoteNews = online.cached();
         installer = new SaoPackInstaller(game.instanceDir(), game::download, Map.of(), this::reportProgress);
         skins = new SaoSkinStore(game.instanceDir());
         worker.execute(() -> {
@@ -79,9 +178,17 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
                 source = !loadEmbedded ? supplied : developmentPack == null || developmentPack.isBlank()
                         ? SaoPackArchive.embedded(root.resolve("pack-cache")) : SaoPackArchive.open(Path.of(developmentPack));
                 if (source != null) embeddedVersion = source.manifest().version();
+                embeddedNews = SaoOnlineData.embeddedNews(source, embeddedVersion);
+                publishNews();
                 @Nullable SaoPackArchive accepted = readAcceptedSource();
                 if (accepted != null && (source == null
                         || VersionNumber.compare(accepted.manifest().version(), source.manifest().version()) >= 0)) source = accepted;
+                files.requiredResources(source);
+                refreshLocalNow();
+                refreshJavaNow();
+                logs.loadPrevious();
+                @Nullable SaoData.Crash previousCrash = logs.analyze(settings.flag("lastExitAbnormal", false), previousRunStarted());
+                publish(() -> { gameLog.setAll(logs.snapshot()); crash.set(previousCrash); });
                 refreshState();
             } catch (Exception failure) { fail("读取整合包失败", failure); }
             finally { busy.set(false); }
@@ -125,14 +232,36 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
                 @Nullable SaoPackManifest previous = installer.installed();
                 if (previous == null || VersionNumber.compare(pack.manifest().version(), previous.version()) > 0)
                     installer.apply(pack, false);
+                files.enforceRequiredResources();
                 publish(() -> { installedVersion.set(pack.manifest().version()); step.set("Link Start"); state.set(SaoPackState.RUNNING); });
                 if (closed.get()) throw new IOException("Launcher has closed");
-                game.launch(account, pack.manifest(), memoryMiB, password, closed::get, () -> {
-                    busy.set(false);
-                    try { refreshState(); } catch (IOException failure) { fail("读取整合包状态失败", failure); }
+                long started = System.currentTimeMillis();
+                saveSetting("lastRunStarted", Long.toString(started));
+                saveSetting("lastExitAbnormal", false);
+                logs.clear();
+                publish(() -> { gameLog.clear(); crash.set(null); });
+                gameRunning.set(true);
+                game.launch(account, pack.manifest(), launchMemoryMiB(), gameWindow(), jvmArgs(), password, closed::get, new ProcessListener() {
+                    /// Captures sanitized output only; handoff and authentication lines are filtered first.
+                    @Override public void onLog(String line, boolean stderr) { appendGameLog(line); }
+                    /// Reconciles the fixed instance and analyzes this run after the real process exits.
+                    @Override public void onExit(int code, ExitType type) {
+                        gameRunning.set(false);
+                        if (closed.get()) return;
+                        worker.execute(() -> {
+                            try {
+                                saveSetting("lastExitAbnormal", code != 0 || type != ExitType.NORMAL);
+                                @Nullable SaoData.Crash result = logs.analyze(code != 0 || type != ExitType.NORMAL, started);
+                                publish(() -> crash.set(result));
+                                refreshLocalNow(); refreshState();
+                            } catch (Exception failure) { windowFailure("读取游戏退出信息失败", failure); }
+                            finally { busy.set(false); }
+                        });
+                    }
                 });
                 // Busy remains true for the running process; its monitor releases it on exit.
             } catch (Exception failure) {
+                gameRunning.set(false);
                 busy.set(false);
                 if (source == null) fail("Link Start 失败", failure);
                 else publish(() -> { error.set("Link Start 失败（" + failure.getClass().getSimpleName() + "）。请检查账户、网络和 Java 17 设置。");
@@ -169,30 +298,362 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
             installer.apply(cached, recoveringSource);
             persistAcceptedSource(cached);
             source = cached;
+            files.requiredResources(source);
+            refreshLocalNow();
             refreshState();
         });
     }
 
     /// {@inheritDoc}
     @Override public void setSkin(@Nullable Path png, boolean slim) {
+        if (!allowMutation()) return;
+        if (!busy.compareAndSet(false, true)) { windowFailure("操作被拒绝", new IOException("请等待当前任务完成")); return; }
         try { skins.set(png, slim); }
         catch (IOException failure) { throw new IllegalArgumentException("无法保存皮肤: " + failure.getMessage(), failure); }
+        finally { busy.set(false); }
     }
     /// {@inheritDoc}
     @Override public @Nullable Path skin() { return skins.skin(); }
     /// {@inheritDoc}
     @Override public boolean skinSlim() { return skins.slim(); }
     /// {@inheritDoc}
-    @Override public int memoryMiB() { return memoryMiB; }
+    @Override public int memoryMiB() { return settings.number("memoryMiB", 4096); }
     /// {@inheritDoc}
     @Override public void setMemoryMiB(int mib) {
-        long freeBytes = new org.jackhuang.hmcl.util.platform.hardware.HardwareDetector().getFreeMemorySize();
-        long maximum = freeBytes > 0 ? Math.max(2048, freeBytes / (1024 * 1024)) : 262144;
-        if (mib < 2048 || mib > maximum) throw new IllegalArgumentException("Memory must be between 2048 MiB and available system memory");
-        memoryMiB = mib;
+        long free = new org.jackhuang.hmcl.util.platform.hardware.HardwareDetector().getFreeMemorySize() / (1024 * 1024);
+        long maximum = free > 0 ? Math.max(2048, free) : systemMemoryMiB();
+        if (mib < 2048 || mib > maximum) { windowFailure("内存设置失败", new IOException("Memory must be between 2048 MiB and available system memory")); return; }
+        saveSetting("memoryMiB", mib);
     }
     /// {@inheritDoc}
     @Override public Path instanceDir() { return game.instanceDir(); }
+
+    /// {@inheritDoc}
+    @Override public @UnmodifiableView ObservableList<SaoData.News> news() { return newsView; }
+    /// {@inheritDoc}
+    @Override public ReadOnlyObjectProperty<SaoData.@Nullable ServerStatus> serverStatus() { return serverStatus.getReadOnlyProperty(); }
+    /// {@inheritDoc}
+    @Override public void refreshOnline() {
+        if (closed.get() || !onlineRefreshing.compareAndSet(false, true)) return;
+        onlineWorker.execute(() -> {
+            try {
+                @Nullable SaoPackArchive pack = source;
+                String endpoint = pack == null ? "" : pack.manifest().newsUrl();
+                if (!endpoint.isEmpty()) {
+                    try { remoteNews = online.fetch(endpoint); publishNews(); }
+                    catch (Exception ignored) { /* Retain last-good launcher news during an outage. */ }
+                }
+                String address = pack == null ? "" : pack.manifest().server();
+                if (address.isEmpty()) publish(() -> serverStatus.set(null));
+                else {
+                    SaoData.ServerStatus result;
+                    try { result = online.ping(address); }
+                    catch (Exception failure) { result = new SaoData.ServerStatus(false, 0, 0, -1, "", List.of()); }
+                    SaoData.ServerStatus status = result;
+                    publish(() -> serverStatus.set(status));
+                }
+            } finally { onlineRefreshing.set(false); }
+        });
+    }
+    /// {@inheritDoc}
+    @Override public @UnmodifiableView ObservableList<SaoData.World> worlds() { refreshLocal(); return worldsView; }
+    /// {@inheritDoc}
+    @Override public @UnmodifiableView ObservableList<SaoData.Backup> backups() { refreshLocal(); return backupsView; }
+    /// {@inheritDoc}
+    @Override public void backupWorld(SaoData.World world) { mutate(() -> { files.backup(world); refreshLocalNow(); }); }
+    /// {@inheritDoc}
+    @Override public void restoreBackup(SaoData.Backup backup) { mutate(() -> { files.restore(backup); refreshLocalNow(); }); }
+    /// {@inheritDoc}
+    @Override public void exportWorld(SaoData.World world, Path zip) { mutate(() -> files.export(world, zip)); }
+    /// {@inheritDoc}
+    @Override public @UnmodifiableView ObservableList<SaoData.Pack> shaderPacks() { refreshLocal(); return shadersView; }
+    /// {@inheritDoc}
+    @Override public void setShader(SaoData.@Nullable Pack pack) { mutate(() -> { files.setShader(pack); refreshLocalNow(); }); }
+    /// {@inheritDoc}
+    @Override public @UnmodifiableView ObservableList<SaoData.Pack> resourcePacks() { refreshLocal(); return resourcesView; }
+    /// {@inheritDoc}
+    @Override public void setResourcePackEnabled(SaoData.Pack pack, boolean enabled) { mutate(() -> { files.setResource(pack, enabled); refreshLocalNow(); }); }
+    /// {@inheritDoc}
+    @Override public void addPacks(List<Path> dropped, boolean shaders) {
+        @Unmodifiable List<Path> copy = List.copyOf(dropped);
+        mutate(() -> { files.addPacks(copy, shaders); refreshLocalNow(); });
+    }
+    /// {@inheritDoc}
+    @Override public @UnmodifiableView ObservableList<Path> screenshots() { refreshLocal(); return screenshotsView; }
+    /// {@inheritDoc}
+    @Override public @UnmodifiableView ObservableList<String> gameLog() { return gameLogView; }
+    /// {@inheritDoc}
+    @Override public ReadOnlyObjectProperty<SaoData.@Nullable Crash> lastCrash() { return crash.getReadOnlyProperty(); }
+    /// {@inheritDoc}
+    @Override public void exportLogs(Path zip) { background(() -> logs.export(zip)); }
+    /// {@inheritDoc}
+    @Override public ReadOnlyObjectProperty<SaoData.Room> room() { return room.getReadOnlyProperty(); }
+    /// {@inheritDoc}
+    @Override public void hostRoom() { startRoom(null); }
+    /// {@inheritDoc}
+    @Override public void joinRoom(String code) {
+        if (code.isBlank() || code.length() > 256 || code.chars().anyMatch(Character::isWhitespace)) {
+            windowFailure("加入房间失败", new IOException("Invalid room code")); return;
+        }
+        startRoom(code);
+    }
+    /// {@inheritDoc}
+    @Override public void leaveRoom() {
+        roomGeneration.incrementAndGet();
+        org.jackhuang.hmcl.terracotta.TerracottaManager.stopRoom();
+        publish(() -> room.set(SaoData.Room.OFF));
+    }
+    /// {@inheritDoc}
+    @Override public @UnmodifiableView ObservableList<SaoData.JavaRuntime> javas() {
+        refreshJava(); return javasView;
+    }
+    /// {@inheritDoc}
+    @Override public @Nullable Path java() {
+        String path = settings.text("java", "");
+        try { return path.isEmpty() ? null : Path.of(path); }
+        catch (InvalidPathException invalid) { return null; }
+    }
+    /// {@inheritDoc}
+    @Override public void setJava(@Nullable Path executable) {
+        background(() -> { game.setJava(executable); saveSetting("java", executable == null ? null : executable.toRealPath().toString()); refreshJavaNow(); });
+    }
+    /// {@inheritDoc}
+    @Override public void downloadJava() { mutate(() -> { game.downloadJava(); refreshJavaNow(); }); }
+    /// {@inheritDoc}
+    @Override public SaoData.Source downloadSource() {
+        try { return SaoData.Source.valueOf(settings.text("downloadSource", "AUTO")); }
+        catch (IllegalArgumentException invalid) { return SaoData.Source.AUTO; }
+    }
+    /// {@inheritDoc}
+    @Override public void setDownloadSource(SaoData.Source source) {
+        saveSetting("downloadSource", source.name()); game.setDownloadSource(source);
+    }
+    /// {@inheritDoc}
+    @Override public int downloadThreads() { return Math.max(1, Math.min(256, settings.number("downloadThreads", 64))); }
+    /// {@inheritDoc}
+    @Override public void setDownloadThreads(int threads) {
+        if (threads < 1 || threads > 256) { windowFailure("下载设置失败", new IOException("Parallel downloads must be between 1 and 256")); return; }
+        saveSetting("downloadThreads", threads);
+        publish(() -> org.jackhuang.hmcl.task.FetchTask.setDownloadExecutorConcurrency(threads));
+    }
+    /// {@inheritDoc}
+    @Override public @UnmodifiableView ObservableList<SaoData.Task> tasks() { return tasksView; }
+    /// {@inheritDoc}
+    @Override public boolean autoMemory() { return settings.flag("autoMemory", false); }
+    /// {@inheritDoc}
+    @Override public void setAutoMemory(boolean auto) { saveSetting("autoMemory", auto); }
+    /// {@inheritDoc}
+    @Override public int systemMemoryMiB() {
+        long total = new org.jackhuang.hmcl.util.platform.hardware.HardwareDetector().getTotalMemorySize() / (1024 * 1024);
+        return total > 0 ? (int) Math.min(Integer.MAX_VALUE, total) : 4096;
+    }
+    /// {@inheritDoc}
+    @Override public SaoData.GameWindow gameWindow() {
+        try {
+            com.google.gson.JsonArray values = com.google.gson.JsonParser.parseString(settings.text("window", "[1280,720,false]")).getAsJsonArray();
+            return new SaoData.GameWindow(values.get(0).getAsInt(), values.get(1).getAsInt(), values.get(2).getAsBoolean());
+        } catch (RuntimeException invalid) { return new SaoData.GameWindow(1280, 720, false); }
+    }
+    /// {@inheritDoc}
+    @Override public void setGameWindow(SaoData.GameWindow window) {
+        if (window.width() < 320 || window.width() > 16384 || window.height() < 240 || window.height() > 16384) {
+            windowFailure("窗口设置失败", new IOException("Invalid game window size")); return;
+        }
+        saveSetting("window", "[" + window.width() + "," + window.height() + "," + window.fullscreen() + "]");
+    }
+    /// {@inheritDoc}
+    @Override public String jvmArgs() { return settings.text("jvmArgs", ""); }
+    /// {@inheritDoc}
+    @Override public void setJvmArgs(String args) {
+        if (args.length() > 32768 || args.indexOf('\0') >= 0) { windowFailure("JVM 设置失败", new IOException("Invalid JVM arguments")); return; }
+        saveSetting("jvmArgs", args);
+    }
+    /// {@inheritDoc}
+    @Override public String preference(String key, String fallback) { return settings.text("preference." + key, fallback); }
+    /// {@inheritDoc}
+    @Override public void setPreference(String key, String value) {
+        if (!key.matches("[a-zA-Z0-9_.-]{1,80}") || value.length() > 4096) {
+            windowFailure("保存偏好失败", new IOException("Invalid preference")); return;
+        }
+        saveSetting("preference." + key, value);
+    }
+    /// {@inheritDoc}
+    @Override public void openFolder(SaoData.Folder folder) {
+        background(() -> { Path directory = files.folder(folder); Files.createDirectories(directory); openExternal(directory, false); });
+    }
+    /// {@inheritDoc}
+    @Override public void openFile(Path file) {
+        background(() -> {
+            if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) throw new IOException("File does not exist");
+            try { openExternal(file, false); }
+            catch (IOException failure) { openExternal(file.getParent(), true); }
+        });
+    }
+
+    /// Publishes cached notices plus exactly one embedded release entry, preserving source ordering.
+    private void publishNews() {
+        List<SaoData.News> combined = new ArrayList<>(remoteNews);
+        combined.removeIf(item -> item.kind() == SaoData.NewsKind.UPDATE && item.title().equals(embeddedNews.title()));
+        combined.add(embeddedNews);
+        @Unmodifiable List<SaoData.News> replacement = List.copyOf(combined);
+        publish(() -> replace(news, replacement));
+    }
+
+    /// Queues a coalesced read, including while the game runs, without queuing a full scan on every getter call.
+    private void refreshLocal() {
+        if (closed.get() || System.nanoTime() - localRefreshedAt < TimeUnit.MILLISECONDS.toNanos(500)
+                || !localRefreshing.compareAndSet(false, true)) return;
+        worker.execute(() -> {
+            try { refreshLocalNow(); }
+            catch (Exception failure) { windowFailure("刷新窗口失败", failure); }
+            finally { localRefreshedAt = System.nanoTime(); localRefreshing.set(false); }
+        });
+    }
+
+    /// Reads complete immutable snapshots before replacing visible records on the JavaFX thread.
+    private void refreshLocalNow() throws IOException {
+        @Unmodifiable List<SaoData.World> foundWorlds = files.worlds();
+        @Unmodifiable List<SaoData.Backup> foundBackups = files.backups();
+        @Unmodifiable List<SaoData.Pack> foundShaders = files.packs(true);
+        @Unmodifiable List<SaoData.Pack> foundResources = files.packs(false);
+        @Unmodifiable List<Path> foundShots = files.screenshots();
+        localRefreshedAt = System.nanoTime();
+        publish(() -> { replace(worlds, foundWorlds); replace(backups, foundBackups); replace(shaders, foundShaders);
+            replace(resources, foundResources); replace(screenshots, foundShots); });
+    }
+
+    /// Coalesces Java inventory reads separately from frequently opened image and pack windows.
+    private void refreshJava() {
+        if (closed.get() || System.nanoTime() - javaRefreshedAt < TimeUnit.SECONDS.toNanos(5)
+                || !javaRefreshing.compareAndSet(false, true)) return;
+        worker.execute(() -> {
+            try { refreshJavaNow(); }
+            catch (Exception failure) { windowFailure("刷新 Java 失败", failure); }
+            finally { javaRefreshedAt = System.nanoTime(); javaRefreshing.set(false); }
+        });
+    }
+
+    /// Refreshes only verified Java 17 entries; runtime architecture/vendor information comes from HMCL.
+    private void refreshJavaNow() throws Exception {
+        javaRefreshedAt = System.nanoTime();
+        List<SaoData.JavaRuntime> found = new ArrayList<>();
+        for (org.jackhuang.hmcl.java.JavaRuntime runtime : game.availableJava())
+            found.add(new SaoData.JavaRuntime(runtime.getVersion(), runtime.getBinary(), Objects.toString(runtime.getVendor(), ""),
+                    runtime.isManaged() || runtime.getBinary().startsWith(root.resolve("java"))));
+        @Unmodifiable List<SaoData.JavaRuntime> replacement = List.copyOf(found);
+        publish(() -> replace(javas, replacement));
+    }
+
+    /// Avoids observable-list events for an identical snapshot, including when a listener rereads its getter.
+    private static <T> void replace(ObservableList<T> target, List<T> replacement) {
+        if (!target.equals(replacement)) target.setAll(replacement);
+    }
+
+    /// Refuses file mutations while Minecraft owns its options, saves or packs, without changing RUNNING state.
+    private boolean allowMutation() {
+        if (gameRunning.get() || state.get() == SaoPackState.RUNNING) {
+            windowFailure("操作被拒绝", new IOException("游戏运行中，请退出游戏后修改存档、皮肤或资源包")); return false;
+        }
+        return !closed.get();
+    }
+
+    /// Serializes a local mutation with install/repair and reports contention instead of silently losing a request.
+    private void mutate(Operation operation) {
+        if (!allowMutation()) return;
+        if (!busy.compareAndSet(false, true)) { windowFailure("操作被拒绝", new IOException("请等待当前任务完成")); return; }
+        worker.execute(() -> {
+            try { operation.run(); publish(() -> error.set(null)); }
+            catch (Exception failure) { windowFailure("操作失败", failure); }
+            finally { busy.set(false); }
+        });
+    }
+
+    /// Runs read/export/settings work in the serialized background queue without altering pack state.
+    private void background(Operation operation) {
+        if (closed.get()) return;
+        worker.execute(() -> { try { operation.run(); } catch (Exception failure) { windowFailure("操作失败", failure); } });
+    }
+
+    /// Persists one small setting and keeps errors in the service property instead of throwing into a UI handler.
+    private void saveSetting(String key, @Nullable Object value) {
+        try { settings.put(key, value); }
+        catch (IOException failure) { windowFailure("保存设置失败", failure); }
+    }
+
+    /// Restores the timestamp of the last actual game run, excluding historical reports on a fresh installation.
+    private long previousRunStarted() {
+        try { return Long.parseLong(settings.text("lastRunStarted", Long.toString(Long.MAX_VALUE))); }
+        catch (NumberFormatException invalid) { return Long.MAX_VALUE; }
+    }
+
+    /// Computes HMCL's automatic allocation at launch time, with a minimum appropriate to this pack.
+    private int launchMemoryMiB() {
+        if (!autoMemory()) return memoryMiB();
+        long available = new org.jackhuang.hmcl.util.platform.hardware.HardwareDetector().getFreeMemorySize();
+        return Math.max(2048, (int) (org.jackhuang.hmcl.game.HMCLGameRepository.getAutoAllocatedMemory(available,
+                org.jackhuang.hmcl.util.platform.Platform.SYSTEM_PLATFORM) / (1024 * 1024)));
+    }
+
+    /// Collects only actual HMCL fetch tasks, retaining up to 100 recent immutable rows.
+    private void recordTask(org.jackhuang.hmcl.task.Task<?> task, boolean done) {
+        synchronized (taskRecords) {
+            taskRecords.put(task, new SaoData.Task(SaoGameLogs.sanitize(task.getName()), done ? 1 : task.progressProperty().get(), 0, done));
+            while (taskRecords.size() > 100) taskRecords.remove(taskRecords.keySet().iterator().next());
+        }
+        if (closed.get() || !taskPublication.compareAndSet(false, true)) return;
+        publications.schedule(() -> {
+            @Unmodifiable List<SaoData.Task> snapshot;
+            synchronized (taskRecords) { snapshot = List.copyOf(taskRecords.values()); }
+            taskPublication.set(false);
+            publish(() -> replace(tasks, snapshot));
+        }, 100, TimeUnit.MILLISECONDS);
+    }
+
+    /// Adds output to the ring and batches display updates under sustained process output.
+    void appendGameLog(String line) {
+        logs.append(line);
+        if (closed.get() || !logPublication.compareAndSet(false, true)) return;
+        publications.schedule(() -> {
+            @Unmodifiable List<String> snapshot = logs.snapshot(); logPublication.set(false);
+            publish(() -> replace(gameLog, snapshot));
+        }, 100, TimeUnit.MILLISECONDS);
+    }
+
+    /// Requests the lazy Terracotta controller only from an explicit host/join action.
+    private void startRoom(@Nullable String code) {
+        if (closed.get()) return;
+        synchronized (org.jackhuang.hmcl.terracotta.TerracottaManager.class) {
+            if (org.jackhuang.hmcl.terracotta.TerracottaManager.hasRequestedRoom()) {
+                windowFailure("联机操作被拒绝", new IOException("请先离开当前联机房间")); return;
+            }
+            long generation = roomGeneration.incrementAndGet();
+            org.jackhuang.hmcl.terracotta.TerracottaManager.startRoom(code,
+                    value -> publish(() -> { if (!closed.get() && roomGeneration.get() == generation) room.set(value); }),
+                    message -> publish(() -> { if (!closed.get() && roomGeneration.get() == generation) error.set(message); }), this::recordTask);
+        }
+    }
+
+    /// Opens the requested local object with an operating-system handler, without shell interpolation.
+    private static void openExternal(Path file, boolean reveal) throws IOException {
+        org.jackhuang.hmcl.util.platform.OperatingSystem os = org.jackhuang.hmcl.util.platform.OperatingSystem.CURRENT_OS;
+        @Unmodifiable List<String> command = switch (os) {
+            case MACOS -> reveal ? List.of("/usr/bin/open", "-R", file.toString()) : List.of("/usr/bin/open", file.toString());
+            case WINDOWS -> List.of("explorer.exe", file.toString());
+            default -> List.of("xdg-open", file.toString());
+        };
+        try {
+            Process process = new ProcessBuilder(command).redirectError(ProcessBuilder.Redirect.DISCARD).redirectOutput(ProcessBuilder.Redirect.DISCARD).start();
+            // Some desktop handlers remain attached to the viewer. Do not block pack work or close that app.
+            if (process.waitFor(3, TimeUnit.SECONDS) && process.exitValue() != 0
+                    && os != org.jackhuang.hmcl.util.platform.OperatingSystem.WINDOWS) throw new IOException("System file handler failed");
+        } catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); throw new IOException("Opening file interrupted", interrupted); }
+    }
+
+    /// Reports a window error without pretending that an installed pack has become broken.
+    private void windowFailure(String context, Exception failure) {
+        String message = SaoGameLogs.sanitize(context + ": " + Objects.toString(failure.getMessage(), failure.getClass().getSimpleName()));
+        publish(() -> error.set(message));
+    }
 
     /// Returns the available release or a clear missing-pack error for a launcher built without -PsaoPack.
     SaoPackArchive requireSource() throws IOException {
@@ -299,9 +760,13 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     /// Stops accepting backend work; does not terminate an already running Minecraft process.
     @Override public void close() {
         closed.set(true);
+        roomGeneration.incrementAndGet();
         char @Nullable [] password = activePassword;
         if (password != null) Arrays.fill(password, '\0');
         activePassword = null;
+        game.close();
+        org.jackhuang.hmcl.terracotta.TerracottaManager.stopRoom();
+        online.close(); onlineWorker.shutdownNow(); publications.shutdownNow();
         worker.shutdownNow();
     }
 }
