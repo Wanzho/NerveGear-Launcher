@@ -42,10 +42,10 @@ public final class SaoScreenShotTool {
         for (int[] size : sizes) {
         int w = size[0], h = size[1];
         SaoFakeService fake = new SaoFakeService();
-        SaoMainPage[] page = new SaoMainPage[1];
+        SaoHelmetPage[] page = new SaoHelmetPage[1];
         Scene[] scene = new Scene[1];
         fx(() -> {
-            page[0] = new SaoMainPage(fake);
+            page[0] = new SaoHelmetPage(fake);
             scene[0] = new Scene(page[0], w, h);
         });
         Thread.sleep(2500); // wallpapers load in the background
@@ -56,10 +56,9 @@ public final class SaoScreenShotTool {
                 {"4-failed", SaoPackState.FAILED, -1.0, "", "下载失败，请检查网络后重试", 48.0},
         };
         for (Object[] s : states) {
-            double t = (double) s[5];
             fx(() -> {
                 fake.force((SaoPackState) s[1], (double) s[2], (String) s[3], (String) s[4]);
-                page[0].lyricsClock(() -> t);
+                page[0].forceLit();
             });
             Thread.sleep(900);
             WritableImage[] img = new WritableImage[1];

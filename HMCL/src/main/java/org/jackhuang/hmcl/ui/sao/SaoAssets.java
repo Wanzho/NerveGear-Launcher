@@ -109,11 +109,12 @@ public final class SaoAssets {
         return List.copyOf(out);
     }
 
-    /// Opens the title music (Ogg Vorbis).
+    /// Opens a sound (Ogg Vorbis) under `music/`.
     ///
-    /// @return a fresh stream, or null when the music is not built in
-    public static @Nullable InputStream music() {
-        return SaoAssets.class.getResourceAsStream(ROOT + "music/title.ogg");
+    /// @param name the file name, for example "title.ogg"
+    /// @return a fresh stream, or null when it is not built in
+    public static @Nullable InputStream music(String name) {
+        return SaoAssets.class.getResourceAsStream(ROOT + "music/" + name);
     }
 
     /// Reads the bilingual title lyrics.

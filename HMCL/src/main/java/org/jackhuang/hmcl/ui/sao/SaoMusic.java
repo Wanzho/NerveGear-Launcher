@@ -21,10 +21,41 @@ import javax.sound.sampled.AudioSystem;
 import javax.sound.sampled.SourceDataLine;
 import java.io.InputStream;
 
-/// Plays the title music (crossing field) in a loop on its own thread, decoding Ogg Vorbis with JOrbis
-/// so no media module is needed, and reports the playback position for the lyrics.
+/// Plays a sound on its own thread, decoding Ogg Vorbis with JOrbis so no media module is needed: an optional
+/// intro once, then a loop (the helmet's hum, or crossing field), and reports the loop's position for the lyrics.
 @NotNullByDefault
 public final class SaoMusic {
+    /// Played once before the loop, or null.
+    private final @Nullable String intro;
+    /// Played again and again.
+    private final String loop;
+    /// The volume to fade to.
+    private final double level;
+
+    /// Builds a player.
+    ///
+    /// @param intro played once first, or null
+    /// @param loop  played after it until stopped
+    /// @param level the volume, 0 to 1
+    public SaoMusic(@Nullable String intro, String loop, double level) {
+        this.intro = intro;
+        this.loop = loop;
+        this.level = level;
+    }
+
+    /// Plays a sound once on its own thread (the helmet's power-down).
+    ///
+    /// @param name  the file under `music/`
+    /// @param level the volume
+    public static void once(String name, double level) {
+        if (Boolean.getBoolean("sao.mute")) return;
+        SaoMusic m = new SaoMusic(null, name, level);
+        m.oneShot = true;
+        m.start();
+    }
+
+    /// Whether the loop plays only once.
+    private boolean oneShot;
     /// The volume the music fades to, 0 to 1.
     private volatile double target = 0.8;
     /// The volume being played now; follows [#target] smoothly.
@@ -39,11 +70,12 @@ public final class SaoMusic {
     /// Starts playing (fading in) if the music is built in; does nothing when already playing.
     public synchronized void start() {
         if (Boolean.getBoolean("sao.mute")) return; // screenshot tools stay silent
-        target = 0.8;
+        target = level;
         running = true;
         @Nullable Thread old = thread;
         if (old != null && old.isAlive()) return; // still fading out: it picks up again
-        Thread t = new Thread(this::loop, "SAO title music");
+        if (oneShot) gain = level;
+        Thread t = new Thread(this::loop, "SAO sound");
         t.setDaemon(true);
         thread = t;
         t.start();
@@ -72,22 +104,29 @@ public final class SaoMusic {
 
     /// Plays the track again and again until stopped and faded out.
     private void loop() {
+        boolean first = true;
         while (running) {
-            try (@Nullable InputStream in = SaoAssets.music()) {
+            @Nullable String name = first && intro != null ? intro : loop;
+            boolean isLoop = !(first && intro != null);
+            first = false;
+            try (@Nullable InputStream in = SaoAssets.music(name)) {
                 if (in == null) return;
-                playOnce(in);
+                playOnce(in, isLoop);
             } catch (Exception e) {
                 return;
             }
+            if (oneShot) break;
         }
+        running = false;
         position = -1;
     }
 
     /// Decodes and plays one pass of the track (the classic JOrbis decode loop).
     ///
-    /// @param in the Ogg stream
+    /// @param in     the Ogg stream
+    /// @param isLoop whether this is the loop (its position feeds the lyrics)
     /// @throws Exception when the stream or the audio device fails
-    private void playOnce(InputStream in) throws Exception {
+    private void playOnce(InputStream in, boolean isLoop) throws Exception {
         SyncState oy = new SyncState();
         StreamState os = new StreamState();
         Page og = new Page();
@@ -148,7 +187,7 @@ public final class SaoMusic {
                             }
                             line.write(out, 0, 2 * vi.channels * frames);
                             vd.synthesis_read(frames);
-                            position = line.getLongFramePosition() / (double) vi.rate;
+                            position = isLoop ? line.getLongFramePosition() / (double) vi.rate : -1;
                         }
                         if (op.e_o_s != 0) eos = true;
                     }
