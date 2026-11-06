@@ -30,6 +30,15 @@ final class SaoUiKit {
     private SaoUiKit() {
     }
 
+    /// The launcher's UI face: the SAO UI font for Latin letters and digits, the system face for Chinese.
+    ///
+    /// @param size pixels
+    /// @param bold the bold cut
+    /// @return the font
+    static Font ui(double size, boolean bold) {
+        return SaoAssets.sao(size, bold);
+    }
+
     /// An icon from HMCL's set.
     ///
     /// @param icon the icon
@@ -88,7 +97,7 @@ final class SaoUiKit {
     static Button button(String text) {
         Button b = new Button(text);
         b.getStyleClass().add("vr-button");
-        b.setFont(SaoAssets.sao(13, false));
+        b.setFont(ui(13, false));
         b.setFocusTraversable(false);
         b.setMinWidth(Region.USE_PREF_SIZE);
         return b;
@@ -112,7 +121,7 @@ final class SaoUiKit {
     static ToggleButton chip(String text, @org.jetbrains.annotations.Nullable ToggleGroup group) {
         ToggleButton b = new ToggleButton(text);
         b.getStyleClass().add("vr-chip");
-        b.setFont(SaoAssets.sao(12, false));
+        b.setFont(ui(12, false));
         b.setFocusTraversable(false);
         b.setMinWidth(Region.USE_PREF_SIZE);
         if (group != null) b.setToggleGroup(group);
@@ -155,7 +164,7 @@ final class SaoUiKit {
     static TextField field(String prompt) {
         TextField f = new TextField();
         f.getStyleClass().add("vr-field");
-        f.setFont(SaoAssets.sao(14, false));
+        f.setFont(ui(14, false));
         f.setPromptText(prompt);
         return f;
     }
@@ -168,7 +177,7 @@ final class SaoUiKit {
     static Text ink(String s, double size) {
         Text t = new Text(s);
         t.getStyleClass().add("vr-ink");
-        t.setFont(Font.font(size));
+        t.setFont(ui(size, false));
         return t;
     }
 
@@ -192,23 +201,19 @@ final class SaoUiKit {
     static Text sao(String s, double size, boolean bold) {
         Text t = new Text(s);
         t.getStyleClass().add("vr-ink");
-        t.setFont(SaoAssets.sao(size, bold));
+        t.setFont(ui(size, bold));
         return t;
     }
 
-    /// A small key above a setting, in the SAO face with its Chinese.
+    /// A small label above a setting.
     ///
-    /// @param en the SAO-face key
-    /// @param cn the Chinese
+    /// @param label the label
     /// @return the row
-    static HBox key(String en, String cn) {
-        Text a = new Text(en);
+    static HBox key(String label) {
+        Text a = new Text(label);
         a.getStyleClass().add("vr-key");
-        a.setFont(SaoAssets.sao(13, false));
-        Text b = new Text(cn);
-        b.getStyleClass().add("vr-dim");
-        b.setFont(Font.font(12));
-        HBox h = new HBox(6, a, b);
+        a.setFont(ui(12.5, true));
+        HBox h = new HBox(a);
         h.setAlignment(Pos.BASELINE_LEFT);
         return h;
     }

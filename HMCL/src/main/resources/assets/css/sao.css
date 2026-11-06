@@ -153,195 +153,173 @@
 .holo-track { -fx-background-color: rgba(157,187,200,0.3); }
 .holo-fill { -fx-background-color: #7ceeff; -fx-effect: dropshadow(gaussian, rgba(124,238,255,0.8), 6, 0.3, 0, 0); }
 
-/* ---- Floating VR windows (6 Nov: "更像vr里窗口的样式"): lit glass standing in the space inside the visor ---- */
+/* ---- Floating VR windows (6 Nov: "更像vr里窗口的样式", "真实VR系统", "给我几个样式").
+   Base = visionOS-like frosted glass; .theme-quest / .theme-sao / .theme-smoke override it. No neon, no glow. */
 .vr-window {
-    -fx-background-color:
-        linear-gradient(to bottom, rgba(120,200,230,0.20) 0%, rgba(120,200,230,0.0) 22%),
-        linear-gradient(to bottom, rgba(22,58,80,0.80) 0%, rgba(9,30,46,0.86) 100%);
-    -fx-background-radius: 20;
-    -fx-border-color: linear-gradient(to bottom, rgba(214,244,255,0.75) 0%, rgba(157,187,200,0.28) 60%, rgba(124,238,255,0.40) 100%);
-    -fx-border-width: 1.2;
-    -fx-border-radius: 20;
-    -fx-effect: dropshadow(gaussian, rgba(80,200,255,0.22), 30, 0.0, 0, 0);
-}
-.vr-window-start {
-    -fx-background-radius: 33;
-    -fx-border-radius: 33;
-}
-.vr-dock {
+    -fx-background-color: linear-gradient(to bottom, rgba(158,158,168,0.46) 0%, rgba(118,118,128,0.40) 100%);
     -fx-background-radius: 26;
+    -fx-border-color: linear-gradient(to bottom, rgba(255,255,255,0.32) 0%, rgba(255,255,255,0.04) 100%);
+    -fx-border-width: 1;
     -fx-border-radius: 26;
+    -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.32), 40, 0.0, 0, 14);
 }
-.vr-pill {
-    -fx-background-color: rgba(214,244,255,0.42);
-    -fx-background-radius: 3;
-    -fx-cursor: move;
-}
-.vr-pill:hover { -fx-background-color: rgba(246,252,255,0.85); }
+.vr-window-start { -fx-background-radius: 33; -fx-border-radius: 33; }
+.vr-dock { -fx-background-radius: 26; -fx-border-radius: 26; }
+.vr-pill { -fx-background-color: rgba(255,255,255,0.45); -fx-background-radius: 3; -fx-cursor: move; }
+.vr-pill:hover { -fx-background-color: rgba(255,255,255,0.85); }
 
-.vr-title { -fx-fill: #f6fcff; }
-.vr-sub { -fx-fill: #9dbbc8; }
-.vr-ink { -fx-fill: #eef9ff; }
-.vr-dim { -fx-fill: rgba(205,230,240,0.66); }
-.vr-key { -fx-fill: #7ceeff; }
-.vr-warn { -fx-fill: #f6c544; }
-.vr-big { -fx-fill: #f6fcff; -fx-effect: dropshadow(gaussian, rgba(124,238,255,0.55), 14, 0.1, 0, 0); }
-.vr-code { -fx-fill: #f6fcff; -fx-effect: dropshadow(gaussian, rgba(124,238,255,0.65), 16, 0.1, 0, 0); }
-.vr-icon { -fx-fill: #dff6ff; }
-
-.vr-rule { -fx-background-color: rgba(157,187,200,0.30); }
+.vr-title, .vr-ink, .vr-big, .vr-code { -fx-fill: #ffffff; }
+.vr-dim, .vr-key { -fx-fill: rgba(255,255,255,0.62); }
+.vr-warn { -fx-fill: #ffd60a; }
+.vr-icon { -fx-fill: #ffffff; }
+.vr-rule { -fx-background-color: rgba(255,255,255,0.14); }
 
 .vr-button, .vr-round, .vr-chip {
-    -fx-background-color: rgba(214,244,255,0.10);
+    -fx-background-color: rgba(255,255,255,0.14);
     -fx-background-radius: 30;
-    -fx-border-color: rgba(214,244,255,0.32);
-    -fx-border-radius: 30;
-    -fx-border-width: 1;
-    -fx-text-fill: #eef9ff;
-    -fx-padding: 4 14 4 14;
+    -fx-border-width: 0;
+    -fx-text-fill: #ffffff;
+    -fx-padding: 5 15 5 15;
     -fx-cursor: hand;
 }
 .vr-round { -fx-padding: 0; }
-.vr-chip { -fx-padding: 3 12 3 12; }
-.vr-button:hover, .vr-round:hover, .vr-chip:hover {
-    -fx-background-color: rgba(214,244,255,0.22);
-    -fx-border-color: rgba(246,252,255,0.75);
-    -fx-effect: dropshadow(gaussian, rgba(124,238,255,0.45), 12, 0.1, 0, 0);
-}
-.vr-button:pressed, .vr-round:pressed { -fx-background-color: rgba(124,238,255,0.32); }
-.vr-chip:selected {
-    -fx-background-color: rgba(124,238,255,0.30);
-    -fx-border-color: #7ceeff;
-    -fx-text-fill: #ffffff;
-}
-.vr-button:disabled, .vr-chip:disabled { -fx-opacity: 0.45; }
-.vr-accent {
-    -fx-background-color: linear-gradient(to bottom, rgba(124,238,255,0.55), rgba(40,150,200,0.55));
-    -fx-border-color: #bff6ff;
-    -fx-padding: 5 22 5 22;
-}
-.vr-dock-button { -fx-background-color: rgba(214,244,255,0.06); -fx-border-color: transparent; }
-.vr-dock-on { -fx-background-color: rgba(124,238,255,0.35); -fx-border-color: #7ceeff; }
-.vr-tip {
-    -fx-background-color: rgba(9,30,46,0.92);
-    -fx-background-radius: 13;
-    -fx-border-color: rgba(214,244,255,0.4);
-    -fx-border-radius: 13;
-    -fx-padding: 0 10 0 10;
-}
-
-.vr-start {
-    -fx-background-color: linear-gradient(to bottom, rgba(124,238,255,0.42) 0%, rgba(30,120,180,0.50) 100%);
-    -fx-background-radius: 26;
-    -fx-border-color: #bff6ff;
-    -fx-border-radius: 26;
-    -fx-border-width: 1.2;
-    -fx-text-fill: #ffffff;
-    -fx-padding: 4 30 4 30;
-    -fx-cursor: hand;
-    -fx-effect: dropshadow(gaussian, rgba(124,238,255,0.55), 18, 0.15, 0, 0);
-}
-.vr-start:hover { -fx-border-color: #f6c544; -fx-effect: dropshadow(gaussian, rgba(246,197,68,0.75), 22, 0.25, 0, 0); }
-.vr-start:pressed { -fx-background-color: rgba(124,238,255,0.6); }
-.vr-start:disabled { -fx-opacity: 0.55; }
+.vr-chip { -fx-padding: 4 13 4 13; }
+.vr-button:hover, .vr-round:hover, .vr-chip:hover { -fx-background-color: rgba(255,255,255,0.26); }
+.vr-button:pressed, .vr-round:pressed { -fx-background-color: rgba(255,255,255,0.36); }
+.vr-chip:selected { -fx-background-color: rgba(255,255,255,0.92); -fx-text-fill: #1c1c1e; }
+.vr-button:disabled, .vr-chip:disabled { -fx-opacity: 0.4; }
+.vr-accent, .vr-start { -fx-background-color: #0a84ff; -fx-text-fill: #ffffff; }
+.vr-accent:hover, .vr-start:hover { -fx-background-color: #2b95ff; }
+.vr-start { -fx-background-radius: 26; -fx-padding: 6 30 6 30; -fx-cursor: hand; }
+.vr-start:disabled { -fx-opacity: 0.45; }
+.vr-dock-button { -fx-background-color: transparent; }
+.vr-dock-on { -fx-background-color: rgba(255,255,255,0.30); }
+.vr-tip { -fx-background-color: rgba(70,70,78,0.92); -fx-background-radius: 13; -fx-padding: 0 10 0 10; }
 
 .vr-field, .vr-field:focused {
-    -fx-background-color: rgba(0,10,20,0.32);
-    -fx-background-radius: 10;
-    -fx-background-insets: 0;
-    -fx-border-color: rgba(214,244,255,0.26);
-    -fx-border-radius: 10;
-    -fx-border-width: 1;
-    -fx-text-fill: #f6fcff;
-    -fx-prompt-text-fill: rgba(157,187,200,0.7);
-    -fx-highlight-fill: rgba(124,238,255,0.45);
-    -fx-highlight-text-fill: white;
-    -fx-padding: 4 10 4 10;
-}
-.vr-field:focused { -fx-border-color: #7ceeff; -fx-background-color: rgba(124,238,255,0.10); }
-.vr-field:disabled { -fx-opacity: 0.5; }
-
-.vr-tile {
-    -fx-background-color: rgba(214,244,255,0.06);
+    -fx-background-color: rgba(0,0,0,0.22);
     -fx-background-radius: 12;
-    -fx-border-color: rgba(214,244,255,0.12);
+    -fx-background-insets: 0;
+    -fx-border-color: transparent;
+    -fx-border-width: 1.5;
     -fx-border-radius: 12;
-    -fx-padding: 8 10 8 10;
+    -fx-text-fill: #ffffff;
+    -fx-prompt-text-fill: rgba(255,255,255,0.45);
+    -fx-highlight-fill: rgba(10,132,255,0.6);
+    -fx-highlight-text-fill: white;
+    -fx-padding: 5 11 5 11;
 }
-.vr-tile:hover { -fx-background-color: rgba(214,244,255,0.11); }
-.vr-tile-warn { -fx-background-color: rgba(246,197,68,0.10); -fx-border-color: rgba(246,197,68,0.45); }
-.vr-thumb {
-    -fx-background-color: rgba(0,10,20,0.35);
-    -fx-background-radius: 8;
-}
-.vr-stage {
-    -fx-background-color: radial-gradient(center 50% 85%, radius 70%, rgba(124,238,255,0.22), rgba(0,10,20,0.30));
-    -fx-background-radius: 14;
-    -fx-border-color: rgba(214,244,255,0.16);
-    -fx-border-radius: 14;
-}
-.vr-shot { -fx-cursor: hand; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.4), 6, 0, 0, 2); }
-.vr-shot:hover { -fx-effect: dropshadow(gaussian, rgba(124,238,255,0.8), 12, 0.2, 0, 0); }
-.vr-name {
-    -fx-background-color: rgba(214,244,255,0.10);
-    -fx-background-radius: 10;
-    -fx-padding: 2 8 2 8;
-}
-.vr-tagbox-notice { -fx-background-color: rgba(124,238,255,0.22); -fx-background-radius: 8; -fx-padding: 1 6 1 6; }
-.vr-tagbox-update { -fx-background-color: rgba(246,197,68,0.22); -fx-background-radius: 8; -fx-padding: 1 6 1 6; }
-.vr-tag-notice { -fx-fill: #bff6ff; }
-.vr-tag-update { -fx-fill: #ffe08a; }
-.vr-light-on { -fx-background-color: #6dffb0; -fx-background-radius: 5; -fx-effect: dropshadow(gaussian, rgba(109,255,176,0.8), 8, 0.3, 0, 0); }
-.vr-light-off { -fx-background-color: #f6c544; -fx-background-radius: 5; }
+.vr-field:focused { -fx-border-color: rgba(255,255,255,0.7); }
+.vr-field:disabled { -fx-opacity: 0.45; }
 
-.vr-track { -fx-background-color: rgba(214,244,255,0.20); -fx-background-radius: 2; }
-.vr-fill { -fx-background-color: #7ceeff; -fx-background-radius: 2; -fx-effect: dropshadow(gaussian, rgba(124,238,255,0.8), 6, 0.3, 0, 0); }
+.vr-tile { -fx-background-color: rgba(255,255,255,0.08); -fx-background-radius: 14; -fx-padding: 9 11 9 11; }
+.vr-tile:hover { -fx-background-color: rgba(255,255,255,0.13); }
+.vr-tile-warn { -fx-background-color: rgba(255,214,10,0.14); }
+.vr-thumb { -fx-background-color: rgba(0,0,0,0.20); -fx-background-radius: 10; }
+.vr-stage { -fx-background-color: rgba(0,0,0,0.16); -fx-background-radius: 18; }
+.vr-shot { -fx-cursor: hand; }
+.vr-shot:hover { -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.5), 14, 0, 0, 4); -fx-scale-x: 1.03; -fx-scale-y: 1.03; }
+.vr-name { -fx-background-color: rgba(255,255,255,0.12); -fx-background-radius: 10; -fx-padding: 2 9 2 9; }
+.vr-light-on { -fx-background-color: #30d158; -fx-background-radius: 5; }
+.vr-light-off { -fx-background-color: #ff9f0a; -fx-background-radius: 5; }
 
-.vr-switch {
-    -fx-background-color: transparent;
-    -fx-padding: 0;
-    -fx-cursor: hand;
-}
+.vr-track { -fx-background-color: rgba(255,255,255,0.22); -fx-background-radius: 2; }
+.vr-fill { -fx-background-color: #ffffff; -fx-background-radius: 2; }
+
+.vr-switch { -fx-background-color: transparent; -fx-padding: 0; -fx-cursor: hand; }
 .vr-switch .vr-knob {
-    -fx-background-color: #dff6ff;
+    -fx-background-color: #ffffff;
     -fx-background-radius: 8;
     -fx-min-width: 16; -fx-min-height: 16; -fx-max-width: 16; -fx-max-height: 16;
+    -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.25), 3, 0, 0, 1);
 }
 .vr-switch-track {
-    -fx-background-color: rgba(214,244,255,0.18);
+    -fx-background-color: rgba(255,255,255,0.20);
     -fx-background-radius: 11;
-    -fx-border-color: rgba(214,244,255,0.32);
-    -fx-border-radius: 11;
     -fx-padding: 2;
     -fx-min-width: 38; -fx-max-width: 38; -fx-min-height: 22; -fx-max-height: 22;
 }
-.vr-switch:selected .vr-switch-track { -fx-background-color: rgba(124,238,255,0.55); -fx-border-color: #7ceeff; }
-.vr-switch:selected .vr-knob { -fx-background-color: #ffffff; }
+.vr-switch:selected .vr-switch-track { -fx-background-color: #34c759; }
 
-.vr-slider .track {
-    -fx-background-color: rgba(214,244,255,0.20);
-    -fx-background-radius: 2;
-    -fx-padding: 1.5;
-}
-.vr-slider .thumb {
-    -fx-background-color: #dff6ff;
-    -fx-background-radius: 9;
-    -fx-padding: 7;
-    -fx-effect: dropshadow(gaussian, rgba(124,238,255,0.8), 8, 0.2, 0, 0);
-}
+.vr-slider .track { -fx-background-color: rgba(255,255,255,0.22); -fx-background-radius: 3; -fx-padding: 2; }
+.vr-slider .thumb { -fx-background-color: #ffffff; -fx-background-radius: 10; -fx-padding: 8; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.3), 4, 0, 0, 1); }
 .vr-slider:disabled { -fx-opacity: 0.4; }
 
 .vr-scroll, .vr-scroll > .viewport { -fx-background-color: transparent; -fx-background: transparent; }
 .vr-scroll { -fx-padding: 0; -fx-background-insets: 0; }
 .vr-scroll .scroll-bar:vertical { -fx-background-color: transparent; -fx-pref-width: 6; }
-.vr-scroll .scroll-bar .thumb { -fx-background-color: rgba(214,244,255,0.30); -fx-background-radius: 3; }
+.vr-scroll .scroll-bar .thumb { -fx-background-color: rgba(255,255,255,0.28); -fx-background-radius: 3; }
 .vr-scroll .scroll-bar .increment-button, .vr-scroll .scroll-bar .decrement-button { -fx-padding: 0; -fx-pref-height: 0; }
 .vr-scroll .scroll-bar .increment-arrow, .vr-scroll .scroll-bar .decrement-arrow { -fx-padding: 0; -fx-shape: ""; }
-.vr-console {
-    -fx-background-color: rgba(0,8,16,0.45);
-    -fx-background-radius: 10;
-    -fx-padding: 8;
-}
-.vr-log { -fx-fill: rgba(205,230,240,0.82); }
-.vr-log-warn { -fx-fill: #f6c544; }
-.vr-log-error { -fx-fill: #ff8a7a; }
+.vr-console { -fx-background-color: rgba(0,0,0,0.26); -fx-background-radius: 12; -fx-padding: 8; }
+.vr-log { -fx-fill: rgba(255,255,255,0.82); }
+.vr-log-warn { -fx-fill: #ffd60a; }
+.vr-log-error { -fx-fill: #ff6b5e; }
+
+/* ---- Quest: solid dark grey panels, blue for the main action */
+.theme-quest .vr-window { -fx-background-color: rgba(30,32,36,0.97); -fx-background-radius: 18; -fx-border-radius: 18; -fx-border-color: transparent; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.5), 30, 0, 0, 10); }
+.theme-quest .vr-window-start { -fx-background-radius: 18; -fx-border-radius: 18; }
+.theme-quest .vr-dim, .theme-quest .vr-key { -fx-fill: #a9adb3; }
+.theme-quest .vr-button, .theme-quest .vr-round, .theme-quest .vr-chip { -fx-background-color: #3a3d43; -fx-background-radius: 10; }
+.theme-quest .vr-round { -fx-background-radius: 30; }
+.theme-quest .vr-button:hover, .theme-quest .vr-round:hover, .theme-quest .vr-chip:hover { -fx-background-color: #4a4e55; }
+.theme-quest .vr-chip:selected { -fx-background-color: #e8eaed; -fx-text-fill: #1a1c1f; }
+.theme-quest .vr-accent, .theme-quest .vr-start { -fx-background-color: #1877f2; -fx-background-radius: 10; }
+.theme-quest .vr-accent:hover, .theme-quest .vr-start:hover { -fx-background-color: #2d88ff; }
+.theme-quest .vr-field, .theme-quest .vr-field:focused { -fx-background-color: #16171a; -fx-background-radius: 8; -fx-border-radius: 8; -fx-border-color: #3a3d43; }
+.theme-quest .vr-field:focused { -fx-border-color: #1877f2; }
+.theme-quest .vr-tile { -fx-background-color: #26282c; -fx-background-radius: 10; }
+.theme-quest .vr-tile:hover { -fx-background-color: #2f3236; }
+.theme-quest .vr-stage, .theme-quest .vr-thumb, .theme-quest .vr-console { -fx-background-color: #18191c; -fx-background-radius: 10; }
+.theme-quest .vr-dock-on { -fx-background-color: #1877f2; }
+.theme-quest .vr-switch:selected .vr-switch-track { -fx-background-color: #1877f2; }
+.theme-quest .vr-fill { -fx-background-color: #1877f2; }
+.theme-quest .vr-tip { -fx-background-color: #3a3d43; }
+.theme-quest .vr-rule { -fx-background-color: #3a3d43; }
+
+/* ---- SAO anime menu: light panels, grey ink, orange for hover and the chosen one */
+.theme-sao .vr-window { -fx-background-color: rgba(243,243,245,0.94); -fx-background-radius: 6; -fx-border-radius: 6; -fx-border-color: rgba(255,255,255,0.95); -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.30), 26, 0, 0, 8); }
+.theme-sao .vr-window-start, .theme-sao .vr-dock { -fx-background-radius: 6; -fx-border-radius: 6; }
+.theme-sao .vr-title, .theme-sao .vr-ink, .theme-sao .vr-big, .theme-sao .vr-code { -fx-fill: #474747; }
+.theme-sao .vr-dim, .theme-sao .vr-key { -fx-fill: #8c8c8c; }
+.theme-sao .vr-icon { -fx-fill: #6b6b6b; }
+.theme-sao .vr-warn { -fx-fill: #d9822b; }
+.theme-sao .vr-rule { -fx-background-color: #dcdcdc; }
+.theme-sao .vr-button, .theme-sao .vr-round, .theme-sao .vr-chip { -fx-background-color: #ffffff; -fx-background-radius: 4; -fx-border-color: #d6d6d6; -fx-border-width: 1; -fx-border-radius: 4; -fx-text-fill: #555555; }
+.theme-sao .vr-round { -fx-background-radius: 30; -fx-border-radius: 30; }
+.theme-sao .vr-button:hover, .theme-sao .vr-round:hover, .theme-sao .vr-chip:hover, .theme-sao .vr-chip:selected { -fx-background-color: #f2a43a; -fx-border-color: #f2a43a; -fx-text-fill: #ffffff; }
+.theme-sao .vr-round:hover .vr-icon, .theme-sao .vr-dock-on .vr-icon { -fx-fill: #ffffff; }
+.theme-sao .vr-dock-button { -fx-background-color: transparent; -fx-border-color: transparent; }
+.theme-sao .vr-dock-on { -fx-background-color: #f2a43a; -fx-border-color: #f2a43a; }
+.theme-sao .vr-accent, .theme-sao .vr-start { -fx-background-color: #f2a43a; -fx-border-color: #f2a43a; -fx-text-fill: #ffffff; -fx-background-radius: 4; -fx-border-radius: 4; }
+.theme-sao .vr-accent:hover, .theme-sao .vr-start:hover { -fx-background-color: #f7b75a; }
+.theme-sao .vr-field, .theme-sao .vr-field:focused { -fx-background-color: #ffffff; -fx-background-radius: 3; -fx-border-radius: 3; -fx-border-color: #d0d0d0; -fx-text-fill: #333333; -fx-prompt-text-fill: #a8a8a8; }
+.theme-sao .vr-field:focused { -fx-border-color: #f2a43a; }
+.theme-sao .vr-tile { -fx-background-color: rgba(255,255,255,0.85); -fx-background-radius: 4; -fx-border-color: #e2e2e2; -fx-border-radius: 4; }
+.theme-sao .vr-tile:hover { -fx-background-color: #ffffff; }
+.theme-sao .vr-stage, .theme-sao .vr-thumb { -fx-background-color: #e4e4e6; -fx-background-radius: 4; }
+.theme-sao .vr-console { -fx-background-color: #2d2d30; -fx-background-radius: 4; }
+.theme-sao .vr-name { -fx-background-color: #e6e6e8; }
+.theme-sao .vr-tip { -fx-background-color: #ffffff; -fx-border-color: #d6d6d6; -fx-border-radius: 13; }
+.theme-sao .vr-track, .theme-sao .vr-slider .track, .theme-sao .vr-switch-track { -fx-background-color: #d2d2d4; }
+.theme-sao .vr-fill, .theme-sao .vr-switch:selected .vr-switch-track { -fx-background-color: #f2a43a; }
+.theme-sao .vr-slider .thumb { -fx-background-color: #f2a43a; }
+.theme-sao .vr-scroll .scroll-bar .thumb { -fx-background-color: #c4c4c4; }
+.theme-sao .vr-pill { -fx-background-color: rgba(255,255,255,0.75); }
+.theme-sao .vr-logo { -fx-effect: dropshadow(gaussian, rgba(40,50,70,0.85), 3, 0.6, 0, 0); }
+
+/* ---- Dark glass, minimal: smoked panels with a hairline, white for the main action */
+.theme-smoke .vr-window { -fx-background-color: rgba(14,16,20,0.64); -fx-background-radius: 22; -fx-border-radius: 22; -fx-border-color: rgba(255,255,255,0.10); -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.42), 30, 0, 0, 10); }
+.theme-smoke .vr-dim, .theme-smoke .vr-key { -fx-fill: rgba(255,255,255,0.50); }
+.theme-smoke .vr-button, .theme-smoke .vr-round, .theme-smoke .vr-chip { -fx-background-color: rgba(255,255,255,0.06); -fx-border-color: rgba(255,255,255,0.10); -fx-border-width: 1; -fx-border-radius: 30; }
+.theme-smoke .vr-button:hover, .theme-smoke .vr-round:hover, .theme-smoke .vr-chip:hover { -fx-background-color: rgba(255,255,255,0.14); }
+.theme-smoke .vr-chip:selected { -fx-background-color: rgba(255,255,255,0.90); -fx-text-fill: #111111; }
+.theme-smoke .vr-accent, .theme-smoke .vr-start { -fx-background-color: #f4f4f5; -fx-text-fill: #111111; }
+.theme-smoke .vr-accent:hover, .theme-smoke .vr-start:hover { -fx-background-color: #ffffff; }
+.theme-smoke .vr-field, .theme-smoke .vr-field:focused { -fx-background-color: rgba(255,255,255,0.05); -fx-border-color: rgba(255,255,255,0.10); }
+.theme-smoke .vr-field:focused { -fx-border-color: rgba(255,255,255,0.5); }
+.theme-smoke .vr-tile { -fx-background-color: rgba(255,255,255,0.04); -fx-border-color: rgba(255,255,255,0.06); -fx-border-radius: 14; }
+.theme-smoke .vr-dock-button { -fx-border-color: transparent; }
+.theme-smoke .vr-dock-on { -fx-background-color: rgba(255,255,255,0.20); }
+.theme-smoke .vr-switch:selected .vr-switch-track { -fx-background-color: #f4f4f5; }
+.theme-smoke .vr-switch:selected .vr-knob { -fx-background-color: #111111; }

@@ -40,8 +40,6 @@ import javafx.scene.paint.CycleMethod;
 import javafx.scene.paint.LinearGradient;
 import javafx.scene.paint.RadialGradient;
 import javafx.scene.paint.Stop;
-import javafx.scene.shape.Circle;
-import javafx.scene.shape.Line;
 import javafx.scene.shape.Rectangle;
 import javafx.scene.text.Text;
 import javafx.scene.transform.Rotate;
@@ -73,7 +71,6 @@ import java.io.File;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Objects;
-import java.util.Random;
 import java.util.regex.Pattern;
 
 import static org.jackhuang.hmcl.ui.sao.SaoUiKit.*;
@@ -116,9 +113,6 @@ public final class SaoHelmetPage extends StackPane {
     private final Scale fit = new Scale(1, 1, 1);
     private final Rotate turnY = new Rotate(0, Rotate.Y_AXIS);
     private final Rotate turnX = new Rotate(0, Rotate.X_AXIS);
-    /// The floor grid and the motes, behind the windows.
-    private final Group floor = new Group();
-    private final Group motes = new Group();
     /// The windows, back to front.
     private final Group windows = new Group();
     /// The flat layer on the ear pad (version and window buttons), in design coordinates.
@@ -184,6 +178,10 @@ public final class SaoHelmetPage extends StackPane {
         getStylesheets().add(css);
         // A SubScene does not inherit the page's stylesheets: the space carries its own.
         space.getStylesheets().add(css);
+        // The SAO UI face for every control's text (buttons, fields, chips); Chinese falls back to the system face.
+        String face = "-fx-font-family: \"" + SaoAssets.saoFamily() + "\";";
+        setStyle(face);
+        space.setStyle(face);
         setStyle("-fx-background-color: #252525;");
         Rectangle clip = new Rectangle();
         clip.widthProperty().bind(widthProperty());
@@ -205,8 +203,7 @@ public final class SaoHelmetPage extends StackPane {
         world.setFill(Color.TRANSPARENT);
         world.setCamera(new PerspectiveCamera(false));
         space.getTransforms().addAll(centre, fit, turnY, turnX);
-        buildFloor();
-        space.getChildren().addAll(floor, motes, windows);
+        space.getChildren().add(windows);
 
         news = buildNews();
         server = buildServer();
@@ -216,6 +213,7 @@ public final class SaoHelmetPage extends StackPane {
         windows.getChildren().addAll(news, server, player, link, dock);
 
         buildPad();
+        setTheme(service.preference("theme", "vision"));
         SaoApps.onSoundChanged = () -> {
             stopSound();
             if (poweredOn) startSound();
@@ -265,61 +263,21 @@ public final class SaoHelmetPage extends StackPane {
         }
     }
 
-    // ------------------------------------------------------------------ the space
-
-    /// A faint grid floor below the windows and a few motes of light at different depths, so the space reads as
-    /// space and the parallax shows.
-    private void buildFloor() {
-        double y = 640, far = 4200;
-        Group grid = new Group();
-        for (double x = -2400; x <= 3680; x += 160) {
-            Line l = new Line(x, -200, x, far);
-            l.setStroke(new LinearGradient(0, 0, 0, 1, true, CycleMethod.NO_CYCLE,
-                    new Stop(0, Color.rgb(124, 238, 255, 0.20)), new Stop(1, Color.rgb(124, 238, 255, 0))));
-            l.setStrokeWidth(1.2);
-            grid.getChildren().add(l);
-        }
-        for (double z = -200; z <= far; z += 160) {
-            double a = 0.20 * Math.max(0, 1 - (z + 200) / (far + 200));
-            Line l = new Line(-2400, z, 3680, z);
-            l.setStroke(Color.rgb(124, 238, 255, a));
-            l.setStrokeWidth(1.2);
-            grid.getChildren().add(l);
-        }
-        // Lines drawn in x, y lie down into the floor: y becomes depth.
-        grid.getTransforms().addAll(new Translate(0, y, 0), new Rotate(90, Rotate.X_AXIS));
-        floor.getChildren().add(grid);
-        Random r = new Random(7);
-        for (int i = 0; i < 70; i++) {
-            Circle c = new Circle(1.2 + r.nextDouble() * 1.8, Color.rgb(160, 235, 255, 0.25 + r.nextDouble() * 0.4));
-            c.setTranslateX(-900 + r.nextDouble() * 3080);
-            c.setTranslateY(-300 + r.nextDouble() * 1000);
-            c.setTranslateZ(150 + r.nextDouble() * 2600);
-            c.setUserData(r.nextDouble() * 10);
-            motes.getChildren().add(c);
-        }
-    }
-
     // ------------------------------------------------------------------ home windows
 
     /// News, on the left, turned toward the player.
     private SaoFloatWindow buildNews() {
         VBox list = SaoApps.live(service.news(), n -> {
-            Text tag = new Text(n.kind() == SaoData.NewsKind.UPDATE ? "更新" : "公告");
-            tag.setFont(javafx.scene.text.Font.font(11));
-            tag.getStyleClass().add(n.kind() == SaoData.NewsKind.UPDATE ? "vr-tag-update" : "vr-tag-notice");
-            StackPane tagBox = new StackPane(tag);
-            tagBox.getStyleClass().add(n.kind() == SaoData.NewsKind.UPDATE ? "vr-tagbox-update" : "vr-tagbox-notice");
             Text title = ink(n.title(), 14);
             Text body = dim(n.body(), 12);
             body.setWrappingWidth(222);
-            HBox head = new HBox(8, tagBox, title, grow(), sao(n.date(), 12, false));
+            HBox head = new HBox(8, title, grow(), dim(n.date(), 12));
             head.setAlignment(Pos.CENTER_LEFT);
             VBox v = new VBox(6, head, body);
             v.getStyleClass().add("vr-tile");
             return v;
         }, empty(SVG.CHAT, "暂无公告"));
-        return new SaoFloatWindow("NEWS", "公告", 290, 352, null)
+        return new SaoFloatWindow("公告", 290, 352, null)
                 .add(scroll(list))
                 .home(258, 116, 40, -24, 0);
     }
@@ -357,8 +315,8 @@ public final class SaoHelmetPage extends StackPane {
         show.run();
         Button refresh = round(SVG.REFRESH, 26, 14);
         refresh.setOnAction(e -> service.refreshOnline());
-        SaoFloatWindow w = new SaoFloatWindow("SERVER", "服务器", 290, 352, null).add(box);
-        ((HBox) w.body.getChildren().get(0)).getChildren().add(refresh);
+        SaoFloatWindow w = new SaoFloatWindow("服务器", 290, 352, null).add(box);
+        w.head.getChildren().add(refresh);
         return w.home(1022, 116, 40, 24, 0);
     }
 
@@ -367,6 +325,7 @@ public final class SaoHelmetPage extends StackPane {
         ImageView logo = new ImageView(SaoAssets.image("logo.png"));
         logo.setPreserveRatio(true);
         logo.setFitHeight(46);
+        logo.getStyleClass().add("vr-logo");
         HBox head = new HBox(8, logo, grow(), offline, microsoft);
         head.setAlignment(Pos.CENTER_LEFT);
         keepOne(kind);
@@ -376,7 +335,7 @@ public final class SaoHelmetPage extends StackPane {
         msSignIn.setOnAction(e -> Controllers.dialog(new CreateAccountPane(Accounts.FACTORY_MICROSOFT)));
         msSignIn.setMaxWidth(Double.MAX_VALUE);
         password.getStyleClass().add("vr-field");
-        password.setFont(SaoAssets.sao(14, false));
+        password.setFont(ui(14, false));
         password.setPromptText("sao_auth 密码");
         StackPane accountField = new StackPane(name, msName, msSignIn);
         accountField.setAlignment(Pos.CENTER_LEFT);
@@ -387,9 +346,9 @@ public final class SaoHelmetPage extends StackPane {
         Button change = SaoUiKit.button("更换皮肤");
         change.setOnAction(e -> pickSkin());
         VBox fields = new VBox(6,
-                key(":account", "账号"), accountField,
-                key(":password", "服务器密码"), password,
-                key(":model", "皮肤"), new HBox(6, classic, slim, change),
+                key("账号"), accountField,
+                key("服务器密码"), password,
+                key("皮肤"), new HBox(6, classic, slim, change),
                 problem);
         fields.setPrefWidth(212);
         HBox.setHgrow(fields, Priority.ALWAYS);
@@ -409,7 +368,7 @@ public final class SaoHelmetPage extends StackPane {
         });
         Accounts.getAccounts().addListener((ListChangeListener<Account>) c -> refreshAccount());
         preselect();
-        return new SaoFloatWindow("", "", 430, 300, null).add(head, bodyRow).home(640, 120, 0, 0, 0);
+        return new SaoFloatWindow("", 430, 300, null).add(head, bodyRow).home(640, 120, 0, 0, 0);
     }
 
     /// Link Start under the player: what the pack is doing on the left, the button on the right.
@@ -433,13 +392,13 @@ public final class SaoHelmetPage extends StackPane {
         VBox left = new VBox(6, status, bar);
         left.setAlignment(Pos.CENTER_LEFT);
         start.getStyleClass().add("vr-start");
-        start.setFont(SaoAssets.welcome(26));
+        start.setFont(ui(21, true));
         start.setOnAction(e -> linkStart());
         start.setDefaultButton(true);
         HBox row = new HBox(10, left, grow(), start);
         row.setAlignment(Pos.CENTER_LEFT);
         VBox.setVgrow(row, Priority.ALWAYS);
-        SaoFloatWindow w = new SaoFloatWindow("", "", 430, 66, null).add(row);
+        SaoFloatWindow w = new SaoFloatWindow("", 430, 66, null).add(row);
         w.body.setPadding(new Insets(8, 10, 8, 18));
         w.body.getStyleClass().add("vr-window-start");
         return w.home(640, 436, -24, 0, 0);
@@ -473,7 +432,7 @@ public final class SaoHelmetPage extends StackPane {
             dockButtons[i] = b;
             col.getChildren().add(cell);
         }
-        SaoFloatWindow w = new SaoFloatWindow("", "", 52, 9 * 36 + 8 * 6 + 16, null).add(col);
+        SaoFloatWindow w = new SaoFloatWindow("", 52, 9 * 36 + 8 * 6 + 16, null).add(col);
         w.body.setPadding(new Insets(8));
         w.body.getStyleClass().add("vr-dock");
         return w.home(60, 128, -40, -18, 0);
@@ -511,7 +470,7 @@ public final class SaoHelmetPage extends StackPane {
         }
         if (appButton != null) appButton.getStyleClass().remove("vr-dock-on");
         SaoFloatWindow w = a.make().make(service, this::closeApp);
-        w.home(660, 104, -60, 0, 0);
+        w.home(660, 52, -60, 0, 0);
         windows.getChildren().add(w);
         w.flyIn(320);
         app = w;
@@ -537,8 +496,7 @@ public final class SaoHelmetPage extends StackPane {
 
     // ------------------------------------------------------------------ frame
 
-    /// Keeps the visor rendered at the window's size and minute, fits the space, turns it with the head, moves the
-    /// motes and the glint.
+    /// Keeps the visor rendered at the window's size and minute, fits the space, turns it with the head and moves the glint.
     ///
     /// @param t seconds on the clock
     private void frame(double t) {
@@ -581,13 +539,6 @@ public final class SaoHelmetPage extends StackPane {
         turnX.setPivotZ(eye);
         turnY.setAngle(lookX * 3.2);
         turnX.setAngle(lookY * 2.4);
-
-        for (Node m : motes.getChildren()) {
-            double k = (double) m.getUserData();
-            m.setTranslateY(m.getTranslateY() - 0.08 - k * 0.01);
-            if (m.getTranslateY() < -400) m.setTranslateY(760);
-            m.setOpacity(0.55 + 0.45 * Math.sin(t * 0.8 + k));
-        }
 
         black.resizeRelocate(0, 0, w, h);
         glass.relocate(0, 0);
@@ -835,6 +786,21 @@ public final class SaoHelmetPage extends StackPane {
     }
 
     // ------------------------------------------------------------------ tools
+
+    /// The window styles James is choosing between (6 Nov: "给我几个样式").
+    static final String[] THEMES = {"vision", "quest", "sao", "smoke"};
+
+    /// Puts the windows in a style: a class on the page and on the space (a SubScene does not inherit classes).
+    ///
+    /// @param theme one of [#THEMES]
+    void setTheme(String theme) {
+        for (String t : THEMES) {
+            getStyleClass().remove("theme-" + t);
+            space.getStyleClass().remove("theme-" + t);
+        }
+        getStyleClass().add("theme-" + theme);
+        space.getStyleClass().add("theme-" + theme);
+    }
 
     /// Skips the power-on (screenshot tools).
     void forceLit() {

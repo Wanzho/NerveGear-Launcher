@@ -53,14 +53,12 @@ public final class SaoScreenShotTool {
             Thread.sleep(2500);
             String p = w + "x" + h + "-";
             if (big) {
-                shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "01-home.png"));
-                shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0.48, -0.3, -1, out.resolve(p + "02-head-turned.png"));
-                String[] names = {"settings", "worlds", "multiplayer", "shaders", "screenshots", "logs", "java", "downloads", "about"};
-                for (int i = 0; i < names.length; i++)
-                    shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, i, out.resolve(p + String.format("%02d-app-%s.png", 10 + i, names[i])));
-                fx(() -> fake.hostRoom());
-                Thread.sleep(1800);
-                shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, 2, out.resolve(p + "20-app-multiplayer-hosting.png"));
+                for (String theme : SaoHelmetPage.THEMES) {
+                    fx(() -> page[0].setTheme(theme));
+                    shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + theme + "-1-home.png"));
+                    shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, 0, out.resolve(p + theme + "-2-settings.png"));
+                    shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, 1, out.resolve(p + theme + "-3-worlds.png"));
+                }
             } else {
                 shot(scene[0], page[0], fake, SaoPackState.WORKING, 0.42, "安装 NeoForge", 0, 0, -1, out.resolve(p + "01-home-installing.png"));
                 shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, 0, out.resolve(p + "10-app-settings.png"));

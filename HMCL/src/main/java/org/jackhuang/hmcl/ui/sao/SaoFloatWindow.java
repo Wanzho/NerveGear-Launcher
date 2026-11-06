@@ -35,6 +35,8 @@ import org.jetbrains.annotations.Nullable;
 final class SaoFloatWindow extends Group {
     /// The glass and its content.
     final VBox body = new VBox();
+    /// The title row; a window may add buttons to its right.
+    final HBox head = new HBox(8);
     /// The grab bar under the glass.
     private final Region pill = new Region();
     /// Where the window's centre stands.
@@ -56,12 +58,11 @@ final class SaoFloatWindow extends Group {
 
     /// Builds a window.
     ///
-    /// @param en    the English title in the SAO face, or empty for none
-    /// @param cn    the Chinese title, or empty
+    /// @param title the title, or empty for none
     /// @param w     glass width
     /// @param h     glass height
     /// @param close what the close button does, or null for no close button
-    SaoFloatWindow(String en, String cn, double w, double h, @Nullable Runnable close) {
+    SaoFloatWindow(String title, double w, double h, @Nullable Runnable close) {
         this.w = w;
         this.h = h;
         body.getStyleClass().add("vr-window");
@@ -71,30 +72,23 @@ final class SaoFloatWindow extends Group {
         body.resize(w, h);
         body.setPadding(new Insets(14, 18, 16, 18));
         body.setSpacing(10);
-        if (!en.isEmpty() || !cn.isEmpty() || close != null) {
-            HBox title = new HBox(8);
-            title.setAlignment(Pos.BASELINE_LEFT);
-            if (!en.isEmpty()) {
-                Text a = new Text(en);
-                a.getStyleClass().add("vr-title");
-                a.setFont(SaoAssets.sao(19, true));
-                title.getChildren().add(a);
-            }
-            if (!cn.isEmpty()) {
-                Text b = new Text(cn);
-                b.getStyleClass().add("vr-sub");
-                b.setFont(Font.font(13));
-                title.getChildren().add(b);
-            }
-            Region grow = new Region();
-            HBox.setHgrow(grow, Priority.ALWAYS);
-            title.getChildren().add(grow);
-            if (close != null) {
-                Button x = SaoUiKit.round(org.jackhuang.hmcl.ui.SVG.CLOSE, 26, 14);
-                x.setOnAction(e -> close.run());
-                title.getChildren().add(x);
-            }
-            body.getChildren().add(title);
+        if (!title.isEmpty()) {
+            Text t = new Text(title);
+            t.getStyleClass().add("vr-title");
+            t.setFont(SaoUiKit.ui(18, true));
+            Region fill = new Region();
+            HBox.setHgrow(fill, Priority.ALWAYS);
+            head.getChildren().addAll(t, fill);
+            head.setAlignment(Pos.CENTER_LEFT);
+            body.getChildren().add(head);
+        }
+        if (close != null) {
+            // As in a VR system: the close button floats beside the grab bar under the window.
+            Button x = SaoUiKit.round(org.jackhuang.hmcl.ui.SVG.CLOSE, 24, 13);
+            x.setOnAction(e -> close.run());
+            x.setManaged(false);
+            x.resizeRelocate(w / 2 - 36 - 34, h + 1, 24, 24);
+            getChildren().add(x);
         }
         pill.getStyleClass().add("vr-pill");
         pill.resizeRelocate(w / 2 - 36, h + 10, 72, 6);
@@ -121,7 +115,7 @@ final class SaoFloatWindow extends Group {
             }
         });
         body.setOnMousePressed(e -> toFront());
-        getChildren().addAll(body, pill);
+        getChildren().addAll(0, java.util.List.of(body, pill));
         yaw.setPivotX(w / 2);
         yaw.setPivotY(h / 2);
         pitch.setPivotX(w / 2);

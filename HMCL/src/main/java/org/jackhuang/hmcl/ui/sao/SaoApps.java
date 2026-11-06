@@ -193,8 +193,8 @@ final class SaoApps {
             showMem.run();
         });
         showMem.run();
-        HBox memHead = row(key(":memory", "内存"), memValue);
-        HBox memAuto = row(dim("跟随电脑自动分配 · 本机 " + max / 1024 + " GB", 11.5), auto);
+        HBox memHead = row(key("内存"), memValue);
+        HBox memAuto = row(ink("自动", 13), auto);
 
         SaoData.GameWindow gw = s.gameWindow();
         TextField width = field("宽");
@@ -242,9 +242,9 @@ final class SaoApps {
         VBox left = column(318,
                 memHead, memory, memAuto,
                 rule(),
-                key(":window", "游戏窗口"), windowRow,
+                key("游戏窗口"), windowRow,
                 rule(),
-                key(":sound", "启动器音效"), new HBox(6, helmet, song, off));
+                key("启动器音效"), new HBox(6, helmet, song, off));
 
         TextField jvm = field("例如 -XX:+UseZGC");
         jvm.setText(s.jvmArgs());
@@ -253,20 +253,16 @@ final class SaoApps {
         repair.setOnAction(e -> s.repair());
         Button folder = button("打开游戏文件夹");
         folder.setOnAction(e -> s.openFolder(SaoData.Folder.GAME));
-        Text repairNote = dim("修复会检查所有文件，补回缺失或被改动的文件；存档、设置和截图都会保留。", 11.5);
-        repairNote.setWrappingWidth(318);
         Text where = dim(s.instanceDir().toString(), 11);
         where.setWrappingWidth(318);
         VBox right = column(318,
-                key(":jvm", "启动参数（高级）"), jvm,
-                dim("只在知道用途时填写；留空即可。", 11.5),
+                key("启动参数（高级）"), jvm,
                 rule(),
-                key(":pack", "整合包 v" + s.embeddedVersion()),
-                repairNote,
+                key("整合包 v" + s.embeddedVersion()),
                 new HBox(8, repair, folder),
                 grow(),
                 where);
-        return new SaoFloatWindow("SETTINGS", "设置", W, H, close).add(columns(left, right));
+        return new SaoFloatWindow("设置", W, H, close).add(columns(left, right));
     }
 
     // ------------------------------------------------------------------ worlds
@@ -299,9 +295,9 @@ final class SaoApps {
         openSaves.setOnAction(e -> s.openFolder(SaoData.Folder.SAVES));
         Button openBackups = button("打开备份文件夹");
         openBackups.setOnAction(e -> s.openFolder(SaoData.Folder.BACKUPS));
-        VBox left = column(400, key(":saves", "存档"), scroll(saves));
-        VBox right = column(236, key(":backups", "备份"), scroll(backups));
-        return new SaoFloatWindow("WORLDS", "世界", W, H, close).add(columns(left, right), footer(openSaves, openBackups));
+        VBox left = column(400, key("存档"), scroll(saves));
+        VBox right = column(236, key("备份"), scroll(backups));
+        return new SaoFloatWindow("世界", W, H, close).add(columns(left, right), footer(openSaves, openBackups));
     }
 
     // ------------------------------------------------------------------ multiplayer
@@ -319,7 +315,7 @@ final class SaoApps {
                 case OFF -> {
                     Button host = accent("创建房间");
                     host.setOnAction(e -> s.hostRoom());
-                    VBox hostSide = new VBox(10, icon(SVG.HOST, 40), ink("我来开房间", 15), dim("先进入单人世界，再点创建房间，\n把房间码发给朋友。", 12), host);
+                    VBox hostSide = new VBox(10, icon(SVG.HOST, 40), ink("我来开房间", 15), host);
                     hostSide.setAlignment(Pos.CENTER);
                     hostSide.setPrefWidth(280);
                     TextField code = field("房间码");
@@ -328,9 +324,9 @@ final class SaoApps {
                     join.setOnAction(e -> {
                         if (!code.getText().isBlank()) s.joinRoom(code.getText().strip());
                     });
-                    VBox joinSide = new VBox(10, icon(SVG.PUBLIC, 40), ink("加入朋友的房间", 15), dim("输入朋友发来的房间码。", 12), new HBox(8, code, join));
+                    VBox joinSide = new VBox(10, icon(SVG.PUBLIC, 40), ink("加入朋友的房间", 15), new HBox(8, code, join));
                     joinSide.setAlignment(Pos.CENTER);
-                    ((HBox) joinSide.getChildren().get(3)).setAlignment(Pos.CENTER);
+                    ((HBox) joinSide.getChildren().get(2)).setAlignment(Pos.CENTER);
                     joinSide.setPrefWidth(280);
                     Region line = new Region();
                     line.getStyleClass().add("vr-rule");
@@ -353,7 +349,7 @@ final class SaoApps {
                     });
                     Button stop = button("关闭房间");
                     stop.setOnAction(e -> s.leaveRoom());
-                    card.getChildren().addAll(key(":room", "房间码"), code, dim(r.message() == null ? "" : r.message(), 12),
+                    card.getChildren().addAll(key("房间码"), code, dim(r.message() == null ? "" : r.message(), 12),
                             ink("房间里 " + r.members() + " 人", 13), new HBox(8, copy, stop));
                     ((HBox) card.getChildren().get(4)).setAlignment(Pos.CENTER);
                 }
@@ -372,8 +368,8 @@ final class SaoApps {
                 }
             }
         });
-        return new SaoFloatWindow("MULTIPLAYER", "联机", W, H, close)
-                .add(card, footer(dim("联机由 HMCL 的 Terracotta 提供，无需服务器", 11)));
+        return new SaoFloatWindow("联机", W, H, close)
+                .add(card);
     }
 
     // ------------------------------------------------------------------ shaders and resource packs
@@ -423,8 +419,8 @@ final class SaoApps {
         });
         tabs.selectToggle(shaders);
         open.setOnAction(e -> s.openFolder(tabs.getSelectedToggle() == resources ? SaoData.Folder.RESOURCES : SaoData.Folder.SHADERS));
-        HBox head = row(new HBox(6, shaders, resources), dim("把 zip 拖进这个窗口即可添加", 11.5));
-        SaoFloatWindow win = new SaoFloatWindow("SHADERS", "光影与资源包", W, H, close).add(head, body, footer(open));
+        HBox head = new HBox(6, shaders, resources);
+        SaoFloatWindow win = new SaoFloatWindow("光影与资源包", W, H, close).add(head, body, footer(open));
         win.body.setOnDragOver(e -> {
             if (e.getDragboard().hasFiles()) e.acceptTransferModes(TransferMode.COPY);
             e.consume();
@@ -466,7 +462,7 @@ final class SaoApps {
         Node content = s.screenshots().isEmpty() ? empty(SVG.SCREENSHOT_MONITOR, "游戏里按 F2 截图") : scroll(grid);
         Button open = button("打开截图文件夹");
         open.setOnAction(e -> s.openFolder(SaoData.Folder.SCREENSHOTS));
-        return new SaoFloatWindow("SCREENSHOTS", "截图 · " + s.screenshots().size(), W, H, close).add(content, footer(open));
+        return new SaoFloatWindow("截图 · " + s.screenshots().size(), W, H, close).add(content, footer(open));
     }
 
     // ------------------------------------------------------------------ logs
@@ -484,7 +480,7 @@ final class SaoApps {
             detail.setWrappingWidth(430);
             Button report = button("查看报告");
             report.setOnAction(e -> s.openFile(c.report()));
-            HBox h = tile(icon(SVG.WARNING, 26), new VBox(3, key(":crash", "崩溃原因"), why, detail), grow(), report);
+            HBox h = tile(icon(SVG.WARNING, 26), new VBox(3, key("崩溃原因"), why, detail), grow(), report);
             h.getStyleClass().add("vr-tile-warn");
             crashBox.getChildren().add(h);
         });
@@ -514,8 +510,8 @@ final class SaoApps {
         });
         Button open = button("打开日志文件夹");
         open.setOnAction(e -> s.openFolder(SaoData.Folder.LOGS));
-        return new SaoFloatWindow("LOGS", "日志", W, H, close).add(crashBox, logView,
-                footer(dim("发给开发组时请附上导出的日志", 11), grow(), export, open));
+        return new SaoFloatWindow("日志", W, H, close).add(crashBox, logView,
+                footer(export, open));
     }
 
     // ------------------------------------------------------------------ Java and download source
@@ -543,7 +539,7 @@ final class SaoApps {
         fill.run();
         Button download = button("下载 Java 17");
         download.setOnAction(e -> s.downloadJava());
-        VBox left = column(390, key(":java", "Java"), scroll(list), footer(download));
+        VBox left = column(390, key("Java"), scroll(list), footer(download));
 
         ToggleGroup src = new ToggleGroup();
         ToggleButton auto = chip("自动", src);
@@ -568,11 +564,9 @@ final class SaoApps {
             tv.setText(Integer.toString(b.intValue()));
             s.setDownloadThreads(b.intValue());
         });
-        Text hint = dim("国内网络建议选择自动或 BMCLAPI 镜像。", 11.5);
-        hint.setWrappingWidth(240);
-        VBox right = column(246, key(":source", "下载源"), new HBox(6, auto, bmcl, official), hint,
-                rule(), row(key(":threads", "同时下载"), tv), threads);
-        return new SaoFloatWindow("JAVA", "Java 与下载源", W, H, close).add(columns(left, right));
+        VBox right = column(246, key("下载源"), new HBox(6, auto, bmcl, official),
+                rule(), row(key("同时下载"), tv), threads);
+        return new SaoFloatWindow("Java 与下载源", W, H, close).add(columns(left, right));
     }
 
     // ------------------------------------------------------------------ downloads
@@ -586,7 +580,7 @@ final class SaoApps {
             HBox.setHgrow(mid, Priority.ALWAYS);
             return tile(icon(t.done() ? SVG.CHECK_CIRCLE : SVG.DOWNLOAD, 22), mid, pct);
         }, empty(SVG.DOWNLOAD, "现在没有下载任务"));
-        return new SaoFloatWindow("DOWNLOADS", "下载", W, H, close).add(scroll(list));
+        return new SaoFloatWindow("下载", W, H, close).add(scroll(list));
     }
 
     // ------------------------------------------------------------------ about
@@ -605,13 +599,13 @@ final class SaoApps {
                 + "Copyright © huangyuhui 及贡献者，按 GNU GPL v3 开源，源代码公开。", 12);
         hmcl.setWrappingWidth(360);
         VBox right = column(370,
-                key(":based on", "基于"), hmcl,
+                key("基于"), hmcl,
                 rule(),
-                key(":licenses", "开源许可"),
+                key("开源许可"),
                 lines("HMCL", "GPL v3"),
                 lines("JOrbis（音乐解码）", "LGPL 2.0"),
                 lines("SAO UI / SAO Welcome 字体", "免费字体，条款见字体说明"),
                 lines("Terracotta 联机", "随 HMCL 提供"));
-        return new SaoFloatWindow("ABOUT", "关于", W, H, close).add(columns(left, right));
+        return new SaoFloatWindow("关于", W, H, close).add(columns(left, right));
     }
 }
