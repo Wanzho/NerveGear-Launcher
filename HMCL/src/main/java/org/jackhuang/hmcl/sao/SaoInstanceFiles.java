@@ -62,7 +62,7 @@ final class SaoInstanceFiles {
         Path saves = folder(SaoData.Folder.SAVES);
         List<SaoData.World> result = new ArrayList<>();
         for (Path directory : children(saves)) {
-            if (!Files.isDirectory(directory, LinkOption.NOFOLLOW_LINKS) || directory.getFileName().toString().startsWith(".sao-")) continue;
+            if (!Files.isDirectory(directory, LinkOption.NOFOLLOW_LINKS) || directory.getFileName().toString().startsWith(".sao-restore-")) continue;
             checkedChild(saves, directory);
             World world;
             try { world = new World(directory); }
@@ -124,12 +124,13 @@ final class SaoInstanceFiles {
         Files.createDirectories(saves);
         Path staging = Files.createTempDirectory(saves, ".sao-restore-");
         Path displaced = staging.resolve("previous");
-        Path staged = staging.resolve(destination.getFileName());
+        Path extraction = Files.createDirectory(staging.resolve("restored"));
+        Path staged = extraction.resolve(destination.getFileName());
         boolean movedPrevious = false;
         boolean committed = false;
         boolean restoredPrevious = false;
         try {
-            archived.install(staging, destination.getFileName().toString());
+            archived.install(extraction, destination.getFileName().toString());
             new World(staged).setWorldName(archived.getWorldName());
             if (Files.exists(destination)) {
                 World current = new World(destination);
@@ -392,8 +393,7 @@ final class SaoInstanceFiles {
             String name = entry.getName();
             String clean = name.endsWith("/") ? name.substring(0, name.length() - 1) : name;
             if (clean.isEmpty()) continue;
-            try { SaoPackManifest.validatePath(clean); }
-            catch (IllegalArgumentException failure) { throw new IOException("Invalid backup path", failure); }
+            validateBackupPath(clean);
             int slash = clean.indexOf('/');
             String part = slash < 0 ? clean : clean.substring(0, slash);
             if (root == null) root = part;
@@ -402,6 +402,14 @@ final class SaoInstanceFiles {
         }
         if (root == null || !hasLevel) throw new IOException("Backup has no world level.dat");
         return root;
+    }
+
+    /// Rejects traversal/absolute archive names without applying pack-only reserved launcher-file rules to saves.
+    private static void validateBackupPath(String path) throws IOException {
+        if (path.isEmpty() || path.length() > 1000 || path.startsWith("/") || path.contains("\\")
+                || path.contains(":") || path.chars().anyMatch(character -> character < 32)) throw new IOException("Invalid backup path");
+        for (String segment : path.split("/", -1))
+            if (segment.isEmpty() || segment.equals(".") || segment.equals("..")) throw new IOException("Invalid backup path");
     }
 
     /// Lists direct children without following directory aliases.

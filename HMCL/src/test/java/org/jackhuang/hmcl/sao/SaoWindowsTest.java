@@ -219,6 +219,20 @@ class SaoWindowsTest {
         assertThrows(IOException.class, () -> files.export(files.worlds().get(0), world.resolve("recursive.zip")));
     }
 
+    /// A legitimate folder named previous or with a dot prefix must not collide with internal restore staging.
+    @Test void restoreSupportsWorldFolderNamesThatResembleInternalNames() throws Exception {
+        for (String name : List.of("previous", ".sao-world")) {
+            SaoGameBridge bridge = bridge(); SaoInstanceFiles files = new SaoInstanceFiles(bridge.instanceDir(), bridge);
+            Path directory = bridge.instanceDir().resolve("saves").resolve(name); world(directory, "Fixture", 1, 0);
+            Files.writeString(directory.resolve("marker.txt"), "archived");
+            files.backup(files.worlds().get(0));
+            assertEquals(1, files.backups().size());
+            Files.writeString(directory.resolve("marker.txt"), "changed");
+            files.restore(files.backups().get(0));
+            assertEquals("archived", Files.readString(directory.resolve("marker.txt")));
+        }
+    }
+
     /// Even when commit and rollback both fail, recovery staging must retain the displaced current world.
     @Test void restoreRollbackFailureNeverDeletesThePreviousWorld() throws Exception {
         SaoGameBridge bridge = bridge(); SaoInstanceFiles normal = new SaoInstanceFiles(bridge.instanceDir(), bridge);
