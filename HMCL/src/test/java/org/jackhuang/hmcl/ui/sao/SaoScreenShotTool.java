@@ -39,35 +39,51 @@ public final class SaoScreenShotTool {
         CountDownLatch up = new CountDownLatch(1);
         Platform.startup(up::countDown);
         up.await();
+        System.out.println("SCENE3D supported: " + Platform.isSupported(javafx.application.ConditionalFeature.SCENE3D));
         for (int[] size : sizes) {
-        int w = size[0], h = size[1];
-        SaoFakeService fake = new SaoFakeService();
-        SaoHelmetPage[] page = new SaoHelmetPage[1];
-        Scene[] scene = new Scene[1];
-        fx(() -> {
-            page[0] = new SaoHelmetPage(fake);
-            scene[0] = new Scene(page[0], w, h);
-        });
-        Thread.sleep(2500); // wallpapers load in the background
-        Object[][] states = {
-                {"1-first-start", SaoPackState.NOT_INSTALLED, -1.0, "", null, 26.0},
-                {"2-installing", SaoPackState.WORKING, 0.42, "安装 NeoForge", null, 30.5},
-                {"3-ready", SaoPackState.READY, 1.0, "", null, 41.0},
-                {"4-failed", SaoPackState.FAILED, -1.0, "", "下载失败，请检查网络后重试", 48.0},
-        };
-        for (Object[] s : states) {
+            int w = size[0], h = size[1];
+            boolean big = w > 1500;
+            SaoFakeService fake = new SaoFakeService();
+            SaoHelmetPage[] page = new SaoHelmetPage[1];
+            Scene[] scene = new Scene[1];
             fx(() -> {
-                fake.force((SaoPackState) s[1], (double) s[2], (String) s[3], (String) s[4]);
-                page[0].forceLit();
+                page[0] = new SaoHelmetPage(fake);
+                scene[0] = new Scene(page[0], w, h);
             });
-            Thread.sleep(900);
-            WritableImage[] img = new WritableImage[1];
-            fx(() -> img[0] = scene[0].snapshot(null));
-            write(img[0], out.resolve(w + "x" + h + "-" + s[0] + ".png"));
-        }
+            Thread.sleep(2500);
+            String p = w + "x" + h + "-";
+            if (big) {
+                shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "01-home.png"));
+                shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0.48, -0.3, -1, out.resolve(p + "02-head-turned.png"));
+                String[] names = {"settings", "worlds", "multiplayer", "shaders", "screenshots", "logs", "java", "downloads", "about"};
+                for (int i = 0; i < names.length; i++)
+                    shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, i, out.resolve(p + String.format("%02d-app-%s.png", 10 + i, names[i])));
+                fx(() -> fake.hostRoom());
+                Thread.sleep(1800);
+                shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, 2, out.resolve(p + "20-app-multiplayer-hosting.png"));
+            } else {
+                shot(scene[0], page[0], fake, SaoPackState.WORKING, 0.42, "安装 NeoForge", 0, 0, -1, out.resolve(p + "01-home-installing.png"));
+                shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, 0, out.resolve(p + "10-app-settings.png"));
+            }
         }
         Platform.exit();
         System.exit(0);
+    }
+
+    /// Puts the page in a state, an app and a head turn, waits for the windows to settle and writes a shot.
+    private static void shot(Scene scene, SaoHelmetPage page, SaoFakeService fake, SaoPackState st, double p, String label,
+                             double hx, double hy, int app, Path file) throws Exception {
+        fx(() -> {
+            fake.force(st, p, label, null);
+            page.forceLit();
+            page.forceApp(-1);
+            page.forceHead(hx, hy);
+            if (app >= 0) page.forceApp(app);
+        });
+        Thread.sleep(app >= 0 ? 1200 : 700);
+        WritableImage[] img = new WritableImage[1];
+        fx(() -> img[0] = scene.snapshot(null));
+        write(img[0], file);
     }
 
     /// Runs a job on the JavaFX thread and waits for it.

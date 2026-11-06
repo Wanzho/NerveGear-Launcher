@@ -11,9 +11,14 @@ import javafx.animation.KeyValue;
 import javafx.animation.PauseTransition;
 import javafx.animation.Timeline;
 import javafx.beans.binding.Bindings;
+import javafx.collections.ListChangeListener;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
+import javafx.scene.Group;
 import javafx.scene.Node;
+import javafx.scene.PerspectiveCamera;
+import javafx.scene.SceneAntialiasing;
+import javafx.scene.SubScene;
 import javafx.scene.control.Button;
 import javafx.scene.control.PasswordField;
 import javafx.scene.control.TextField;
@@ -22,6 +27,8 @@ import javafx.scene.control.ToggleGroup;
 import javafx.scene.effect.BlendMode;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
+import javafx.scene.input.KeyCode;
+import javafx.scene.layout.FlowPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Pane;
 import javafx.scene.layout.Priority;
@@ -30,12 +37,14 @@ import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
 import javafx.scene.paint.CycleMethod;
+import javafx.scene.paint.LinearGradient;
 import javafx.scene.paint.RadialGradient;
 import javafx.scene.paint.Stop;
+import javafx.scene.shape.Circle;
+import javafx.scene.shape.Line;
 import javafx.scene.shape.Rectangle;
-import javafx.scene.text.Font;
-import javafx.scene.text.FontWeight;
 import javafx.scene.text.Text;
+import javafx.scene.transform.Rotate;
 import javafx.scene.transform.Scale;
 import javafx.scene.transform.Translate;
 import javafx.stage.FileChooser;
@@ -45,95 +54,121 @@ import org.jackhuang.hmcl.auth.Account;
 import org.jackhuang.hmcl.auth.microsoft.MicrosoftAccount;
 import org.jackhuang.hmcl.auth.offline.OfflineAccount;
 import org.jackhuang.hmcl.auth.offline.OfflineAccountFactory;
+import org.jackhuang.hmcl.game.TexturesLoader;
+import org.jackhuang.hmcl.sao.SaoData;
 import org.jackhuang.hmcl.sao.SaoLauncherService;
 import org.jackhuang.hmcl.sao.SaoPackState;
 import org.jackhuang.hmcl.sao.SaoServices;
 import org.jackhuang.hmcl.setting.Accounts;
 import org.jackhuang.hmcl.ui.Controllers;
+import org.jackhuang.hmcl.ui.SVG;
 import org.jackhuang.hmcl.ui.account.CreateAccountPane;
+import org.jackhuang.hmcl.ui.skin.SkinCanvas;
+import org.jackhuang.hmcl.ui.skin.animation.SkinAniRunning;
+import org.jackhuang.hmcl.ui.skin.animation.SkinAniWavingArms;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Objects;
+import java.util.Random;
 import java.util.regex.Pattern;
 
-/// The launcher as the view from inside the NerveGear (James 6 Nov: "do it as if you are in the NerveGear",
-/// "inside the visor", "just do the helmet view"): the measured S01E01 visor (glass, top recess, ear-pad arc,
-/// clock, battery) with the choices projected on the glass as the pack's floating holo plates. The HUD sways a
-/// little with the mouse like a head turning; Link Start powers the display down and starts the game at once,
-/// whose own Link Start covers the loading.
+import static org.jackhuang.hmcl.ui.sao.SaoUiKit.*;
+
+/// The launcher as the view from inside the NerveGear with windows floating in the space in front of the player
+/// (James 6 Nov: "inside the visor", then "更像vr里窗口的样式"): the measured S01E01 visor glass behind, the helmet's
+/// ear pad, recess, clock and battery in front, and between them glass windows standing in an arc around the
+/// player at their own depths. Turning the head (the mouse) moves them with real parallax; the dock opens the
+/// other windows in front, pushing the rest back. Link Start powers the display down and starts the game at
+/// once; the game's own Link Start covers the loading.
 @NotNullByDefault
 public final class SaoHelmetPage extends StackPane {
-    /// Episode picture size the visor and the HUD are laid out in.
+    /// The design space the windows are laid out in (the episode picture at depth 0).
     private static final double EW = 1280, EH = 720;
+    /// Half the camera's vertical field of view, radians.
+    private static final double HALF_FOV = Math.toRadians(15);
     /// Minecraft's rule for player names.
     private static final Pattern NAME = Pattern.compile("[A-Za-z0-9_]{3,16}");
 
     /// The engine.
     private final SaoLauncherService service;
-    /// The visor picture.
-    private final ImageView visor = new ImageView();
-    /// The visor without its display (clock and battery off), for power-on and power-down.
-    private @Nullable Image visorDark;
-    /// The visor with its display on.
-    private @Nullable Image visorLit;
-    /// Size the visor was last rendered at.
+    /// The glass behind the windows.
+    private final ImageView glass = new ImageView();
+    /// The helmet in front of the windows, display off.
+    private @Nullable Image frameDark;
+    /// The helmet in front of the windows, display on.
+    private @Nullable Image frameLit;
+    /// The helmet in front.
+    private final ImageView frame = new ImageView();
+    /// Size and minute the visor was last rendered at.
     private int renderedW, renderedH;
-    /// Minute the clock was last rendered for.
     private long renderedMinute = -1;
-    /// The HUD in episode coordinates.
-    private final Pane hud = new Pane();
-    /// The HUD's cover-fit scale.
-    private final Scale fit = new Scale(1, 1, 0, 0);
-    /// The HUD's cover-fit offset plus the head sway.
-    private final Translate shift = new Translate();
+
+    /// The 3D space.
+    private final Group space = new Group();
+    /// Its view.
+    private final SubScene world = new SubScene(space, 10, 10, false, SceneAntialiasing.BALANCED);
+    /// Design space to the view: centre, fit, then the head.
+    private final Translate centre = new Translate();
+    private final Scale fit = new Scale(1, 1, 1);
+    private final Rotate turnY = new Rotate(0, Rotate.Y_AXIS);
+    private final Rotate turnX = new Rotate(0, Rotate.X_AXIS);
+    /// The floor grid and the motes, behind the windows.
+    private final Group floor = new Group();
+    private final Group motes = new Group();
+    /// The windows, back to front.
+    private final Group windows = new Group();
+    /// The flat layer on the ear pad (version and window buttons), in design coordinates.
+    private final Pane pad = new Pane();
+    private final Scale padFit = new Scale(1, 1, 0, 0);
+    private final Translate padShift = new Translate();
     /// The soft glint drifting over the glass.
     private final Region glint = new Region();
     /// Black over everything for power-down.
     private final Region black = new Region();
+
+    /// The home windows.
+    private final SaoFloatWindow news, player, server, link, dock;
+    /// The app window open in front, or null.
+    private @Nullable SaoFloatWindow app;
+    /// The dock button of the open app.
+    private @Nullable Button appButton;
+    /// The dock's buttons.
+    private final Button[] dockButtons = new Button[SaoApps.APPS.length];
+
     /// The helmet hum.
     private final SaoMusic hum = new SaoMusic("helmet_intro.ogg", "helmet_loop.ogg", 0.55);
-    /// Whether the player turned the sound off.
-    private boolean muted;
-    /// Mouse position in parts of the window, -0.5 to 0.5.
-    private double headX, headY;
+    /// crossing field, when the player picked it.
+    private final SaoMusic song = new SaoMusic(null, "title.ogg", 0.5);
+    /// Mouse position in parts of the window, -0.5 to 0.5, and its smoothed follow.
+    private double headX, headY, lookX, lookY;
+    /// Whether the display is on.
+    private boolean poweredOn;
 
     /// Offline or Microsoft.
     private final ToggleGroup kind = new ToggleGroup();
-    /// The offline chip.
-    private final ToggleButton offline = chip("离线 Offline");
-    /// The Microsoft chip.
-    private final ToggleButton microsoft = chip("正版 Verified");
-    /// The player name.
-    private final TextField name = new TextField();
-    /// The signed-in Microsoft name.
-    private final TextField msName = new TextField();
-    /// Opens the Microsoft sign-in.
-    private final Button msSignIn = plate("登录 Microsoft");
-    /// The sao_auth password.
+    private final ToggleButton offline = chip("离线", kind);
+    private final ToggleButton microsoft = chip("正版", kind);
+    /// The account fields.
+    private final TextField name = field("玩家名");
+    private final TextField msName = field("");
+    private final Button msSignIn = SaoUiKit.button("登录 Microsoft");
     private final PasswordField password = new PasswordField();
-    /// The character face.
-    private final SaoCharacterCard face = new SaoCharacterCard();
-    /// The character's name under the face.
-    private final Text faceName = new Text();
-    /// Classic arms.
-    private final ToggleButton classic = chip("Classic");
-    /// Slim arms.
-    private final ToggleButton slim = chip("Slim");
-    /// The arm model choice.
+    /// The character.
+    private final Character skin = new Character();
     private final ToggleGroup arms = new ToggleGroup();
-    /// Link Start.
+    private final ToggleButton classic = chip("Classic", arms);
+    private final ToggleButton slim = chip("Slim", arms);
+    /// Link Start and its lines.
     private final Button start = new Button("Link Start");
-    /// The status line.
-    private final Text status = new Text();
-    /// The problem line.
+    private final Text status = ink("", 13);
     private final Text problem = new Text();
-    /// The progress fill.
     private final Region fill = new Region();
-    /// The sound plate.
-    private final Button sound = plate("♪");
+    /// The sound button on the pad.
+    private final Button sound = round(SVG.WB_SUNNY, 30, 15);
 
     /// Builds the page with the installed engine, or a stand-in when none is installed yet.
     public SaoHelmetPage() {
@@ -145,34 +180,55 @@ public final class SaoHelmetPage extends StackPane {
     /// @param service the engine
     public SaoHelmetPage(SaoLauncherService service) {
         this.service = service;
-        getStylesheets().add(Objects.requireNonNull(SaoHelmetPage.class.getResource("/assets/css/sao.css")).toExternalForm());
+        String css = Objects.requireNonNull(SaoHelmetPage.class.getResource("/assets/css/sao.css")).toExternalForm();
+        getStylesheets().add(css);
+        // A SubScene does not inherit the page's stylesheets: the space carries its own.
+        space.getStylesheets().add(css);
         setStyle("-fx-background-color: #252525;");
         Rectangle clip = new Rectangle();
         clip.widthProperty().bind(widthProperty());
         clip.heightProperty().bind(heightProperty());
         setClip(clip);
 
-        visor.setManaged(false);
-        visor.setSmooth(false);
+        for (ImageView v : new ImageView[]{glass, frame}) {
+            v.setManaged(false);
+            v.setSmooth(false);
+            v.setMouseTransparent(true);
+        }
         glint.setManaged(false);
         glint.setMouseTransparent(true);
         glint.setBlendMode(BlendMode.ADD);
         black.setStyle("-fx-background-color: black;");
         black.setMouseTransparent(true);
-        black.setOpacity(1);
 
-        hud.setManaged(false);
-        hud.getTransforms().addAll(shift, fit);
-        hud.setPrefSize(EW, EH);
-        hud.resize(EW, EH);
-        hud.setPickOnBounds(false);
-        buildHud();
+        world.setManaged(false);
+        world.setFill(Color.TRANSPARENT);
+        world.setCamera(new PerspectiveCamera(false));
+        space.getTransforms().addAll(centre, fit, turnY, turnX);
+        buildFloor();
+        space.getChildren().addAll(floor, motes, windows);
 
-        getChildren().setAll(visor, glint, hud, black);
+        news = buildNews();
+        server = buildServer();
+        player = buildPlayer();
+        link = buildLink();
+        dock = buildDock();
+        windows.getChildren().addAll(news, server, player, link, dock);
+
+        buildPad();
+        SaoApps.onSoundChanged = () -> {
+            stopSound();
+            if (poweredOn) startSound();
+            refreshSoundIcon();
+        };
+        getChildren().setAll(glass, world, frame, pad, glint, black);
 
         setOnMouseMoved(e -> {
             headX = e.getX() / Math.max(1, getWidth()) - 0.5;
             headY = e.getY() / Math.max(1, getHeight()) - 0.5;
+        });
+        setOnKeyPressed(e -> {
+            if (e.getCode() == KeyCode.ESCAPE && app != null) closeApp();
         });
         new AnimationTimer() {
             @Override
@@ -186,6 +242,10 @@ public final class SaoHelmetPage extends StackPane {
         service.stepLabel().addListener((o, a, b) -> refreshState());
         service.lastError().addListener((o, a, b) -> refreshState());
         refreshState();
+        Timeline ping = new Timeline(new KeyFrame(Duration.seconds(60), e -> service.refreshOnline()));
+        ping.setCycleCount(Timeline.INDEFINITE);
+        ping.play();
+        service.refreshOnline();
 
         sceneProperty().addListener((o, a, b) -> {
             if (b == null) return;
@@ -195,8 +255,6 @@ public final class SaoHelmetPage extends StackPane {
     }
 
     /// The installed engine, or a stand-in installed now.
-    ///
-    /// @return the engine
     private static SaoLauncherService serviceOrFake() {
         try {
             return SaoLauncherService.get();
@@ -207,177 +265,280 @@ public final class SaoHelmetPage extends StackPane {
         }
     }
 
-    // ------------------------------------------------------------------ layout
+    // ------------------------------------------------------------------ the space
 
-    /// Builds every HUD element at its place in the episode picture: the logo under the recess, the panel in the
-    /// middle of the glass, Link Start above the ear pad, the status at the bottom left and the sound plate at the
-    /// bottom right, on the pad, where the pack's helmet screen keeps its Skip and gear.
-    private void buildHud() {
-        @Nullable Image logoImg = SaoAssets.image("logo.png");
-        ImageView logo = new ImageView(logoImg);
-        logo.setPreserveRatio(true);
-        logo.setFitWidth(300);
-        logo.relocate(640 - 150, 70);
-        logo.setOpacity(0.92);
-
-        // Left column: log in.
-        offline.setToggleGroup(kind);
-        microsoft.setToggleGroup(kind);
-        for (TextField f : new TextField[]{name, msName, password}) {
-            f.getStyleClass().add("holo-field");
-            f.setFont(SaoAssets.sao(16, false));
-            f.setPrefWidth(268);
+    /// A faint grid floor below the windows and a few motes of light at different depths, so the space reads as
+    /// space and the parallax shows.
+    private void buildFloor() {
+        double y = 640, far = 4200;
+        Group grid = new Group();
+        for (double x = -2400; x <= 3680; x += 160) {
+            Line l = new Line(x, -200, x, far);
+            l.setStroke(new LinearGradient(0, 0, 0, 1, true, CycleMethod.NO_CYCLE,
+                    new Stop(0, Color.rgb(124, 238, 255, 0.20)), new Stop(1, Color.rgb(124, 238, 255, 0))));
+            l.setStrokeWidth(1.2);
+            grid.getChildren().add(l);
         }
-        name.setPromptText("Player name");
+        for (double z = -200; z <= far; z += 160) {
+            double a = 0.20 * Math.max(0, 1 - (z + 200) / (far + 200));
+            Line l = new Line(-2400, z, 3680, z);
+            l.setStroke(Color.rgb(124, 238, 255, a));
+            l.setStrokeWidth(1.2);
+            grid.getChildren().add(l);
+        }
+        // Lines drawn in x, y lie down into the floor: y becomes depth.
+        grid.getTransforms().addAll(new Translate(0, y, 0), new Rotate(90, Rotate.X_AXIS));
+        floor.getChildren().add(grid);
+        Random r = new Random(7);
+        for (int i = 0; i < 70; i++) {
+            Circle c = new Circle(1.2 + r.nextDouble() * 1.8, Color.rgb(160, 235, 255, 0.25 + r.nextDouble() * 0.4));
+            c.setTranslateX(-900 + r.nextDouble() * 3080);
+            c.setTranslateY(-300 + r.nextDouble() * 1000);
+            c.setTranslateZ(150 + r.nextDouble() * 2600);
+            c.setUserData(r.nextDouble() * 10);
+            motes.getChildren().add(c);
+        }
+    }
+
+    // ------------------------------------------------------------------ home windows
+
+    /// News, on the left, turned toward the player.
+    private SaoFloatWindow buildNews() {
+        VBox list = SaoApps.live(service.news(), n -> {
+            Text tag = new Text(n.kind() == SaoData.NewsKind.UPDATE ? "更新" : "公告");
+            tag.setFont(javafx.scene.text.Font.font(11));
+            tag.getStyleClass().add(n.kind() == SaoData.NewsKind.UPDATE ? "vr-tag-update" : "vr-tag-notice");
+            StackPane tagBox = new StackPane(tag);
+            tagBox.getStyleClass().add(n.kind() == SaoData.NewsKind.UPDATE ? "vr-tagbox-update" : "vr-tagbox-notice");
+            Text title = ink(n.title(), 14);
+            Text body = dim(n.body(), 12);
+            body.setWrappingWidth(222);
+            HBox head = new HBox(8, tagBox, title, grow(), sao(n.date(), 12, false));
+            head.setAlignment(Pos.CENTER_LEFT);
+            VBox v = new VBox(6, head, body);
+            v.getStyleClass().add("vr-tile");
+            return v;
+        }, empty(SVG.CHAT, "暂无公告"));
+        return new SaoFloatWindow("NEWS", "公告", 290, 352, null)
+                .add(scroll(list))
+                .home(258, 116, 70, 24, 0);
+    }
+
+    /// The server, on the right, turned toward the player.
+    private SaoFloatWindow buildServer() {
+        VBox box = new VBox(10);
+        VBox.setVgrow(box, Priority.ALWAYS);
+        Runnable show = () -> {
+            @Nullable SaoData.ServerStatus st = service.serverStatus().get();
+            box.getChildren().clear();
+            if (st == null) {
+                box.getChildren().add(empty(SVG.PUBLIC, "正在连接服务器"));
+                return;
+            }
+            HBox state = new HBox(8, light(st.online()), ink(st.online() ? "在线" : "离线", 13), grow(),
+                    sao(st.online() && st.pingMs() >= 0 ? st.pingMs() + " ms" : "--", 13, false));
+            state.setAlignment(Pos.CENTER_LEFT);
+            Text count = sao(st.online() ? Integer.toString(st.players()) : "-", 48, true);
+            count.getStyleClass().add("vr-big");
+            HBox players = new HBox(8, count, dim("/ " + st.max() + "  在线玩家", 13));
+            players.setAlignment(Pos.BASELINE_LEFT);
+            Text motd = ink(st.motd(), 13);
+            motd.setWrappingWidth(240);
+            FlowPane names = new FlowPane(6, 6);
+            for (String n : st.names()) {
+                Text t = sao(n, 12, false);
+                StackPane chip = new StackPane(t);
+                chip.getStyleClass().add("vr-name");
+                names.getChildren().add(chip);
+            }
+            box.getChildren().addAll(state, rule(), players, motd, names);
+        };
+        service.serverStatus().addListener((o, a, b) -> show.run());
+        show.run();
+        Button refresh = round(SVG.REFRESH, 26, 14);
+        refresh.setOnAction(e -> service.refreshOnline());
+        SaoFloatWindow w = new SaoFloatWindow("SERVER", "服务器", 290, 352, null).add(box);
+        ((HBox) w.body.getChildren().get(0)).getChildren().add(refresh);
+        return w.home(1022, 116, 70, -24, 0);
+    }
+
+    /// The player, in the middle: the account, the sao_auth password and the character turning in 3D.
+    private SaoFloatWindow buildPlayer() {
+        ImageView logo = new ImageView(SaoAssets.image("logo.png"));
+        logo.setPreserveRatio(true);
+        logo.setFitHeight(46);
+        HBox head = new HBox(8, logo, grow(), offline, microsoft);
+        head.setAlignment(Pos.CENTER_LEFT);
+        keepOne(kind);
+
         msName.setEditable(false);
         msName.setFocusTraversable(false);
         msSignIn.setOnAction(e -> Controllers.dialog(new CreateAccountPane(Accounts.FACTORY_MICROSOFT)));
-        password.setPromptText("sao_auth");
+        msSignIn.setMaxWidth(Double.MAX_VALUE);
+        password.getStyleClass().add("vr-field");
+        password.setFont(SaoAssets.sao(14, false));
+        password.setPromptText("sao_auth 密码");
         StackPane accountField = new StackPane(name, msName, msSignIn);
         accountField.setAlignment(Pos.CENTER_LEFT);
-        problem.getStyleClass().add("holo-warn");
-        problem.setFont(Font.font(null, FontWeight.BOLD, 13));
-        VBox login = new VBox(5,
-                heading("LOGIN", "登录"),
-                new HBox(8, offline, microsoft),
-                gap(4), key(":account"), accountField,
-                gap(4), key(":password"), password,
-                gap(2), problem);
-        login.setPrefWidth(290);
-
-        // Right column: the character.
-        classic.setToggleGroup(arms);
-        slim.setToggleGroup(arms);
-        faceName.getStyleClass().add("holo-ink");
-        faceName.setFont(SaoAssets.sao(20, false));
-        Button change = plate("更换皮肤 Skin");
+        problem.getStyleClass().add("vr-warn");
+        problem.setFont(javafx.scene.text.Font.font(12));
+        problem.setWrappingWidth(200);
+        keepOne(arms);
+        Button change = SaoUiKit.button("更换皮肤");
         change.setOnAction(e -> pickSkin());
-        VBox character = new VBox(8, heading("CHARACTER", "角色"), face, faceName, new HBox(8, classic, slim), change);
-        character.setAlignment(Pos.TOP_CENTER);
-        character.setPrefWidth(220);
+        VBox fields = new VBox(6,
+                key(":account", "账号"), accountField,
+                key(":password", "服务器密码"), password,
+                key(":model", "皮肤"), new HBox(6, classic, slim, change),
+                problem);
+        fields.setPrefWidth(212);
+        HBox.setHgrow(fields, Priority.ALWAYS);
 
-        Region divider = new Region();
-        divider.setStyle("-fx-background-color: rgba(157,187,200,0.45);");
-        divider.setPrefWidth(1);
-        divider.setMinWidth(1);
-        HBox panel = new HBox(24, login, divider, character);
-        panel.getStyleClass().add("holo-plate");
-        panel.setPadding(new Insets(16, 22, 16, 22));
-        panel.relocate(640 - 300, 222);
-        panel.setPrefWidth(600);
-        panel.widthProperty().addListener((o, a, b) -> panel.relocate(640 - b.doubleValue() / 2, 222));
+        StackPane stage = new StackPane(skin);
+        stage.getStyleClass().add("vr-stage");
+        stage.setMinSize(150, 214);
+        stage.setPrefSize(150, 214);
+        stage.setMaxSize(150, 214);
+        HBox bodyRow = new HBox(16, stage, fields);
 
-        start.getStyleClass().add("holo-start");
-        start.setFont(SaoAssets.welcome(28));
-        start.setOnAction(e -> linkStart());
-        start.setDefaultButton(true);
-        start.widthProperty().addListener((o, a, b) -> start.relocate(640 - b.doubleValue() / 2, 476));
-        start.relocate(640 - 110, 476);
+        kind.selectedToggleProperty().addListener((o, a, b) -> refreshAccount());
+        arms.selectedToggleProperty().addListener((o, a, b) -> {
+            if (b == null) return;
+            if (service.skin() != null) service.setSkin(service.skin(), b == slim);
+            skin.show(service.skin(), b == slim);
+        });
+        Accounts.getAccounts().addListener((ListChangeListener<Account>) c -> refreshAccount());
+        preselect();
+        return new SaoFloatWindow("", "", 430, 300, null).add(head, bodyRow).home(640, 120, 0, 0, 0);
+    }
 
-        // Bottom left, on the pad: what the pack is doing, with a thin bar.
-        status.getStyleClass().add("holo-ink");
-        status.setFont(SaoAssets.sao(13, false));
+    /// Link Start under the player: what the pack is doing on the left, the button on the right.
+    private SaoFloatWindow buildLink() {
         Region track = new Region();
-        track.getStyleClass().add("holo-track");
-        track.setPrefSize(260, 2);
-        track.setMaxSize(260, 2);
-        fill.getStyleClass().add("holo-fill");
-        fill.setPrefHeight(2);
-        fill.setMaxHeight(2);
+        track.getStyleClass().add("vr-track");
+        track.setPrefSize(200, 3);
+        track.setMaxSize(200, 3);
+        fill.getStyleClass().add("vr-fill");
+        fill.setPrefHeight(3);
+        fill.setMaxHeight(3);
         fill.setMaxWidth(Region.USE_PREF_SIZE);
-        StackPane bar = new StackPane(track, fill);
-        bar.setAlignment(Pos.CENTER_LEFT);
-        bar.setMaxWidth(260);
-        Text version = new Text("刀剑神域·誓约 启动器 " + Metadata.VERSION + " · 基于 HMCL");
-        version.getStyleClass().add("holo-dim");
-        version.setFont(SaoAssets.sao(10, false));
-        VBox corner = new VBox(5, status, bar, version);
-        corner.relocate(64, 640);
-
-        sound.setOnAction(e -> toggleSound());
-        Button minimize = plate("—");
-        minimize.setOnAction(e -> Controllers.getDecorator().minimizeWindow());
-        Button close = plate("✕");
-        close.setOnAction(e -> Controllers.getDecorator().closeWindow());
-        HBox windowRow = new HBox(6, sound, minimize, close);
-        windowRow.widthProperty().addListener((o, a, b) -> windowRow.relocate(EW - 64 - b.doubleValue(), 662));
-        windowRow.relocate(1100, 662);
-
         fill.prefWidthProperty().bind(Bindings.createDoubleBinding(() -> {
             SaoPackState s = service.state().get();
-            if (s == SaoPackState.WORKING) return 260 * Math.max(0.03, service.progress().get());
-            return s == SaoPackState.READY || s == SaoPackState.RUNNING ? 260.0 : 0.0;
+            if (s == SaoPackState.WORKING) return 200 * Math.max(0.03, service.progress().get());
+            return s == SaoPackState.READY || s == SaoPackState.RUNNING ? 200.0 : 0.0;
         }, service.state(), service.progress()));
-
-        hud.getChildren().setAll(logo, panel, start, corner, windowRow);
-
-        kind.selectedToggleProperty().addListener((o, a, b) -> {
-            if (b == null) kind.selectToggle(a);
-            else refreshAccount();
-        });
-        arms.selectedToggleProperty().addListener((o, a, b) -> {
-            if (b == null) {
-                arms.selectToggle(a);
-                return;
-            }
-            if (service.skin() != null) service.setSkin(service.skin(), b == slim);
-        });
-        name.textProperty().addListener((o, a, b) -> refreshFace());
-        Accounts.getAccounts().addListener((javafx.collections.ListChangeListener<Account>) c -> refreshAccount());
-        preselect();
+        StackPane bar = new StackPane(track, fill);
+        bar.setAlignment(Pos.CENTER_LEFT);
+        bar.setMaxWidth(200);
+        VBox left = new VBox(6, status, bar);
+        left.setAlignment(Pos.CENTER_LEFT);
+        start.getStyleClass().add("vr-start");
+        start.setFont(SaoAssets.welcome(26));
+        start.setOnAction(e -> linkStart());
+        start.setDefaultButton(true);
+        HBox row = new HBox(10, left, grow(), start);
+        row.setAlignment(Pos.CENTER_LEFT);
+        VBox.setVgrow(row, Priority.ALWAYS);
+        SaoFloatWindow w = new SaoFloatWindow("", "", 430, 66, null).add(row);
+        w.body.setPadding(new Insets(8, 10, 8, 18));
+        w.body.getStyleClass().add("vr-window-start");
+        return w.home(640, 436, -24, 0, 0);
     }
 
-    /// A column heading: the SAO-face English word with the Chinese beside it.
-    private static HBox heading(String en, String cn) {
-        Text a = new Text(en);
-        a.getStyleClass().add("holo-title");
-        a.setFont(SaoAssets.sao(20, true));
-        Text b = new Text(cn);
-        b.getStyleClass().add("holo-label");
-        b.setFont(Font.font(13));
-        HBox h = new HBox(8, a, b);
-        h.setAlignment(Pos.BASELINE_LEFT);
-        return h;
+    /// The dock: a column of round buttons left of the windows, a label sliding out on hover.
+    private SaoFloatWindow buildDock() {
+        VBox col = new VBox(6);
+        col.setAlignment(Pos.TOP_CENTER);
+        for (int i = 0; i < SaoApps.APPS.length; i++) {
+            SaoApps.App a = SaoApps.APPS[i];
+            Button b = round(a.icon(), 36, 19);
+            b.getStyleClass().add("vr-dock-button");
+            Text label = new Text(a.label());
+            label.setFont(javafx.scene.text.Font.font(12));
+            label.getStyleClass().add("vr-ink");
+            StackPane tip = new StackPane(label);
+            tip.getStyleClass().add("vr-tip");
+            tip.setManaged(false);
+            tip.setVisible(false);
+            tip.setMouseTransparent(true);
+            StackPane cell = new StackPane(b, tip);
+            cell.setMinSize(36, 36);
+            cell.setMaxSize(36, 36);
+            tip.resizeRelocate(48, 5, 52, 26);
+            b.hoverProperty().addListener((o, x, on) -> tip.setVisible(on));
+            b.setOnAction(e -> {
+                if (app != null && appButton == b) closeApp();
+                else openApp(a, b);
+            });
+            dockButtons[i] = b;
+            col.getChildren().add(cell);
+        }
+        SaoFloatWindow w = new SaoFloatWindow("", "", 52, 9 * 36 + 8 * 6 + 16, null).add(col);
+        w.body.setPadding(new Insets(8));
+        w.body.getStyleClass().add("vr-dock");
+        return w.home(60, 128, -40, 18, 0);
     }
 
-    /// A field key in the SAO face, as the episode's panels write them.
-    private static Text key(String k) {
-        Text t = new Text(k);
-        t.getStyleClass().add("holo-label");
-        t.setFont(SaoAssets.sao(15, false));
-        return t;
+    /// The flat layer on the ear pad: the version at the bottom left, sound, minimise and close at the bottom
+    /// right, where the pack's helmet screen keeps its Skip and gear.
+    private void buildPad() {
+        pad.setManaged(false);
+        pad.setPickOnBounds(false);
+        pad.getTransforms().addAll(padShift, padFit);
+        Text version = dim("刀剑神域·誓约 启动器 " + Metadata.VERSION + " · 基于 HMCL", 10);
+        version.relocate(64, 676);
+        sound.setOnAction(e -> cycleSound());
+        Button minimize = round(SVG.MINIMIZE_CENTER, 30, 15);
+        minimize.setOnAction(e -> Controllers.getDecorator().minimizeWindow());
+        Button close = round(SVG.CLOSE, 30, 15);
+        close.setOnAction(e -> Controllers.getDecorator().closeWindow());
+        HBox row = new HBox(6, sound, minimize, close);
+        row.relocate(EW - 64 - 102, 662);
+        pad.getChildren().setAll(version, row);
+        refreshSoundIcon();
     }
 
-    /// A fixed vertical gap.
-    private static Region gap(double h) {
-        Region r = new Region();
-        r.setMinHeight(h);
-        r.setPrefHeight(h);
-        return r;
+    // ------------------------------------------------------------------ apps
+
+    /// Opens an app's window in front; the home windows move back and dim.
+    private void openApp(SaoApps.App a, Button b) {
+        if (app != null) {
+            SaoFloatWindow old = app;
+            old.moveBack(380, 0, 200);
+            PauseTransition p = new PauseTransition(Duration.millis(210));
+            p.setOnFinished(e -> windows.getChildren().remove(old));
+            p.play();
+        }
+        if (appButton != null) appButton.getStyleClass().remove("vr-dock-on");
+        SaoFloatWindow w = a.make().make(service, this::closeApp);
+        w.home(660, 104, -60, 0, 0);
+        windows.getChildren().add(w);
+        w.flyIn(320);
+        app = w;
+        appButton = b;
+        b.getStyleClass().add("vr-dock-on");
+        for (SaoFloatWindow home : new SaoFloatWindow[]{news, server, player, link}) home.moveBack(300, 0.22, 320);
+        requestFocus();
     }
 
-    /// A holo chip.
-    private static ToggleButton chip(String text) {
-        ToggleButton b = new ToggleButton(text);
-        b.getStyleClass().add("holo-button");
-        b.setFont(SaoAssets.sao(13, false));
-        b.setFocusTraversable(false);
-        return b;
-    }
-
-    /// A holo plate button.
-    private static Button plate(String text) {
-        Button b = new Button(text);
-        b.getStyleClass().add("holo-button");
-        b.setFont(SaoAssets.sao(13, false));
-        b.setFocusTraversable(false);
-        return b;
+    /// Closes the app in front; the home windows come forward again.
+    private void closeApp() {
+        @Nullable SaoFloatWindow w = app;
+        if (w == null) return;
+        app = null;
+        if (appButton != null) appButton.getStyleClass().remove("vr-dock-on");
+        appButton = null;
+        w.moveBack(420, 0, 240);
+        PauseTransition p = new PauseTransition(Duration.millis(250));
+        p.setOnFinished(e -> windows.getChildren().remove(w));
+        p.play();
+        for (SaoFloatWindow home : new SaoFloatWindow[]{news, server, player, link}) home.moveBack(0, 1, 320);
     }
 
     // ------------------------------------------------------------------ frame
 
-    /// Keeps the visor rendered at the window's size and minute, fits the HUD, sways it with the head and moves
-    /// the glint.
+    /// Keeps the visor rendered at the window's size and minute, fits the space, turns it with the head, moves the
+    /// motes and the glint.
     ///
     /// @param t seconds on the clock
     private void frame(double t) {
@@ -385,77 +546,98 @@ public final class SaoHelmetPage extends StackPane {
         if (w <= 1 || h <= 1) return;
         long minute = System.currentTimeMillis() / 60000;
         if (w != renderedW || h != renderedH || minute != renderedMinute) {
+            boolean resized = w != renderedW || h != renderedH;
             renderedW = w;
             renderedH = h;
             renderedMinute = minute;
-            boolean lit = visor.getImage() == visorLit && visorLit != null;
-            visorDark = SaoVisor.render(w, h, false).image();
-            visorLit = SaoVisor.render(w, h, true).image();
-            visor.setImage(lit || visor.getImage() == null && poweredOn ? visorLit : visorDark);
-            visor.relocate(0, 0);
+            if (resized) glass.setImage(SaoVisor.renderGlass(w, h).image());
+            frameDark = SaoVisor.renderFrame(w, h, false).image();
+            frameLit = SaoVisor.renderFrame(w, h, true).image();
+            frame.setImage(poweredOn ? frameLit : frameDark);
+            world.setWidth(w);
+            world.setHeight(h);
         }
         double s = Math.min(w / EW, h / EH);
+        SaoFloatWindow.fitScale = s;
         fit.setX(s);
         fit.setY(s);
-        // The head: the display lags a touch behind the mouse and breathes very slightly.
-        double sx = -headX * 14 + Math.sin(t * 0.6) * 1.2, sy = -headY * 9 + Math.sin(t * 0.43 + 1) * 0.9;
-        swayX += (sx - swayX) * 0.08;
-        swayY += (sy - swayY) * 0.08;
-        shift.setX(w / 2.0 - EW / 2 * s + swayX * s);
-        shift.setY(h / 2.0 - EH / 2 * s + swayY * s);
+        fit.setZ(s);
+        centre.setX(w / 2.0 - EW / 2 * s);
+        centre.setY(h / 2.0 - EH / 2 * s);
+        padFit.setX(s);
+        padFit.setY(s);
+        padShift.setX(w / 2.0 - EW / 2 * s);
+        padShift.setY(h / 2.0 - EH / 2 * s);
+
+        // The head turns about the eye: the space moves the other way, near windows more than far ones.
+        double eye = -(h / 2.0) / Math.tan(HALF_FOV) / s;
+        lookX += (headX + Math.sin(t * 0.5) * 0.04 - lookX) * 0.06;
+        lookY += (headY + Math.sin(t * 0.37 + 1) * 0.03 - lookY) * 0.06;
+        turnY.setPivotX(EW / 2);
+        turnY.setPivotY(EH / 2);
+        turnY.setPivotZ(eye);
+        turnX.setPivotX(EW / 2);
+        turnX.setPivotY(EH / 2);
+        turnX.setPivotZ(eye);
+        turnY.setAngle(lookX * 3.2);
+        turnX.setAngle(lookY * 2.4);
+
+        for (Node m : motes.getChildren()) {
+            double k = (double) m.getUserData();
+            m.setTranslateY(m.getTranslateY() - 0.08 - k * 0.01);
+            if (m.getTranslateY() < -400) m.setTranslateY(760);
+            m.setOpacity(0.55 + 0.45 * Math.sin(t * 0.8 + k));
+        }
+
         black.resizeRelocate(0, 0, w, h);
-        // A soft light crossing the glass every few seconds.
+        glass.relocate(0, 0);
+        frame.relocate(0, 0);
         double r = 420 * s, gx = (((t * 0.045) % 1.6) - 0.3) * w, gy = h * 0.42;
         glint.resizeRelocate(gx - r, gy - r, 2 * r, 2 * r);
         glint.setBackground(new javafx.scene.layout.Background(new javafx.scene.layout.BackgroundFill(new RadialGradient(0, 0, 0.5, 0.5, 0.5, true, CycleMethod.NO_CYCLE,
-                new Stop(0, Color.color(0.45, 0.75, 1, 0.07)), new Stop(1, Color.color(0.45, 0.75, 1, 0))), null, null)));
+                new Stop(0, Color.color(0.45, 0.75, 1, 0.06)), new Stop(1, Color.color(0.45, 0.75, 1, 0))), null, null)));
     }
-
-    /// Smoothed head sway in episode pixels.
-    private double swayX, swayY;
-    /// Whether the display is on.
-    private boolean poweredOn;
 
     // ------------------------------------------------------------------ power
 
-    /// Turns the display on: black lifts off the glass, then the visor's clock and battery and the HUD flicker on.
+    /// Turns the display on: black lifts off the glass, the helmet's clock flickers on and the windows float in one
+    /// after another.
     private void powerOn() {
         poweredOn = true;
-        if (!muted && service.state().get() != SaoPackState.RUNNING) hum.start();
-        hud.setOpacity(0);
+        startSound();
+        world.setOpacity(1);
+        SaoFloatWindow[] order = {player, link, news, server, dock};
+        for (SaoFloatWindow w : order) {
+            w.setOpacity(0);
+            w.recede.set(420);
+        }
         Timeline t = new Timeline(
                 new KeyFrame(Duration.ZERO, new KeyValue(black.opacityProperty(), black.getOpacity())),
                 new KeyFrame(Duration.millis(520), new KeyValue(black.opacityProperty(), 0)),
-                new KeyFrame(Duration.millis(560), e -> {
-                    visor.setImage(visorLit);
-                    hud.setOpacity(0.85);
-                }),
-                new KeyFrame(Duration.millis(620), e -> {
-                    visor.setImage(visorDark);
-                    hud.setOpacity(0.15);
-                }),
-                new KeyFrame(Duration.millis(680), e -> {
-                    visor.setImage(visorLit);
-                    hud.setOpacity(1);
-                }));
+                new KeyFrame(Duration.millis(560), e -> frame.setImage(frameLit)),
+                new KeyFrame(Duration.millis(620), e -> frame.setImage(frameDark)),
+                new KeyFrame(Duration.millis(680), e -> frame.setImage(frameLit)));
+        for (int i = 0; i < order.length; i++) {
+            SaoFloatWindow w = order[i];
+            t.getKeyFrames().add(new KeyFrame(Duration.millis(640 + 70 * i), e -> w.moveBack(0, 1, 420)));
+        }
         t.play();
     }
 
-    /// Powers the display down like the pack's helmet screen: a flicker, the HUD fades, the view sinks to black.
-    ///
-    /// @param then what to do once it is dark
-    private void powerDown(Runnable then) {
+    /// Powers the display down like the pack's helmet screen: a flicker, the windows fall away, the view sinks to
+    /// black.
+    private void powerDown() {
         poweredOn = false;
-        hum.stop();
-        if (!muted) SaoMusic.once("helmet_outro.ogg", 0.55);
+        stopSound();
+        if (!soundMode().equals("off")) SaoMusic.once("helmet_outro.ogg", 0.55);
+        if (app != null) closeApp();
+        for (SaoFloatWindow w : new SaoFloatWindow[]{news, server, player, link, dock}) w.moveBack(600, 0, 300);
         Timeline t = new Timeline(
-                new KeyFrame(Duration.millis(60), e -> visor.setImage(visorDark)),
-                new KeyFrame(Duration.millis(120), e -> visor.setImage(visorLit)),
-                new KeyFrame(Duration.millis(180), e -> visor.setImage(visorDark)),
-                new KeyFrame(Duration.ZERO, new KeyValue(hud.opacityProperty(), hud.getOpacity()), new KeyValue(black.opacityProperty(), 0)),
-                new KeyFrame(Duration.millis(260), new KeyValue(hud.opacityProperty(), 0)),
+                new KeyFrame(Duration.millis(60), e -> frame.setImage(frameDark)),
+                new KeyFrame(Duration.millis(120), e -> frame.setImage(frameLit)),
+                new KeyFrame(Duration.millis(180), e -> frame.setImage(frameDark)),
+                new KeyFrame(Duration.ZERO, new KeyValue(black.opacityProperty(), 0)),
                 new KeyFrame(Duration.millis(480), new KeyValue(black.opacityProperty(), 1)));
-        t.setOnFinished(e -> then.run());
         t.play();
     }
 
@@ -467,6 +649,53 @@ public final class SaoHelmetPage extends StackPane {
             p.setOnFinished(e -> powerOn());
             p.play();
         }
+    }
+
+    // ------------------------------------------------------------------ sound
+
+    /// helmet, song or off.
+    private String soundMode() {
+        return service.preference("sound", "helmet");
+    }
+
+    /// Starts what the player picked.
+    private void startSound() {
+        if (service.state().get() == SaoPackState.RUNNING) return;
+        switch (soundMode()) {
+            case "song" -> song.start();
+            case "off" -> {
+            }
+            default -> hum.start();
+        }
+    }
+
+    /// Stops every sound.
+    private void stopSound() {
+        hum.stop();
+        song.stop();
+    }
+
+    /// The pad's sound button steps helmet, song, off.
+    private void cycleSound() {
+        String next = switch (soundMode()) {
+            case "helmet" -> "song";
+            case "song" -> "off";
+            default -> "helmet";
+        };
+        service.setPreference("sound", next);
+        stopSound();
+        if (poweredOn) startSound();
+        refreshSoundIcon();
+    }
+
+    /// Shows the sound mode on its button.
+    private void refreshSoundIcon() {
+        sound.setGraphic(icon(switch (soundMode()) {
+            case "song" -> NOTE;
+            case "off" -> MUTED;
+            default -> SPEAKER;
+        }, 15));
+        sound.setOpacity(soundMode().equals("off") ? 0.55 : 1);
     }
 
     // ------------------------------------------------------------------ choices
@@ -481,7 +710,7 @@ public final class SaoHelmetPage extends StackPane {
             if (sel instanceof OfflineAccount) name.setText(sel.getProfileName());
         }
         arms.selectToggle(service.skinSlim() ? slim : classic);
-        face.show(service.skin());
+        skin.show(service.skin(), service.skinSlim());
         refreshAccount();
     }
 
@@ -494,15 +723,6 @@ public final class SaoHelmetPage extends StackPane {
         msSignIn.setVisible(ms && m == null);
         if (m != null) msName.setText(m.getProfileName());
         problem.setText("");
-        refreshFace();
-    }
-
-    /// Puts the name under the face.
-    private void refreshFace() {
-        boolean ms = kind.getSelectedToggle() == microsoft;
-        @Nullable MicrosoftAccount m = microsoftAccount();
-        String n = ms ? (m == null ? "" : m.getProfileName()) : name.getText().strip();
-        faceName.setText(n.isEmpty() ? "———" : n);
         boolean hasSkin = service.skin() != null;
         classic.setDisable(!hasSkin);
         slim.setDisable(!hasSkin);
@@ -520,7 +740,7 @@ public final class SaoHelmetPage extends StackPane {
         SaoPackState s = service.state().get();
         String v = service.embeddedVersion();
         switch (s) {
-            case CHECKING -> status.setText("检查中 · Checking");
+            case CHECKING -> status.setText("检查中");
             case NOT_INSTALLED -> status.setText("首次连接自动安装 · v" + v);
             case UPDATE_READY -> status.setText("自动更新至 v" + v);
             case WORKING -> {
@@ -528,9 +748,9 @@ public final class SaoHelmetPage extends StackPane {
                 String l = service.stepLabel().get();
                 status.setText((l.isEmpty() ? "准备中" : l) + (p >= 0 ? "  " + Math.round(p * 100) + "%" : ""));
             }
-            case READY -> status.setText("就绪 · Ready · v" + v);
-            case RUNNING -> status.setText("连接中 · Linked");
-            case FAILED -> status.setText("失败 · Failed");
+            case READY -> status.setText("就绪 · v" + v);
+            case RUNNING -> status.setText("已连接");
+            case FAILED -> status.setText("失败");
         }
         @Nullable String err = service.lastError().get();
         if (s == SaoPackState.FAILED && err != null) problem.setText(err);
@@ -559,17 +779,23 @@ public final class SaoHelmetPage extends StackPane {
         Accounts.setSelectedAccount(account);
         char @Nullable [] pw = password.getText().isEmpty() ? null : password.getText().toCharArray();
         password.clear();
-        Account chosen = account;
-        if (service.state().get() == SaoPackState.READY) {
-            // Normal start: the game starts while the display powers down; its own Link Start covers the loading.
-            service.linkStart(chosen, pw);
-            powerDown(() -> {
-            });
-        } else {
-            // First start or an update: the launcher itself has to wait, so the display stays on with the progress.
-            service.linkStart(chosen, pw);
-        }
+        boolean ready = service.state().get() == SaoPackState.READY;
+        service.linkStart(account, pw);
         if (pw != null) Arrays.fill(pw, '\0');
+        // Normal start: the game starts while the display powers down. A first install or an update keeps the
+        // display on with the progress until the engine reports the game running.
+        if (ready) powerDown();
+        else service.state().addListener(new javafx.beans.value.ChangeListener<>() {
+            @Override
+            public void changed(javafx.beans.value.ObservableValue<? extends SaoPackState> o, SaoPackState a, SaoPackState b) {
+                if (b == SaoPackState.RUNNING) {
+                    o.removeListener(this);
+                    powerDown();
+                } else if (b == SaoPackState.FAILED || b == SaoPackState.READY && a != SaoPackState.RUNNING) {
+                    o.removeListener(this);
+                }
+            }
+        });
     }
 
     /// The offline account with this name, created when new.
@@ -590,44 +816,79 @@ public final class SaoHelmetPage extends StackPane {
         if (f == null) return;
         try {
             service.setSkin(f.toPath(), arms.getSelectedToggle() == slim);
-            face.show(service.skin());
-            refreshFace();
+            skin.show(service.skin(), service.skinSlim());
+            refreshAccount();
         } catch (IllegalArgumentException ex) {
             problem.setText("! 皮肤需为 64×64 PNG");
         }
     }
 
-    /// Turns the helmet's sound off or on.
-    private void toggleSound() {
-        muted = !muted;
-        if (muted) hum.stop();
-        else if (poweredOn) hum.start();
-        sound.setOpacity(muted ? 0.5 : 1);
-    }
-
-    /// Lets the window be dragged by the empty glass; the window's buttons live on the pad at the bottom right.
+    /// Lets the window be dragged by the empty glass.
     private void hookWindow() {
         try {
             Controllers.getDecorator().capableDraggingWindow(this);
-            for (Node n : hud.getChildren()) Controllers.getDecorator().forbidDraggingWindow(n);
-        } catch (NullPointerException noWindow) {
+            Controllers.getDecorator().forbidDraggingWindow(world);
+            Controllers.getDecorator().forbidDraggingWindow(pad);
+        } catch (NullPointerException | IllegalStateException noWindow) {
             // Screenshot tools: no launcher window.
         }
     }
 
-    /// Powers the display down at once (screenshot tools: the dark state).
-    void forceDark() {
-        poweredOn = false;
-        visor.setImage(visorDark);
-        hud.setOpacity(0);
-        black.setOpacity(1);
-    }
+    // ------------------------------------------------------------------ tools
 
     /// Skips the power-on (screenshot tools).
     void forceLit() {
         poweredOn = true;
-        visor.setImage(visorLit);
-        hud.setOpacity(1);
+        frame.setImage(frameLit);
         black.setOpacity(0);
+        for (SaoFloatWindow w : new SaoFloatWindow[]{news, server, player, link, dock}) {
+            w.recede.set(0);
+            w.setOpacity(1);
+        }
+    }
+
+    /// Opens an app by its dock index at once (screenshot tools).
+    ///
+    /// @param i the index in [SaoApps#APPS], or -1 to close
+    void forceApp(int i) {
+        if (i < 0) {
+            if (app != null) windows.getChildren().remove(app);
+            app = null;
+            for (SaoFloatWindow home : new SaoFloatWindow[]{news, server, player, link}) {
+                home.recede.set(0);
+                home.setOpacity(1);
+            }
+            return;
+        }
+        openApp(SaoApps.APPS[i], dockButtons[i]);
+    }
+
+    /// Turns the head (screenshot tools).
+    void forceHead(double x, double y) {
+        headX = lookX = x;
+        headY = lookY = y;
+    }
+
+    /// The player's character, turning slowly in HMCL's 3D skin view and turned by dragging.
+    private static final class Character extends StackPane {
+        /// HMCL's skin model.
+        private final SkinCanvas canvas = new SkinCanvas(TexturesLoader.getDefaultSkinImage(), 150, 214, true);
+
+        /// Builds it with the default skin.
+        Character() {
+            canvas.enableRotation(0.5);
+            canvas.getAnimationPlayer().addSkinAnimation(new SkinAniWavingArms(100, 2000, 7.5, canvas), new SkinAniRunning(100, 100, 30, canvas));
+            getChildren().add(canvas);
+        }
+
+        /// Shows a skin, or the default one.
+        ///
+        /// @param png    the skin file, or null
+        /// @param isSlim Slim arms
+        void show(@Nullable Path png, boolean isSlim) {
+            Image img = png == null ? TexturesLoader.getDefaultSkinImage() : new Image(png.toUri().toString());
+            if (img.isError()) img = TexturesLoader.getDefaultSkinImage();
+            canvas.updateSkin(img, isSlim, null);
+        }
     }
 }

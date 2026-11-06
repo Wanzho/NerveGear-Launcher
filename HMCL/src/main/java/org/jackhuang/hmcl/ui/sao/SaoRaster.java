@@ -32,6 +32,16 @@ final class SaoRaster {
         java.util.Arrays.fill(px, 0xff000000 | ground);
     }
 
+    /// Builds a transparent buffer (an overlay drawn over something else).
+    ///
+    /// @param w width
+    /// @param h height
+    SaoRaster(int w, int h) {
+        this.w = Math.max(1, w);
+        this.h = Math.max(1, h);
+        px = new int[this.w * this.h];
+    }
+
     /// Fills a convex or fan-able polygon in one colour.
     ///
     /// @param argb the colour
@@ -121,6 +131,18 @@ final class SaoRaster {
         int d = px[i];
         if (a == 255) {
             px[i] = c;
+            return;
+        }
+        int da = d >>> 24;
+        if (da != 255) {
+            // Over a see-through pixel: straight-alpha "over".
+            int oa = a + da * (255 - a) / 255;
+            if (oa == 0) return;
+            int k = da * (255 - a) / 255;
+            int r = ((c >> 16 & 255) * a + (d >> 16 & 255) * k) / oa;
+            int g = ((c >> 8 & 255) * a + (d >> 8 & 255) * k) / oa;
+            int b = ((c & 255) * a + (d & 255) * k) / oa;
+            px[i] = oa << 24 | clamp(r) << 16 | clamp(g) << 8 | clamp(b);
             return;
         }
         int r = ((c >> 16 & 255) * a + (d >> 16 & 255) * (255 - a)) / 255;

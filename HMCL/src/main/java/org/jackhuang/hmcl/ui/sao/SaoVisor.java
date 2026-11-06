@@ -49,6 +49,44 @@ final class SaoVisor {
         return c;
     }
 
+    /// Renders the glass over the dark ground: the back of the space the windows float in.
+    ///
+    /// @param width  pixels
+    /// @param height pixels
+    /// @return the raster
+    static SaoRaster renderGlass(int width, int height) {
+        SaoRaster c = new SaoRaster(width, height, GROUND);
+        fitTo(width, height);
+        glass(c, 1);
+        return c;
+    }
+
+    /// Renders the helmet in front of the windows on a see-through raster: the ear-pad arc, the recess, and with
+    /// the display on the clock and the battery.
+    ///
+    /// @param width  pixels
+    /// @param height pixels
+    /// @param clock  whether the display is on
+    /// @return the raster
+    static SaoRaster renderFrame(int width, int height, boolean clock) {
+        SaoRaster c = new SaoRaster(width, height);
+        fitTo(width, height);
+        arc(c, 1);
+        recess(c, 1);
+        if (clock) {
+            clock(c, 1);
+            battery(c, 1);
+        }
+        return c;
+    }
+
+    /// Contain-fits the episode picture to a size.
+    private static void fitTo(int width, int height) {
+        os = Math.min(width / 1280f, height / 720f);
+        ox = width / 2f - 640 * os;
+        oy = height / 2f - 360 * os;
+    }
+
     private static float ox,oy,os;
     private static float X(float x){return ox+x*os;}
     private static float Y(float y){return oy+y*os;}
