@@ -396,9 +396,20 @@ public interface SaoLauncherService {
         return unsupported();
     }
 
-    /// Renames the signed-in ARGUS ID (James, 7 Nov: a pencil by the name, "indication that you can change it"). The
+    /// Whether a 游戏昵称 is free, for the check while the player types it. Names never collide (James, 7 Nov: "名字不能撞，
+    /// 永远不能"): one name, ignoring case, belongs to one ARGUS ID only, and the server refuses a taken one on rename and
+    /// register whatever this said.
+    ///
+    /// @param name the name typed
+    default CompletableFuture<Boolean> oathNameAvailable(String name) {
+        return CompletableFuture.failedFuture(new SaoAccountException("账号服务暂不可用"));
+    }
+
+    /// Renames the signed-in ARGUS ID (James, 7 Nov: a pencil by the name, "indication that you can change it"; then
+    /// "点击铅笔可以直接在那个界面换昵称": edited in place on the home screen). The
     /// profile ID stays, so worlds, inventory and skin stay with the player. Fails with a message when the name is
-    /// taken or not allowed.
+    /// taken (ignoring case, never shared: see [#oathNameAvailable]) or not allowed, or when it is the fourth change today (James, 7 Nov: "一天最多换三次名字"; the account
+    /// server counts, per account, over the last 24 hours).
     ///
     /// @param name the new name, 3 to 16 letters, digits or underscores
     default CompletableFuture<Void> oathRename(String name) {

@@ -152,6 +152,10 @@ public final class SaoHelmetPage extends StackPane {
     /// Logging in with the remembered password on opening: the player sees the account, not a password form
     /// (James, 7 Nov: "登录进去就直接显示已登录，别再显示一整个密码界面").
     private boolean autoLogging;
+    /// The 游戏昵称 being edited in place (the pencil beside the name).
+    private boolean editingName;
+    /// A name to start the editor with instead of the current one (the screenshot tool).
+    private @Nullable String typedName;
     /// 确定退出吗？ over the player's body.
     private final VBox confirmOut = new VBox(10);
     /// The character.
@@ -548,6 +552,91 @@ public final class SaoHelmetPage extends StackPane {
         return row;
     }
 
+    /// The 游戏昵称 edited in place: the field with the name, save and cancel, and whether the name typed is free
+    /// (names never collide: "名字不能撞，永远不能").
+    private Node nameEditor(SaoData.OathAccount a) {
+        TextField f = field("游戏昵称");
+        f.setText(typedName != null ? typedName : a.name());
+        typedName = null;
+        f.setFont(SaoAssets.sao(20, true));
+        HBox.setHgrow(f, Priority.ALWAYS);
+        Button ok = round(SVG.CHECK, 28, 14), cancel = round(SVG.CLOSE, 28, 14);
+        Text note = dim("", 11);
+        Runnable close = () -> {
+            editingName = false;
+            refreshAccount();
+        };
+        Runnable save = () -> {
+            String n = f.getText().strip();
+            if (n.equals(a.name())) {
+                close.run();
+                return;
+            }
+            if (!SaoAccountApp.NAME.matcher(n).matches()) {
+                problem.setText("! 昵称 3-16 位：字母、数字、下划线");
+                return;
+            }
+            ok.setDisable(true);
+            service.oathRename(n).whenComplete((v, err) -> Platform.runLater(() -> {
+                ok.setDisable(false);
+                if (err != null) {
+                    problem.setText("! " + SaoSkinApp.message(err));
+                    return;
+                }
+                problem.setText("");
+                close.run();
+            }));
+        };
+        ok.setOnAction(e -> save.run());
+        cancel.setOnAction(e -> close.run());
+        f.setOnAction(e -> save.run());
+        f.setOnKeyPressed(e -> {
+            if (e.getCode() == javafx.scene.input.KeyCode.ESCAPE) close.run();
+        });
+        // Whether it is free, a moment after typing stops.
+        PauseTransition wait = new PauseTransition(Duration.millis(350));
+        wait.setOnFinished(e -> {
+            String n = f.getText().strip();
+            note.getStyleClass().setAll("vr-dim");
+            if (n.equals(a.name())) {
+                note.setText("");
+            } else if (!SaoAccountApp.NAME.matcher(n).matches()) {
+                note.setText("3-16 位：字母、数字、下划线");
+            } else {
+                service.oathNameAvailable(n).whenComplete((free, err) -> Platform.runLater(() -> {
+                    if (!f.getText().strip().equals(n) || err != null) return;
+                    note.getStyleClass().setAll(free ? "vr-dim" : "vr-warn");
+                    note.setText(free ? "可以用" : "已经有人用了");
+                    ok.setDisable(!free);
+                }));
+                return;
+            }
+            ok.setDisable(false);
+        });
+        f.textProperty().addListener((o, x, y) -> {
+            ok.setDisable(true);
+            wait.playFromStart();
+        });
+        if (!f.getText().equals(a.name())) {
+            ok.setDisable(true);
+            wait.playFromStart();
+        }
+        Platform.runLater(() -> {
+            f.requestFocus();
+            f.selectAll();
+        });
+        HBox row = new HBox(6, f, ok, cancel);
+        row.setAlignment(Pos.CENTER_LEFT);
+        return new VBox(3, row, note);
+    }
+
+    /// Opens the name editor with a name typed (the screenshot tool).
+    void forceNameEdit(String typed) {
+        typedName = typed;
+        editingName = true;
+        refreshAccount();
+    }
+
     /// One number on the player card: the value large in the SAO face, what it is small under it.
     private static Node statTile(String what, String value) {
         Text v = sao(value, 20, true);
@@ -903,11 +992,15 @@ public final class SaoHelmetPage extends StackPane {
             n.setOnMouseClicked(e -> openAccount(SaoAccountApp.Page.MANAGE));
             // The mailbox and Microsoft live in 设置 only (James, 7 Nov).
             // A pencil beside the name: it can be changed (James, 7 Nov), in 设置.
+            // James, 7 Nov: "点击铅笔可以直接在那个界面换昵称".
             Button rename = round(SVG.EDIT, 26, 13);
-            rename.setOnAction(e -> openAccount(SaoAccountApp.Page.MANAGE));
+            rename.setOnAction(e -> {
+                editingName = true;
+                refreshAccount();
+            });
             HBox nameRow = new HBox(8, n, rename);
             nameRow.setAlignment(Pos.CENTER_LEFT);
-            signedIn.getChildren().setAll(head, nameRow);
+            signedIn.getChildren().setAll(head, editingName ? nameEditor(a) : nameRow);
             // Under the name (James, 7 Nov, picked 1 3 4 5): LV, floor and Col; the last time in the game and the
             // play time; friends in the game now; and a red line while the mailbox waits for its code.
             SaoData.@Nullable PlayerCard card = service.playerCard().get();

@@ -31,6 +31,7 @@ import java.nio.file.StandardCopyOption;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import org.jackhuang.hmcl.sao.SaoAccountException;
@@ -341,6 +342,9 @@ public final class SaoFakeService implements SaoLauncherService {
                 false, verified ? 0 : 47 * 3600 + 12 * 60, null));
     }
 
+    /// Renames today (pretend limit of three).
+    private int renames;
+
     /// Pretend player card.
     private final ObjectProperty<SaoData.@Nullable PlayerCard> card = new SimpleObjectProperty<>();
 
@@ -405,7 +409,14 @@ public final class SaoFakeService implements SaoLauncherService {
     }
 
     @Override
+    public CompletableFuture<Boolean> oathNameAvailable(String name) {
+        return CompletableFuture.completedFuture(!List.of("kirito", "asuna", "klein", "agil").contains(name.toLowerCase(Locale.ROOT)));
+    }
+
+    @Override
     public CompletableFuture<Void> oathRename(String name) {
+        if (!oathNameAvailable(name).join()) return CompletableFuture.failedFuture(new SaoAccountException("这个昵称已经有人用了", "nameTaken"));
+        if (++renames > 3) return CompletableFuture.failedFuture(new SaoAccountException("今天已经改了 3 次，明天再来", "renameLimit"));
         SaoData.@Nullable OathAccount a = oath.get();
         if (a != null) oath.set(new SaoData.OathAccount(name, a.profileId(), a.maskedEmail(), a.emailVerified(), a.locked(), a.graceSeconds(), a.premiumName()));
         return CompletableFuture.completedFuture(null);

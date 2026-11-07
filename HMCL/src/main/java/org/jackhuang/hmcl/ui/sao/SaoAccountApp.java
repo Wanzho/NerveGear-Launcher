@@ -103,7 +103,7 @@ final class SaoAccountApp {
             go.setOnAction(e -> {
                 String n = name.getText().strip(), m = email.getText().strip();
                 if (!NAME.matcher(n).matches()) {
-                    problem.setText("! 名字 3-16 位：字母、数字、下划线");
+                    problem.setText("! 昵称 3-16 位：字母、数字、下划线");
                     return;
                 }
                 if (!EMAIL.matcher(m).matches()) {
@@ -124,7 +124,7 @@ final class SaoAccountApp {
                 call(go, problem, () -> s.oathRegister(n, m, p), () -> go(Page.VERIFY), p);
             });
             VBox form = form(
-                    key("名字"), name,
+                    key("游戏昵称"), name,
                     key("邮箱"), email,
                     key("密码"), pw,
                     key("再输一次"), again,
@@ -132,10 +132,10 @@ final class SaoAccountApp {
             // James, 7 Nov: "在这里也来个绑定正版账号，这样直接登录微软也可以等于登录sao".
             Button premium = button("绑定正版账号");
             premium.setOnAction(e -> withMicrosoft(() -> call(premium, problem, s::oathPremiumLogin, close)));
-            Text premiumWhy = dim("用微软正版直接登录，等于有了 ARGUS ID", 11);
+            Text premiumWhy = dim("拥有微软正版可以直接登录", 11);
             premiumWhy.setWrappingWidth(230);
             VBox below = new VBox(8, link("已有账号？去登录", close), rule(), premium, premiumWhy);
-            return page(SVG.PERSON, "创建 ARGUS ID", "名字就是游戏里的角色名", form, below);
+            return page(SVG.PERSON, "创建 ARGUS ID", "", form, below);
         }
 
         // -------------------------------------------------------------- verify
@@ -259,13 +259,14 @@ final class SaoAccountApp {
             });
             HBox.setHgrow(email, Priority.ALWAYS);
 
-            // The name: the pencil beside it on the home screen opens here.
-            TextField newName = field("新名字");
-            Button rename = button("改名");
+            // 游戏昵称 (James, 7 Nov: "把名字换成游戏昵称"): the pencil beside it on the home screen opens here. At most
+            // three changes a day; the server says so when the fourth is tried.
+            TextField newName = field("新昵称");
+            Button rename = button("修改");
             rename.setOnAction(e -> {
                 String n = newName.getText().strip();
                 if (!NAME.matcher(n).matches()) {
-                    problem.setText("! 名字 3-16 位：字母、数字、下划线");
+                    problem.setText("! 昵称 3-16 位：字母、数字、下划线");
                     return;
                 }
                 call(rename, problem, () -> s.oathRename(n), () -> go(Page.MANAGE));
@@ -301,9 +302,7 @@ final class SaoAccountApp {
             } else {
                 Button link = button("绑定 Microsoft");
                 link.setOnAction(e -> call(link, problem, s::oathLinkPremium, () -> go(Page.MANAGE)));
-                Text why = dim("用已登录的 Microsoft 正版绑定这个账号，名字被占时可找回", 11);
-                why.setWrappingWidth(240);
-                premium = new VBox(6, link, why);
+                premium = link;
             }
             Button out = button("退出登录");
             out.setOnAction(e -> {
@@ -315,7 +314,7 @@ final class SaoAccountApp {
             left.setMinWidth(260);
             left.setMaxWidth(260);
             VBox right = new VBox(7,
-                    key("名字"), new HBox(8, newName, rename),
+                    key("游戏昵称"), new HBox(8, newName, rename),
                     rule(),
                     key("邮箱"), new HBox(8, email, changeMail),
                     rule(),
@@ -412,6 +411,7 @@ final class SaoAccountApp {
         badge.setMinSize(64, 64);
         badge.setMaxSize(64, 64);
         VBox left = new VBox(12, badge, t, line, below);
+        if (sub.isEmpty()) left.getChildren().remove(line);
         left.setMinWidth(240);
         left.setMaxWidth(240);
         return columns(left, (VBox) form);

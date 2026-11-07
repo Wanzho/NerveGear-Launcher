@@ -78,6 +78,13 @@ public final class SaoScreenShotTool {
                 WritableImage[] im = new WritableImage[1];
                 fx(() -> im[0] = scene[0].snapshot(null));
                 write(im[0], out.resolve(p + "40-server-nodes.png"));
+                // The nickname edited in place: a free name, then a taken one.
+                for (String[] t : new String[][]{{"Kirito_Black", "41-name-edit-free"}, {"Asuna", "42-name-edit-taken"}}) {
+                    fx(() -> page[0].forceNameEdit(t[0]));
+                    Thread.sleep(900);
+                    fx(() -> im[0] = scene[0].snapshot(null));
+                    write(im[0], out.resolve(p + t[1] + ".png"));
+                }
             } else if (big) {
                 String[] apps = {"settings", "skin", "worlds", "multiplayer", "packs", "screenshots", "logs", "java", "downloads", "about"};
                 shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "00-home.png"));
