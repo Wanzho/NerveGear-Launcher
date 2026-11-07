@@ -175,7 +175,7 @@ public final class SaoData {
     ///
     /// @param name     their 游戏昵称
     /// @param presence where they are
-    /// @param where    a few words on where in the game ("第 1 层", "单人游戏"), empty when not in it
+    /// @param where    a few words on where in the game ("誓约", "单人游戏"; no floor: James, 7 Nov), empty when not in it
     /// @param head     a picture of their skin's face, or null while not downloaded
     @NotNullByDefault
     public record Friend(String name, Presence presence, String where, @Nullable Path head) {
