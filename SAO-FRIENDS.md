@@ -18,8 +18,9 @@ failed sends remove their pending row and complete with a short Chinese
 There is no durable offline outbox or failed-message row in the current data records.
 
 Game presence follows the actual prepared ARGUS process owner. The existing process
-creation/exit hooks set GAME / 单人游戏 or LAUNCHER; live dedicated-server presence and
-its explicit dimension-floor mapping override the process report. Account switches
+creation/exit hooks set GAME / 单人游戏 or LAUNCHER; live dedicated-server presence
+overrides the process report with GAME / 誓约. Floor text is never exposed, including
+when an older server sends it. Account switches
 cannot attach the prior account's running game to the new social session. Closing or
 signing out cancels stale publications and closes the live body. Polling presence has
 a 25-second expiry; the current socket supersedes a stale same-device polling lease.

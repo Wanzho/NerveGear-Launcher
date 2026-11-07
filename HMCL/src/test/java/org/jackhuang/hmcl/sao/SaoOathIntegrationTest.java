@@ -220,7 +220,7 @@ class SaoOathIntegrationTest {
                 java.net.URI.create("http://127.0.0.1:1/session/minecraft/join"));
     }
 
-    /// Resolves the explicit private mail fixture without ever printing a code or message.
+    /// Reads the explicit labeled code line, ignoring digits in synthetic nicknames and never printing mail.
     private static String code(String recipient, @Nullable String previous) {
         AtomicReference<@Nullable String> result = new AtomicReference<>();
         assertTimeoutPreemptively(Duration.ofSeconds(20), () -> {
@@ -231,8 +231,8 @@ class SaoOathIntegrationTest {
                     for (int i = messages.size() - 1; i >= 0; i--) {
                         JsonObject object = messages.get(i).getAsJsonObject();
                         if (!object.get("to").getAsString().equals(recipient)) continue;
-                        java.util.regex.Matcher match = java.util.regex.Pattern.compile("(?<![0-9])[0-9]{6}(?![0-9])").matcher(object.get("body").getAsString());
-                        if (match.find() && !match.group().equals(previous)) result.set(match.group());
+                        java.util.regex.Matcher match = java.util.regex.Pattern.compile("(?m)^(?:验证码：|Verification number: )([0-9]{6})$").matcher(object.get("body").getAsString());
+                        if (match.find() && !match.group(1).equals(previous)) result.set(match.group(1));
                         break;
                     }
                 }

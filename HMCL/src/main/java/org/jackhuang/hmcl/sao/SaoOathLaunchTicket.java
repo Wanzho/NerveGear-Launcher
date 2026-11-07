@@ -4,14 +4,12 @@ package org.jackhuang.hmcl.sao;
 import com.google.gson.JsonObject;
 import org.jackhuang.hmcl.util.logging.Logger;
 import org.jetbrains.annotations.NotNullByDefault;
-import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.nio.file.attribute.*;
 import java.util.Arrays;
-import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
@@ -27,6 +25,11 @@ final class SaoOathLaunchTicket implements AutoCloseable {
 
     /// Creates the private file before process construction and schedules deletion at the server's expiry.
     SaoOathLaunchTicket(Path instance, String api, String profileId, String server, JsonObject reply) throws IOException, SaoAccountException {
+        this(instance,instance,api,profileId,server,reply);
+    }
+
+    /// Hardens the launcher-owned ancestor chain before writing any proof bytes; ACL changes remain in place.
+    SaoOathLaunchTicket(Path launcherRoot,Path instance, String api, String profileId, String server, JsonObject reply) throws IOException, SaoAccountException {
         String ticket;
         String issuedProfile;
         long expires;
@@ -45,6 +48,7 @@ final class SaoOathLaunchTicket implements AutoCloseable {
         expected = file.toString().getBytes(StandardCharsets.UTF_8);
         path = instance.resolve(FILE_NAME);
         SaoUninstaller.rejectSymlinkAncestors(path);
+        SaoWindowsPrivatePaths.prepare(launcherRoot,instance);
         Files.createDirectories(instance);
         Path temporary = Files.getFileStore(instance).supportsFileAttributeView(PosixFileAttributeView.class)
                 ? Files.createTempFile(instance, ".sao-ticket-", ".tmp", PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")))
@@ -62,10 +66,8 @@ final class SaoOathLaunchTicket implements AutoCloseable {
         if (Files.getFileStore(file).supportsFileAttributeView(PosixFileAttributeView.class)) {
             Files.setPosixFilePermissions(file, PosixFilePermissions.fromString("rw-------")); return;
         }
-        @Nullable AclFileAttributeView acl = Files.getFileAttributeView(file, AclFileAttributeView.class, LinkOption.NOFOLLOW_LINKS);
-        if (acl == null) throw new IOException("无法保护启动凭证");
-        acl.setAcl(List.of(AclEntry.newBuilder().setType(AclEntryType.ALLOW).setPrincipal(Files.getOwner(file))
-                .setPermissions(java.util.EnumSet.allOf(AclEntryPermission.class)).build()));
+        if (!com.sun.jna.Platform.isWindows()) throw new IOException("无法保护启动凭证");
+        SaoWindowsPrivatePaths.protect(file,false);
     }
 
     /// Deletes this launch's leftover ticket on process exit/failure/expiry without following links.

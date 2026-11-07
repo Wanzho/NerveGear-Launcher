@@ -17,6 +17,7 @@ import org.jackhuang.hmcl.util.logging.Logger;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.UnmodifiableView;
+import org.jetbrains.annotations.Unmodifiable;
 
 import java.io.IOException;
 import java.net.URI;
@@ -376,7 +377,7 @@ final class SaoOathAccounts implements AutoCloseable {
                         JsonObject ticket = client.json("POST", "sao/launch", new JsonObject(), prepared.access());
                         try {
                             if (session != prepared || preparedGeneration != generation.get()) throw new SaoAccountException("请重新登录 ARGUS ID", "invalidSession");
-                            return new SaoOathLaunchTicket(instance, prepared.root().toString(), prepared.id(), server, ticket);
+                            return new SaoOathLaunchTicket(root, instance, prepared.root().toString(), prepared.id(), server, ticket);
                         }
                         finally { ticket.remove("launchTicket"); }
                     });
@@ -468,13 +469,13 @@ final class SaoOathAccounts implements AutoCloseable {
         @Nullable Session active = session;
         if (active == null) { currentCard = null; return; }
         SaoData.@Nullable PlayerCard previous = currentCard;
-        int level = previous == null ? -1 : previous.level(), floor = previous == null ? -1 : previous.floor();
+        int level = previous == null ? -1 : previous.level(), floor = -1;
         long col = previous == null ? -1 : previous.col();
-        List<String> friends = previous == null ? List.of() : previous.friendsOnline();
+        @Unmodifiable List<String> friends = previous == null ? List.of() : previous.friendsOnline();
         try {
             JsonObject values = client.json("GET", "sao/card", null, active.access());
             if (!active.id().equalsIgnoreCase(required(values, "id"))) throw new SaoAccountException("角色信息无效", "invalidResponse");
-            level = Math.max(-1, values.get("level").getAsInt()); floor = Math.max(-1, values.get("floor").getAsInt());
+            level = Math.max(-1, values.get("level").getAsInt());
             col = Math.max(-1, values.get("col").getAsLong());
             List<String> names = new ArrayList<>();
             if (values.get("friends") instanceof JsonArray list) {

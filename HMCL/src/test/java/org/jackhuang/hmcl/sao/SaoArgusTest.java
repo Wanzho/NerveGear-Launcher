@@ -61,7 +61,7 @@ class SaoArgusTest {
     }
 
     /// Rename is case-insensitively unique and limited by the server, retains profile ID, and preserves protected auto-login.
-    @Test void renameReservationsQuotaAndRememberedRestart() throws Exception {
+    @Test void renameReuseQuotaAndRememberedRestart() throws Exception {
         try (SaoLocalPremiumFixture server = fixture("rename")) {
             Path root = temporary.resolve("rename-client");
             char[] password = secret(); String privatePassword = new String(password);
@@ -75,7 +75,7 @@ class SaoArgusTest {
                 failure(engine.oathRename("rEsErVeDnAmE"), "nameTaken");
                 assertTrue(engine.oathNameAvailable("RenameOne").get(10, TimeUnit.SECONDS));
                 await(engine.oathRename("RenameOne")); assertEquals(id, account(engine).profileId());
-                assertFalse(engine.oathNameAvailable("renamestart").get(10, TimeUnit.SECONDS));
+                assertTrue(engine.oathNameAvailable("renamestart").get(10, TimeUnit.SECONDS));
                 await(engine.oathRename("RenameTwo")); await(engine.oathRename("RenameThree"));
                 failure(engine.oathRename("RenameFour"), "renameLimit");
                 assertEquals("RenameThree", account(engine).name()); assertEquals(id, account(engine).profileId());
