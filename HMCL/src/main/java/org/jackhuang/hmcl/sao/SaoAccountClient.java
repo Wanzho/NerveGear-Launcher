@@ -65,6 +65,13 @@ final class SaoAccountClient {
 
     /// Sends one JSON operation with optional ephemeral bearer authorization; request bytes are wiped afterwards.
     JsonObject json(String method, String route, @Nullable JsonObject body, @Nullable String bearer) throws SaoAccountException {
+        try { return jsonAt(root(), method, route, body, bearer); }
+        catch (SaoAccountException failure) { throw failure; }
+        catch (RuntimeException invalid) { throw new SaoAccountException("账号服务响应无效", "invalidResponse"); }
+    }
+
+    /// Pins a social session's captured issuing origin, including cleanup after the configured API changes.
+    JsonObject jsonAt(URI origin, String method, String route, @Nullable JsonObject body, @Nullable String bearer) throws SaoAccountException {
         byte @Nullable [] bytes = null;
         try {
             if (body != null) {
@@ -72,7 +79,7 @@ final class SaoAccountClient {
                 bytes = body.toString().getBytes(StandardCharsets.UTF_8);
                 if (bytes.length > 16384) throw new SaoAccountException("输入内容过长", "invalidInput");
             }
-            byte[] response = request(root().resolve(route), method, bytes, "application/json; charset=utf-8", bearer);
+            byte[] response = request(checkedRoot(origin.toString()).resolve(route), method, bytes, "application/json; charset=utf-8", bearer);
             try {
                 if (response.length == 0) return new JsonObject();
                 return JsonParser.parseString(new String(response, StandardCharsets.UTF_8)).getAsJsonObject();

@@ -98,7 +98,7 @@ final class SaoFriends implements AutoCloseable {
     /// Returns the stable oldest-first list, loading the newest history page on first access.
     @UnmodifiableView ObservableList<SaoData.ChatMessage> messages(String id){var view=views.computeIfAbsent(id,k->FXCollections.observableArrayList());loadOlder(id);return publicViews.computeIfAbsent(id,k->FXCollections.unmodifiableObservableList(view));}
     /// Loads one older page when the screen asks again; the seam has no explicit scroll/page callback.
-    private void loadOlder(String id){if(session==null||!loading.add(id))return;submit(s->{long before=older.getOrDefault(id,0L);if(before==-1)return new JsonObject();var page=client.json("GET","sao/social/history?chat="+id+"&before="+before+"&limit=50",null,s.token());for(var e:page.getAsJsonArray("messages"))remember(e.getAsJsonObject());long next=page.get("nextBefore").getAsLong();older.put(id,next==0?-1:next);publishMessages(s,id);return page;}).whenComplete((v,e)->loading.remove(id));}
+    private void loadOlder(String id){if(session==null||!loading.add(id))return;submit(s->{long before=older.getOrDefault(id,0L);if(before==-1)return new JsonObject();var page=client.jsonAt(s.root(),"GET","sao/social/history?chat="+id+"&before="+before+"&limit=50",null,s.token());for(var e:page.getAsJsonArray("messages"))remember(e.getAsJsonObject());long next=page.get("nextBefore").getAsLong();older.put(id,next==0?-1:next);publishMessages(s,id);return page;}).whenComplete((v,e)->loading.remove(id));}
     /// Starts/replaces subscription authorization; old-account publications are fenced before any clear is queued.
     synchronized void session(@Nullable Session next){if(Objects.equals(session,next))return;session=next;long epoch=generation.incrementAndGet();publish(()->futures.forEach(f->f.completeExceptionally(new SaoAccountException("账号操作已取消","cancelled"))));closeInput();cursor=0;pending.clear();
         execute(()->{messages.clear();older.clear();loading.clear();if(next!=null)cursor=readCursor(next);publish(()->{if(epoch!=generation.get())return;friends.clear();requests.clear();chats.clear();views.values().forEach(List::clear);});});
@@ -107,18 +107,18 @@ final class SaoFriends implements AutoCloseable {
     /// Sets process presence and rotates the stream immediately so friends receive the new state.
     void playing(boolean value){playing=value;closeInput();}
     /// Sends one friend/group operation, then refreshes authoritative state before completing on JavaFX.
-    CompletableFuture<JsonObject> operation(String action,JsonObject body){return submit(s->{var result=client.json("POST","sao/social/"+action,body,s.token());apply(s,client.json("GET","sao/social/state",null,s.token()));return result;});}
+    CompletableFuture<JsonObject> operation(String action,JsonObject body){return submit(s->{var result=client.jsonAt(s.root(),"POST","sao/social/"+action,body,s.token());apply(s,client.jsonAt(s.root(),"GET","sao/social/state",null,s.token()));return result;});}
     /// Shows a pending record immediately, then retries an ambiguous send with the identical nonce.
     CompletableFuture<Void> send(String id,String text){@Nullable Session s=session;if(s==null)return failed("请先登录 ARGUS ID","signedOut");
         String nonce=UUID.randomUUID().toString();var body=object("chat",id,"text",text,"nonce",nonce);body.addProperty("time",System.currentTimeMillis());body.addProperty("from",s.name());pending.put(nonce,body);publish(()->{if(session==s)rebuildView(s,id);});
-        return submit(active->{JsonObject response;try{response=client.json("POST","sao/social/send",object("chat",id,"text",text,"nonce",nonce),active.token());}catch(SaoAccountException failure){if(!failure.code().equals("network"))throw failure;response=client.json("POST","sao/social/send",object("chat",id,"text",text,"nonce",nonce),active.token());}remember(response);pending.remove(nonce);publishMessages(active,id);apply(active,client.json("GET","sao/social/state",null,active.token()));return response;}).handle((v,failure)->{
+        return submit(active->{JsonObject response;try{response=client.jsonAt(active.root(),"POST","sao/social/send",object("chat",id,"text",text,"nonce",nonce),active.token());}catch(SaoAccountException failure){if(!failure.code().equals("network"))throw failure;response=client.jsonAt(active.root(),"POST","sao/social/send",object("chat",id,"text",text,"nonce",nonce),active.token());}remember(response);pending.remove(nonce);publishMessages(active,id);apply(active,client.jsonAt(active.root(),"GET","sao/social/state",null,active.token()));return response;}).handle((v,failure)->{
             if(failure!=null){pending.remove(nonce);publish(()->{if(session==s)rebuildView(s,id);});throw new CompletionException(failure);}return null;
         });
     }
     /// Marks the messages already fetched when the screen explicitly reports the conversation open.
     void markRead(String id){submit(s->{mark(s,id);return new JsonObject();}).exceptionally(failure->{errors.accept(publicMessage(failure));return null;});}
     /// Uses only messages already applied by this engine, protecting arrivals racing the read call.
-    private void mark(Session s,String id)throws SaoAccountException{long through=messages.getOrDefault(id,new TreeMap<>()).isEmpty()?0:messages.get(id).lastKey();var body=object("chat",id);body.addProperty("through",through);client.json("POST","sao/social/read",body,s.token());}
+    private void mark(Session s,String id)throws SaoAccountException{long through=messages.getOrDefault(id,new TreeMap<>()).isEmpty()?0:messages.get(id).lastKey();var body=object("chat",id);body.addProperty("through",through);client.jsonAt(s.root(),"POST","sao/social/read",body,s.token());}
     /// Runs the finite SSE reconnect loop, resuming from the durable per-profile cursor.
     private void stream(Session s,long epoch){int failures=0;while(valid(s,epoch)){
         try{
@@ -131,13 +131,13 @@ final class SaoFriends implements AutoCloseable {
                 var line=new ByteArrayOutputStream();int n;while(valid(s,epoch)&&(n=body.read())!=-1){if(n=='\n'){String value=line.toString(StandardCharsets.UTF_8);line.reset();if(value.startsWith("data: ")){JsonObject batch=JsonParser.parseString(value.substring(6)).getAsJsonObject();submitBatch(s,epoch,batch).get(15,TimeUnit.SECONDS);failures=0;}}else{if(line.size()>1024*1024)throw new IOException();line.write(n);}}
             }finally{input.set(null);}
             failures=0;
-        }catch(Exception unavailable){if(!valid(s,epoch))break;failures++;try{var batch=client.json("GET","sao/social/poll?device="+device+"&after="+cursor+"&game="+playing,null,s.token());submitBatch(s,epoch,batch).get(15,TimeUnit.SECONDS);}catch(Exception ignored){}}
+        }catch(Exception unavailable){if(!valid(s,epoch))break;failures++;try{var batch=client.jsonAt(s.root(),"GET","sao/social/poll?device="+device+"&after="+cursor+"&game="+playing,null,s.token());submitBatch(s,epoch,batch).get(15,TimeUnit.SECONDS);}catch(Exception ignored){}}
         if(valid(s,epoch))try{Thread.sleep(failures>0?Math.min(10000,1000L<<Math.min(failures,3)):200);}catch(InterruptedException ended){Thread.currentThread().interrupt();break;}
     }}
     /// Serializes live batches with mutations/history, then persists and ACKs only after JavaFX application.
     private CompletableFuture<JsonObject> submitBatch(Session s,long epoch,JsonObject batch){return submit(active->{if(active!=s||!valid(s,epoch))throw new SaoAccountException("账号操作已取消","cancelled");for(var e:batch.getAsJsonArray("messages"))remember(e.getAsJsonObject());apply(s,batch);long next=batch.get("cursor").getAsLong();
         var applied=new CompletableFuture<Void>();publish(()->{if(valid(s,epoch))applied.complete(null);else applied.completeExceptionally(new CancellationException());});applied.get(10,TimeUnit.SECONDS);
-        if(!valid(s,epoch))throw new CancellationException();if(next!=cursor){writeCursor(s,next);cursor=next;var ack=object("device",device);ack.addProperty("cursor",next);client.json("POST","sao/social/ack",ack,s.token());}return batch;
+        if(!valid(s,epoch))throw new CancellationException();if(next!=cursor){writeCursor(s,next);cursor=next;var ack=object("device",device);ack.addProperty("cursor",next);client.jsonAt(s.root(),"POST","sao/social/ack",ack,s.token());}return batch;
     });}
     /// Retains each message ID exactly once and reconciles its pending nonce, including ambiguous send retries.
     private void remember(JsonObject message){String id=message.get("chat").getAsString();messages.computeIfAbsent(id,k->new TreeMap<>()).put(message.get("id").getAsLong(),message.deepCopy());pending.remove(message.get("nonce").getAsString());}
@@ -179,5 +179,5 @@ final class SaoFriends implements AutoCloseable {
     /// Unwraps only fixed Chinese exception messages for void operations.
     private static String publicMessage(Throwable failure){while(failure instanceof CompletionException&&failure.getCause()!=null)failure=failure.getCause();return failure instanceof SaoAccountException?failure.getMessage():"聊天同步失败，稍后再试";}
     /// Releases both workers and live presence; it never revokes a different device's account session.
-    @Override public void close(){if(!closed.compareAndSet(false,true))return;@Nullable Session old=session;session=null;generation.incrementAndGet();closeInput();live.shutdownNow();worker.shutdownNow();publish(()->futures.forEach(f->f.completeExceptionally(new SaoAccountException("聊天服务已关闭","closed"))));if(old!=null)CompletableFuture.runAsync(()->{try{client.json("POST","sao/social/disconnect",object("device",device),old.token());}catch(SaoAccountException ignored){}});}
+    @Override public void close(){if(!closed.compareAndSet(false,true))return;@Nullable Session old=session;session=null;generation.incrementAndGet();closeInput();live.shutdownNow();worker.shutdownNow();publish(()->futures.forEach(f->f.completeExceptionally(new SaoAccountException("聊天服务已关闭","closed"))));if(old!=null)CompletableFuture.runAsync(()->{try{client.jsonAt(old.root(),"POST","sao/social/disconnect",object("device",device),old.token());}catch(SaoAccountException ignored){}});}
 }
