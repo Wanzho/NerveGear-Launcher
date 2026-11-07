@@ -637,19 +637,25 @@ public final class SaoHelmetPage extends StackPane {
         refreshAccount();
     }
 
-    /// One number on the player card: the value large in the SAO face, what it is small under it.
-    private static Node statTile(String what, String value) {
-        Text v = sao(value, 20, true);
-        Text k = dim(what, 11);
-        VBox t = new VBox(0, v, k);
-        t.getStyleClass().add("vr-tile");
-        t.setPadding(new Insets(5, 10, 5, 10));
-        // Three equal tiles across the column.
-        t.setMinWidth(0);
-        t.setPrefWidth(1);
-        HBox.setHgrow(t, Priority.ALWAYS);
-        t.setMaxWidth(Double.MAX_VALUE);
-        return t;
+    /// One number on the player card: what it is small, the value in the SAO face, no box (James, 7 Nov: the three
+    /// big tiles were too heavy, "给这三个雷霆大框换个表现形式").
+    private static Node stat(String before, String value, String after) {
+        HBox h = new HBox(4);
+        h.setAlignment(Pos.BASELINE_LEFT);
+        if (!before.isEmpty()) h.getChildren().add(dim(before, 11));
+        h.getChildren().add(sao(value, 19, true));
+        if (!after.isEmpty()) h.getChildren().add(dim(after, 11));
+        return h;
+    }
+
+    /// A short upright line between stats.
+    private static Node statRule() {
+        Region r = new Region();
+        r.getStyleClass().add("vr-rule");
+        r.setMinSize(1, 14);
+        r.setPrefSize(1, 14);
+        r.setMaxSize(1, 14);
+        return r;
     }
 
     /// When the game last ran, in a few words: 今天 21:40, 昨天 21:40, 3 天前.
@@ -1005,10 +1011,11 @@ public final class SaoHelmetPage extends StackPane {
             // play time; friends in the game now; and a red line while the mailbox waits for its code.
             SaoData.@Nullable PlayerCard card = service.playerCard().get();
             if (card != null) {
-                HBox tiles = new HBox(6,
-                        statTile("LV", card.level() < 0 ? "-" : Integer.toString(card.level())),
-                        statTile("楼层", card.floor() < 0 ? "-" : Integer.toString(card.floor())),
-                        statTile("Col", card.col() < 0 ? "-" : String.format(java.util.Locale.ROOT, "%,d", card.col())));
+                HBox tiles = new HBox(12,
+                        stat("LV", card.level() < 0 ? "-" : Integer.toString(card.level()), ""), statRule(),
+                        stat("第", card.floor() < 0 ? "-" : Integer.toString(card.floor()), "层"), statRule(),
+                        stat("", card.col() < 0 ? "-" : String.format(java.util.Locale.ROOT, "%,d", card.col()), "Col"));
+                tiles.setAlignment(Pos.CENTER_LEFT);
                 Text last = dim(card.lastPlayed() <= 0 ? "还没进过游戏"
                         : "上次进入 " + whenText(card.lastPlayed()) + " · 共 " + SaoAccountApp.hours(card.playSeconds()), 12);
                 HBox friends = new HBox(6);
