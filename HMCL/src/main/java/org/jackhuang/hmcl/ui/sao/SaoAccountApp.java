@@ -15,6 +15,7 @@ import javafx.scene.control.PasswordField;
 import javafx.scene.control.TextField;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.scene.text.Text;
@@ -277,7 +278,7 @@ final class SaoAccountApp {
                 Button link = button("正版验证");
                 link.setOnAction(e -> call(link, problem, s::oathLinkPremium, () -> go(Page.MANAGE)));
                 Text why = dim("用已登录的 Microsoft 正版绑定这个账号，名字被占时可找回", 11);
-                why.setWrappingWidth(250);
+                why.setWrappingWidth(240);
                 premium = new VBox(6, link, why);
             }
             Button out = button("退出登录");
@@ -286,16 +287,17 @@ final class SaoAccountApp {
                 close.run();
             });
 
-            VBox left = new VBox(10, name, mail, rule(), key("正版"), premium, grow(), out);
-            left.setMinWidth(280);
-            left.setMaxWidth(280);
+            VBox left = new VBox(10, name, mail, rule(), key("正版"), premium, out);
+            left.setMinWidth(260);
+            left.setMaxWidth(260);
             VBox right = new VBox(7,
                     key("邮箱"), new HBox(8, email, changeMail),
                     rule(),
                     key("密码"), old, neu, new HBox(8, again, changePw),
-                    grow(), problem);
+                    problem);
             HBox.setHgrow(again, Priority.ALWAYS);
-            HBox.setHgrow(right, Priority.ALWAYS);
+            right.setMinWidth(320);
+            right.setMaxWidth(320);
             return columns(left, right);
         }
 
@@ -359,18 +361,17 @@ final class SaoAccountApp {
         badge.getStyleClass().add("vr-stage");
         badge.setMinSize(64, 64);
         badge.setMaxSize(64, 64);
-        VBox left = new VBox(12, badge, t, line, grow(), below);
-        left.setMinWidth(250);
-        left.setMaxWidth(250);
+        VBox left = new VBox(12, badge, t, line, below);
+        left.setMinWidth(240);
+        left.setMaxWidth(240);
         return columns(left, (VBox) form);
     }
 
     /// The form column.
     private static VBox form(Node... nodes) {
         VBox v = new VBox(6, nodes);
-        v.setMaxWidth(340);
-        v.setPrefWidth(340);
-        HBox.setHgrow(v, Priority.ALWAYS);
+        v.setMinWidth(320);
+        v.setMaxWidth(320);
         return v;
     }
 
@@ -380,7 +381,15 @@ final class SaoAccountApp {
         line.getStyleClass().add("vr-rule");
         line.setMinWidth(1);
         line.setMaxWidth(1);
-        HBox h = new HBox(22, left, line, right);
+        line.setPrefHeight(250);
+        line.setMaxHeight(Region.USE_PREF_SIZE);
+        // The two columns sit together in the middle of the window (James, 7 Nov: "更中间一点").
+        for (VBox v : new VBox[]{left, right}) {
+            v.setMaxHeight(Region.USE_PREF_SIZE);
+            v.setAlignment(Pos.CENTER_LEFT);
+        }
+        HBox h = new HBox(30, left, line, right);
+        h.setAlignment(Pos.CENTER);
         VBox.setVgrow(h, Priority.ALWAYS);
         return h;
     }
@@ -417,7 +426,7 @@ final class SaoAccountApp {
         Text t = new Text();
         t.getStyleClass().add("vr-warn");
         t.setFont(ui(12, false));
-        t.setWrappingWidth(330);
+        t.setWrappingWidth(310);
         return t;
     }
 
