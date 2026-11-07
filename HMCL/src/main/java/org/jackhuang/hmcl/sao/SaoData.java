@@ -161,6 +161,61 @@ public final class SaoData {
         public PlayerCard { friendsOnline = List.copyOf(friendsOnline); }
     }
 
+    /// Where a friend is now.
+    public enum Presence {
+        /// In the game (on 誓约 or in singleplayer).
+        GAME,
+        /// The launcher is open, the game is not.
+        LAUNCHER,
+        /// Neither.
+        OFFLINE
+    }
+
+    /// One ARGUS ID friend (James, 7 Nov: "好友，和好友聊天系统…游戏外也可以发消息的那种").
+    ///
+    /// @param name     their 游戏昵称
+    /// @param presence where they are
+    /// @param where    a few words on where in the game ("第 1 层", "单人游戏"), empty when not in it
+    /// @param head     a picture of their skin's face, or null while not downloaded
+    @NotNullByDefault
+    public record Friend(String name, Presence presence, String where, @Nullable Path head) {
+    }
+
+    /// A friend request.
+    ///
+    /// @param name     the other player's 游戏昵称
+    /// @param incoming true when they asked this player, false when this player asked them
+    @NotNullByDefault
+    public record FriendRequest(String name, boolean incoming) {
+    }
+
+    /// One conversation: with one friend, or a group ("群聊也要").
+    ///
+    /// @param id       the server's ID for it
+    /// @param title    the friend's name, or the group's name
+    /// @param group    whether it is a group
+    /// @param members  the members' names, this player included
+    /// @param unread   messages not read yet
+    /// @param lastText the last message, for the list
+    /// @param lastTime when it was sent, epoch milliseconds, 0 when there is none
+    @NotNullByDefault
+    public record Chat(String id, String title, boolean group, @Unmodifiable List<String> members, int unread,
+                       String lastText, long lastTime) {
+        /// Copies the members so a newer chat never shares a list with an older one.
+        public Chat { members = List.copyOf(members); }
+    }
+
+    /// One message.
+    ///
+    /// @param from    who sent it
+    /// @param text    what it says
+    /// @param time    when, epoch milliseconds
+    /// @param mine    sent by this player
+    /// @param pending sent by this player and not delivered to the server yet
+    @NotNullByDefault
+    public record ChatMessage(String from, String text, long time, boolean mine, boolean pending) {
+    }
+
     /// One download task.
     ///
     /// @param name          short label

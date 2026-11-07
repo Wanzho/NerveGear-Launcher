@@ -315,12 +315,19 @@ public final class SaoHelmetPage extends StackPane {
         openNodes = () -> {
             if (!nodes.isVisible()) more.fire();
         };
-        for (String n : service.serverNodes()) {
-            // No light: the launcher does not ping the nodes.
-            Text t = sao(n, 12, false);
-            t.getStyleClass().setAll("vr-dim");
-            nodes.getChildren().add(t);
-        }
+        // The manifest loads in the background (launcherback5): read the address and nodes again once it has.
+        Runnable fillNodes = () -> {
+            address.setText(service.serverAddress());
+            nodes.getChildren().clear();
+            for (String n : service.serverNodes()) {
+                // No light: the launcher does not ping the nodes.
+                Text t = sao(n, 12, false);
+                t.getStyleClass().setAll("vr-dim");
+                nodes.getChildren().add(t);
+            }
+        };
+        fillNodes.run();
+        service.state().addListener((o, a, b) -> fillNodes.run());
         nodes.setVisible(false);
         nodes.setManaged(false);
         HBox addressRow = new HBox(8, address, grow(), more);
@@ -649,6 +656,15 @@ public final class SaoHelmetPage extends StackPane {
         HBox row = new HBox(6, f, ok, cancel);
         row.setAlignment(Pos.CENTER_LEFT);
         return new VBox(3, row, note);
+    }
+
+    /// Opens 好友 on the conversation with a friend (their name under the player's).
+    private void openFriendChat(String name) {
+        service.directChat(name).whenComplete((id, err) -> Platform.runLater(() -> {
+            if (id != null) SaoFriendsApp.openFirst = id;
+            for (int i = 0; i < SaoApps.APPS.length; i++)
+                if (SaoApps.APPS[i].label().equals("好友")) openApp(SaoApps.APPS[i], dockButtons[i]);
+        }));
     }
 
     /// Asks before saving a new 游戏昵称.
@@ -1072,7 +1088,8 @@ public final class SaoHelmetPage extends StackPane {
                     for (String f : card.friendsOnline().subList(0, Math.min(3, card.friendsOnline().size()))) {
                         HBox chip = new HBox(5, light(true), sao(f, 12, false));
                         chip.setAlignment(Pos.CENTER_LEFT);
-                        chip.getStyleClass().add("vr-name");
+                        chip.getStyleClass().addAll("vr-name", "vr-row");
+                        chip.setOnMouseClicked(e -> openFriendChat(f));
                         friends.getChildren().add(chip);
                     }
                     if (card.friendsOnline().size() > 3) friends.getChildren().add(dim("+" + (card.friendsOnline().size() - 3), 12));

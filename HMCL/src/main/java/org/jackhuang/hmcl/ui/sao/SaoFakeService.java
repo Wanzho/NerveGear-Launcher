@@ -345,6 +345,126 @@ public final class SaoFakeService implements SaoLauncherService {
     /// Renames today (pretend limit of three).
     private int renames;
 
+    // ---- pretend friends and chat
+    private static long ago(long minutes) {
+        return System.currentTimeMillis() - minutes * 60_000L;
+    }
+
+    private final ObservableList<SaoData.Friend> friends = FXCollections.observableArrayList(
+            new SaoData.Friend("Asuna", SaoData.Presence.GAME, "第 1 层", null),
+            new SaoData.Friend("Klein", SaoData.Presence.GAME, "单人游戏", null),
+            new SaoData.Friend("Agil", SaoData.Presence.LAUNCHER, "", null),
+            new SaoData.Friend("Silica", SaoData.Presence.OFFLINE, "", null),
+            new SaoData.Friend("Lisbeth", SaoData.Presence.OFFLINE, "", null));
+    private final ObservableList<SaoData.FriendRequest> requests = FXCollections.observableArrayList(
+            new SaoData.FriendRequest("Sachi", true));
+    private final ObservableList<SaoData.Chat> chats = FXCollections.observableArrayList(
+            new SaoData.Chat("d-asuna", "Asuna", false, List.of("Kirito_07", "Asuna"), 2, "今晚八点打第一层 boss？", ago(3)),
+            new SaoData.Chat("g-fuurinkazan", "风林火山", true, List.of("Kirito_07", "Klein", "Agil", "Asuna"), 5, "Klein：谁来帮我刷素材", ago(12)),
+            new SaoData.Chat("d-agil", "Agil", false, List.of("Kirito_07", "Agil"), 0, "店里进了新货", ago(60 * 26)));
+    private final Map<String, ObservableList<SaoData.ChatMessage>> messages = new HashMap<>();
+    {
+        messages.put("d-asuna", FXCollections.observableArrayList(
+                new SaoData.ChatMessage("Asuna", "在吗？", ago(40), false, false),
+                new SaoData.ChatMessage("Kirito_07", "在，刚下线", ago(38), true, false),
+                new SaoData.ChatMessage("Asuna", "第一层的 boss 房找到了", ago(5), false, false),
+                new SaoData.ChatMessage("Asuna", "今晚八点打第一层 boss？", ago(3), false, false)));
+        messages.put("g-fuurinkazan", FXCollections.observableArrayList(
+                new SaoData.ChatMessage("Agil", "大家装备修好了吗", ago(30), false, false),
+                new SaoData.ChatMessage("Kirito_07", "修好了", ago(28), true, false),
+                new SaoData.ChatMessage("Asuna", "我这边也好了", ago(20), false, false),
+                new SaoData.ChatMessage("Klein", "谁来帮我刷素材", ago(12), false, false)));
+        messages.put("d-agil", FXCollections.observableArrayList(
+                new SaoData.ChatMessage("Agil", "店里进了新货", ago(60 * 26), false, false)));
+    }
+
+    @Override public ObservableList<SaoData.Friend> friends() { return friends; }
+    @Override public ObservableList<SaoData.FriendRequest> friendRequests() { return requests; }
+    @Override public ObservableList<SaoData.Chat> chats() { return chats; }
+
+    @Override
+    public ObservableList<SaoData.ChatMessage> messages(String chatId) {
+        return messages.computeIfAbsent(chatId, k -> FXCollections.observableArrayList());
+    }
+
+    @Override
+    public CompletableFuture<Void> addFriend(String name) {
+        if (name.equalsIgnoreCase("Kirito_07")) return CompletableFuture.failedFuture(new SaoAccountException("不能加自己", "self"));
+        if (friends.stream().anyMatch(f -> f.name().equalsIgnoreCase(name))) return CompletableFuture.failedFuture(new SaoAccountException("已经是好友了", "already"));
+        requests.add(new SaoData.FriendRequest(name, false));
+        return CompletableFuture.completedFuture(null);
+    }
+
+    @Override
+    public CompletableFuture<Void> answerFriend(String name, boolean accept) {
+        requests.removeIf(r -> r.name().equals(name));
+        if (accept) friends.add(new SaoData.Friend(name, SaoData.Presence.LAUNCHER, "", null));
+        return CompletableFuture.completedFuture(null);
+    }
+
+    @Override
+    public CompletableFuture<Void> removeFriend(String name) {
+        friends.removeIf(f -> f.name().equals(name));
+        chats.removeIf(c -> !c.group() && c.title().equals(name));
+        return CompletableFuture.completedFuture(null);
+    }
+
+    @Override
+    public CompletableFuture<Void> blockPlayer(String name) {
+        return removeFriend(name);
+    }
+
+    @Override
+    public CompletableFuture<String> directChat(String name) {
+        for (SaoData.Chat c : chats) if (!c.group() && c.title().equals(name)) return CompletableFuture.completedFuture(c.id());
+        String id = "d-" + name.toLowerCase(Locale.ROOT);
+        chats.add(new SaoData.Chat(id, name, false, List.of("Kirito_07", name), 0, "", 0));
+        return CompletableFuture.completedFuture(id);
+    }
+
+    @Override
+    public CompletableFuture<String> createGroup(String title, List<String> members) {
+        String id = "g-" + System.nanoTime();
+        List<String> all = new java.util.ArrayList<>(members);
+        all.add(0, "Kirito_07");
+        chats.add(0, new SaoData.Chat(id, title, true, all, 0, "", System.currentTimeMillis()));
+        return CompletableFuture.completedFuture(id);
+    }
+
+    @Override
+    public CompletableFuture<Void> leaveGroup(String chatId) {
+        chats.removeIf(c -> c.id().equals(chatId));
+        return CompletableFuture.completedFuture(null);
+    }
+
+    @Override
+    public CompletableFuture<Void> inviteToGroup(String chatId, List<String> members) {
+        return CompletableFuture.completedFuture(null);
+    }
+
+    @Override
+    public CompletableFuture<Void> sendMessage(String chatId, String text) {
+        messages(chatId).add(new SaoData.ChatMessage("Kirito_07", text, System.currentTimeMillis(), true, false));
+        for (int i = 0; i < chats.size(); i++) {
+            SaoData.Chat c = chats.get(i);
+            if (c.id().equals(chatId)) {
+                chats.remove(i);
+                chats.add(0, new SaoData.Chat(c.id(), c.title(), c.group(), c.members(), 0, text, System.currentTimeMillis()));
+                break;
+            }
+        }
+        return CompletableFuture.completedFuture(null);
+    }
+
+    @Override
+    public void markRead(String chatId) {
+        for (int i = 0; i < chats.size(); i++) {
+            SaoData.Chat c = chats.get(i);
+            if (c.id().equals(chatId) && c.unread() > 0)
+                chats.set(i, new SaoData.Chat(c.id(), c.title(), c.group(), c.members(), 0, c.lastText(), c.lastTime()));
+        }
+    }
+
     /// Pretend player card.
     private final ObjectProperty<SaoData.@Nullable PlayerCard> card = new SimpleObjectProperty<>();
 

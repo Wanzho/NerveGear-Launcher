@@ -85,12 +85,30 @@ public final class SaoScreenShotTool {
                     fx(() -> im[0] = scene[0].snapshot(null));
                     write(im[0], out.resolve(p + t[1] + ".png"));
                 }
+                // 好友: a conversation, a group, adding a friend, a new group.
+                Object[][] friendShots = {{"d-asuna", 0, false, false, "50-friends-chat"}, {"g-fuurinkazan", 1, false, false, "51-friends-group"},
+                        {null, 0, true, false, "52-friends-add"}, {null, 1, false, true, "53-friends-new-group"}};
+                for (Object[] f : friendShots) {
+                    fx(() -> {
+                        page[0].forceApp(-1);
+                        SaoFriendsApp.openFirst = (String) f[0];
+                        SaoFriendsApp.tabFirst = (Integer) f[1];
+                        SaoFriendsApp.addFirst = (Boolean) f[2];
+                        SaoFriendsApp.newGroupFirst = (Boolean) f[3];
+                        page[0].forceApp(1);
+                    });
+                    Thread.sleep(1300);
+                    fx(() -> im[0] = scene[0].snapshot(null));
+                    write(im[0], out.resolve(p + f[4] + ".png"));
+                }
+                fx(() -> page[0].forceApp(-1));
+                Thread.sleep(400);
                 fx(() -> page[0].forceNameConfirm("Kirito_Black"));
                 Thread.sleep(500);
                 fx(() -> im[0] = scene[0].snapshot(null));
                 write(im[0], out.resolve(p + "43-name-confirm.png"));
             } else if (big) {
-                String[] apps = {"settings", "skin", "worlds", "multiplayer", "packs", "screenshots", "logs", "java", "downloads", "about"};
+                String[] apps = {"settings", "friends", "skin", "worlds", "multiplayer", "packs", "screenshots", "logs", "java", "downloads", "about"};
                 shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "00-home.png"));
                 for (int i = 0; i < apps.length; i++) {
                     shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, i, out.resolve(p + String.format("%02d-%s.png", i + 1, apps[i])));
