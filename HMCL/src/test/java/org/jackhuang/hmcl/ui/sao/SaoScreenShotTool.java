@@ -57,6 +57,8 @@ public final class SaoScreenShotTool {
         for (int[] size : sizes) {
             int w = size[0], h = size[1];
             boolean big = w > 1500;
+            // The small size shows the Windows/Linux layout of the window buttons (top right), the big one the Mac's.
+            System.setProperty("sao.windowButtons", big ? "left" : "right");
             SaoFakeService fake = new SaoFakeService();
             SaoHelmetPage[] page = new SaoHelmetPage[1];
             Scene[] scene = new Scene[1];
@@ -98,12 +100,8 @@ public final class SaoScreenShotTool {
                 fx(() -> {
                     fake.remembered = null;
                     fake.oathLogout();
-                    page[0].forceTab(false);
                 });
                 shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "32-signed-out.png"));
-                fx(() -> page[0].forceTab(true));
-                shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "33-signed-out-premium.png"));
-                fx(() -> page[0].forceTab(false));
                 // 誓约账号: signed in (verified, then waiting for the code), and each page of its window.
                 fx(() -> fake.forceOath(true));
                 shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "21-home-signed-in.png"));

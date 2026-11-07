@@ -43,6 +43,8 @@ final class SaoFloatWindow extends Group {
     private final Rotate yaw = new Rotate(0, Rotate.Y_AXIS);
     /// Tipped back about its own horizontal middle.
     private final Rotate pitch = new Rotate(0, Rotate.X_AXIS);
+    /// Grows a little while the mouse is over the window (James, 7 Nov: "hover动画（对全局）鼠标在的界面会略微放大一点点").
+    private final javafx.scene.transform.Scale grow = new javafx.scene.transform.Scale(1, 1, 1);
     /// Extra depth while another window is in front (animated).
     final DoubleProperty recede = new SimpleDoubleProperty(0);
     /// The size of the glass in design pixels.
@@ -95,7 +97,15 @@ final class SaoFloatWindow extends Group {
         yaw.setPivotY(h / 2);
         pitch.setPivotX(w / 2);
         pitch.setPivotY(h / 2);
-        getTransforms().addAll(at, yaw, pitch);
+        grow.setPivotX(w / 2);
+        grow.setPivotY(h / 2);
+        getTransforms().addAll(at, yaw, pitch, grow);
+        hoverProperty().addListener((o, a, over) -> {
+            double k = over ? 1.02 : 1;
+            new Timeline(new KeyFrame(Duration.millis(over ? 160 : 220),
+                    new KeyValue(grow.xProperty(), k, Interpolator.EASE_OUT),
+                    new KeyValue(grow.yProperty(), k, Interpolator.EASE_OUT))).play();
+        });
         recede.addListener((o, a, b) -> place());
     }
 
