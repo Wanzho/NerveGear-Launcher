@@ -96,10 +96,10 @@ import static org.jackhuang.hmcl.ui.FXUtils.onEscPressed;
 @NotNullByDefault
 public final class Decorator {
     /// The minimum width, in pixels, of the visible window content.
-    private static final double MIN_CONTENT_WIDTH = org.jackhuang.hmcl.ui.sao.SaoUi.enabled() ? 1000.0 : 800.0;
+    private static final double MIN_CONTENT_WIDTH = org.jackhuang.hmcl.ui.sao.SaoUi.enabled() ? 1024.0 : 800.0;
 
     /// The minimum height, in pixels, including the 450-pixel background and 40-pixel title bar.
-    private static final double MIN_CONTENT_HEIGHT = org.jackhuang.hmcl.ui.sao.SaoUi.enabled() ? 620.0 : 450.0 + 40.0;
+    private static final double MIN_CONTENT_HEIGHT = org.jackhuang.hmcl.ui.sao.SaoUi.enabled() ? 576.0 : 450.0 + 40.0;
 
     /// The minimum visible overlap, in pixels, used to accept a persisted window position.
     private static final double MIN_VISIBLE_WINDOW_AREA = 20.0;
@@ -534,6 +534,7 @@ public final class Decorator {
             return;
         }
 
+        boolean widthLeads = newWidth >= 0;
         if (newWidth < 0) {
             newWidth = currentStage.getWidth();
         }
@@ -543,6 +544,17 @@ public final class Decorator {
             newHeight = currentStage.getHeight();
         }
         newHeight = Math.max(newHeight, currentStage.getMinHeight());
+
+        // The SAO screen keeps its content 16:9: the edge being dragged sets the size, the other side follows.
+        if (org.jackhuang.hmcl.ui.sao.SaoUi.enabled()) {
+            Insets p = root.getPadding();
+            double padW = p.getLeft() + p.getRight(), padH = p.getTop() + p.getBottom();
+            if (widthLeads) {
+                newHeight = Math.round((newWidth - padW) * 9 / 16) + padH;
+            } else {
+                newWidth = Math.round((newHeight - padH) * 16 / 9) + padW;
+            }
+        }
 
         // Width and height must be set together to avoid JDK-8344372.
         currentStage.setWidth(newWidth);
@@ -702,9 +714,12 @@ public final class Decorator {
     ///
     /// @return the initial content bounds in JavaFX screen coordinates
     private Rectangle2D initialContentBounds() {
-        // The SAO screen opens at 1100×660 or the size the player left it at, whichever is larger.
-        double initialContentWidth = Math.max(org.jackhuang.hmcl.ui.sao.SaoUi.enabled() ? 1100.0 : MIN_CONTENT_WIDTH, SettingsManager.state().getWidth());
-        double initialContentHeight = Math.max(org.jackhuang.hmcl.ui.sao.SaoUi.enabled() ? 660.0 : MIN_CONTENT_HEIGHT, SettingsManager.state().getHeight());
+        // The SAO screen opens at 1120×630 or the width the player left it at, whichever is larger, always 16:9
+        // (James, 7 Nov: "make sure only 16:9 is available").
+        boolean sao = org.jackhuang.hmcl.ui.sao.SaoUi.enabled();
+        double initialContentWidth = Math.max(sao ? 1120.0 : MIN_CONTENT_WIDTH, SettingsManager.state().getWidth());
+        double initialContentHeight = sao ? Math.round(initialContentWidth * 9 / 16)
+                : Math.max(MIN_CONTENT_HEIGHT, SettingsManager.state().getHeight());
         double initialContentX = SettingsManager.state().getX() * PRIMARY_SCREEN_BOUNDS.getWidth();
         double initialContentY = SettingsManager.state().getY() * PRIMARY_SCREEN_BOUNDS.getHeight();
 

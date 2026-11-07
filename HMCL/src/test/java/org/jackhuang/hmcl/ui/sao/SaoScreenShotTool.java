@@ -47,7 +47,7 @@ public final class SaoScreenShotTool {
     /// @throws Exception on any failure
     private static void run(String[] args) throws Exception {
         Path out = Path.of(args.length > 0 ? args[0] : "sao-shots");
-        int[][] sizes = {{1000, 620, 0}, {1920, 1080, 0}, {1920, 1080, 1}};
+        int[][] sizes = {{1024, 576, 0}, {1920, 1080, 0}, {1920, 1080, 1}};
         Files.createDirectories(out);
         Platform.setImplicitExit(false);
         CountDownLatch up = new CountDownLatch(1);

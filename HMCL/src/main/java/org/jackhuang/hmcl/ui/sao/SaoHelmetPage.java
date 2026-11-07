@@ -112,6 +112,9 @@ public final class SaoHelmetPage extends StackPane {
     /// The flat layer on the ear pad (version and window buttons), in design coordinates.
     private final Pane pad = new Pane();
     private final Scale padFit = new Scale(1, 1, 0, 0);
+    /// The 16:9 picture everything is drawn in, and its clip.
+    private final Pane screen = new Pane();
+    private final Rectangle screenClip = new Rectangle();
     private final Translate padShift = new Translate();
     /// The soft glint drifting over the glass.
     private final Region glint = new Region();
@@ -178,7 +181,7 @@ public final class SaoHelmetPage extends StackPane {
         String face = "-fx-font-family: \"" + SaoAssets.saoFamily() + "\";";
         setStyle(face);
         space.setStyle(face);
-        setStyle("-fx-background-color: #252525;");
+        setStyle("-fx-background-color: black;");
         Rectangle clip = new Rectangle();
         clip.widthProperty().bind(widthProperty());
         clip.heightProperty().bind(heightProperty());
@@ -216,7 +219,12 @@ public final class SaoHelmetPage extends StackPane {
             if (poweredOn) startSound();
             refreshSoundIcon();
         };
-        getChildren().setAll(glass, world, frame, pad, glint, black);
+        // James, 7 Nov: "make sure only 16:9 is available": the helmet is one 16:9 picture, centred, black around it
+        // when the window or the screen is another shape.
+        screen.setManaged(false);
+        screen.setClip(screenClip);
+        screen.getChildren().setAll(glass, world, frame, pad, glint, black);
+        getChildren().setAll(screen);
 
         setOnMouseMoved(e -> {
             headX = e.getX() / Math.max(1, getWidth()) - 0.5;
@@ -602,8 +610,12 @@ public final class SaoHelmetPage extends StackPane {
     ///
     /// @param t seconds on the clock
     private void frame(double t) {
-        int w = (int) Math.ceil(getWidth()), h = (int) Math.ceil(getHeight());
+        double pw = getWidth(), ph = getHeight();
+        int w = (int) Math.floor(Math.min(pw, ph * 16 / 9)), h = (int) Math.round(w * 9 / 16.0);
         if (w <= 1 || h <= 1) return;
+        screen.resizeRelocate(Math.floor((pw - w) / 2), Math.floor((ph - h) / 2), w, h);
+        screenClip.setWidth(w);
+        screenClip.setHeight(h);
         long minute = System.currentTimeMillis() / 60000;
         int battery = SaoBattery.version;
         if (w != renderedW || h != renderedH || minute != renderedMinute || battery != renderedBattery) {
@@ -799,7 +811,10 @@ public final class SaoHelmetPage extends StackPane {
             settings.setOnAction(e -> openAccount(SaoAccountApp.Page.MANAGE));
             HBox head = new HBox(8, sao("ARGUS ID", 15, true), out, settings);
             head.setAlignment(Pos.CENTER_LEFT);
-            Text n = sao(a.name(), 30, true);
+            // James, 7 Nov: "让名字大一点"; a long name shrinks to stay in the column.
+            Text n = sao(a.name(), 44, true);
+            double nw = n.getLayoutBounds().getWidth();
+            if (nw > 250) n.setFont(ui(44 * 250 / nw, true));
             n.getStyleClass().add("vr-link-text");
             n.setOnMouseClicked(e -> openAccount(SaoAccountApp.Page.MANAGE));
             // The mailbox: verified, waiting (with the time left), or none yet.
