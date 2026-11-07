@@ -390,7 +390,9 @@ public interface SaoLauncherService {
         return unsupported();
     }
 
-    /// Signs out and revokes the session (`/authserver/invalidate`); keeps a remembered name and password.
+    /// Signs out and revokes the session (`/authserver/invalidate`), and forgets the remembered password, so the next
+    /// opening does not log in again by itself. The launcher logs in with a remembered password on opening (James,
+    /// 7 Nov: "登录进去就直接显示已登录，别再显示一整个密码界面"), so signing out has to stop that.
     default void oathLogout() {
     }
 

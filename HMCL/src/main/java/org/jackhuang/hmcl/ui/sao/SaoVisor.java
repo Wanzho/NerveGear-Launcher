@@ -247,7 +247,7 @@ final class SaoVisor {
     }
     /** The battery's body corners (TL, TR, BR, BL), episode pixels: it stands in the visor's perspective. */
     private static final float[] BODY={1136.7f,51.7f,1230.7f,41,1226,83.3f,1132.3f,92.7f};
-    private static final int CELL_LIGHT=0x95999d,CELL_LINE=0x3c4044,BOLT=0x1e2226;
+    private static final int CELL_LIGHT=0x95999d,CELL_LINE=0x3c4044,BOLT=0x1e2226,LEVEL=0x62676b,LOW=0xd2443d;
     /** A point of the body by its shares u (left to right) and v (top to bottom). */
     private static float bu(float u,float v,int k){return (1-v)*((1-u)*BODY[k]+u*BODY[2+k])+v*((1-u)*BODY[6+k]+u*BODY[4+k]);}
     private static void bodyQuad(SaoRaster c,float u0,float v0,float u1,float v1,int colour){
@@ -266,9 +266,18 @@ final class SaoVisor {
         // The cap: a light block beyond the body's right edge, a dark slit between them.
         c.polygon(light,X(1228),Y(50.7f),X(1245),Y(49),X(1241),Y(72.7f),X(1226),Y(75));
         c.polygon(line,X(1227.5f),Y(57),X(1231),Y(56.5f),X(1230),Y(74.5f),X(1226.5f),Y(75));
-        // The bolt (top tip, down to the left, a step right, the bottom tip, up to the right, a step left).
+        // The charge, from the computer (James, 7 Nov: "可以让那个标志同步电脑吗"): a bar inside the line, as long as
+        // the charge; red under 20 % ("低于20显示红色"). No battery (a desktop): full.
+        SaoBattery.State st=SaoBattery.now;
+        int pct=st.percent()<0?100:st.percent();
+        float fu0=iu+lu+2*ru,fv0=iv+lv+2*rv,fu1=1-iu-lu-2*ru,fv1=1-iv-lv-2*rv;
+        if(pct>0)bodyQuad(c,fu0,fv0,fu0+(fu1-fu0)*Math.max(0.04f,pct/100f),fv1,argb(pct<20?LOW:LEVEL,a));
+        // The bolt only while charging ("充电中和不在充电中有闪电的区分"). Drawn as two convex halves (it is a concave
+        // shape: filled in one fan it spilled over its top right): top tip, left, step; step, bottom tip, right.
+        if(!st.charging())return;
         float[] b={1191,51,1166,70.5f,1177.5f,69,1167,87,1192,65,1180.5f,66.5f};
         float[] xy=new float[12];for(int i=0;i<12;i+=2){xy[i]=X(b[i]);xy[i+1]=Y(b[i+1]);}
-        c.polygon(bolt,xy);
+        c.polygon(bolt,xy[0],xy[1],xy[2],xy[3],xy[4],xy[5],xy[10],xy[11]);
+        c.polygon(bolt,xy[10],xy[11],xy[4],xy[5],xy[6],xy[7],xy[8],xy[9]);
     }
 }

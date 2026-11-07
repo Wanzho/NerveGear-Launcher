@@ -37,8 +37,6 @@ final class SaoFloatWindow extends Group {
     final VBox body = new VBox();
     /// The title row; a window may add buttons to its right.
     final HBox head = new HBox(8);
-    /// The grab bar under the glass.
-    private final Region pill = new Region();
     /// Where the window's centre stands.
     private final Translate at = new Translate();
     /// Turned toward the player about its own vertical middle.
@@ -83,39 +81,16 @@ final class SaoFloatWindow extends Group {
             body.getChildren().add(head);
         }
         if (close != null) {
-            // As in a VR system: the close button floats beside the grab bar under the window.
+            // As in a VR system: the close button floats under the window, in the middle (the grab bar went, James 7 Nov:
+            // "每个页面下面那个线可以去掉").
             Button x = SaoUiKit.round(org.jackhuang.hmcl.ui.SVG.CLOSE, 24, 13);
             x.setOnAction(e -> close.run());
             x.setManaged(false);
-            x.resizeRelocate(w / 2 - 36 - 34, h + 1, 24, 24);
+            x.resizeRelocate(w / 2 - 12, h + 8, 24, 24);
             getChildren().add(x);
         }
-        pill.getStyleClass().add("vr-pill");
-        pill.resizeRelocate(w / 2 - 36, h + 10, 72, 6);
-        pill.setManaged(false);
-        pill.setOnMousePressed(e -> {
-            pressX = e.getSceneX();
-            pressY = e.getSceneY();
-            pressDX = dragX;
-            pressDY = dragY;
-            e.consume();
-        });
-        pill.setOnMouseDragged(e -> {
-            double k = scaleOfScene();
-            dragX = pressDX + (e.getSceneX() - pressX) / k;
-            dragY = pressDY + (e.getSceneY() - pressY) / k;
-            place();
-            e.consume();
-        });
-        pill.setOnMouseClicked(e -> {
-            if (e.getClickCount() == 2) {
-                dragX = 0;
-                dragY = 0;
-                place();
-            }
-        });
         body.setOnMousePressed(e -> toFront());
-        getChildren().addAll(0, java.util.List.of(body, pill));
+        getChildren().add(0, body);
         yaw.setPivotX(w / 2);
         yaw.setPivotY(h / 2);
         pitch.setPivotX(w / 2);

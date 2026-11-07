@@ -78,6 +78,14 @@ public final class SaoScreenShotTool {
                 WritableImage[] img = new WritableImage[1];
                 fx(() -> img[0] = scene[0].snapshot(null));
                 write(img[0], out.resolve(p + "20-settings-uninstall.png"));
+                // The battery, as the computer reports it: charging, on battery, and low (red).
+                int[][] batt = {{85, 1}, {60, 0}, {15, 0}, {12, 1}};
+                for (int[] b : batt) {
+                    SaoBattery.now = new SaoBattery.State(b[0], b[1] == 1);
+                    SaoBattery.version++;
+                    shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1,
+                            out.resolve(p + "30-battery-" + b[0] + (b[1] == 1 ? "-charging" : "") + ".png"));
+                }
                 // 誓约账号: signed in (verified, then waiting for the code), and each page of its window.
                 fx(() -> fake.forceOath(true));
                 shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "21-home-signed-in.png"));

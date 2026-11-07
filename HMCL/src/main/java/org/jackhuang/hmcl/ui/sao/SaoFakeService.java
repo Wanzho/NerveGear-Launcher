@@ -408,6 +408,7 @@ public final class SaoFakeService implements SaoLauncherService {
     @Override
     public void oathLogout() {
         oath.set(null);
+        remembered = null;
     }
 
     @Override

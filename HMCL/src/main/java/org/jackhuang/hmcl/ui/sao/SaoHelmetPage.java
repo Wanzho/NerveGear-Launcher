@@ -96,6 +96,8 @@ public final class SaoHelmetPage extends StackPane {
     /// Size and minute the visor was last rendered at.
     private int renderedW, renderedH;
     private long renderedMinute = -1;
+    /// The battery reading the visor was last rendered with.
+    private int renderedBattery = -1;
 
     /// The 3D space.
     private final Group space = new Group();
@@ -146,6 +148,9 @@ public final class SaoHelmetPage extends StackPane {
     private final VBox signedOut = new VBox(6);
     /// Signed in: the name, the mailbox and the account's buttons.
     private final VBox signedIn = new VBox(7);
+    /// Logging in with the remembered password on opening: the player sees the account, not a password form
+    /// (James, 7 Nov: "登录进去就直接显示已登录，别再显示一整个密码界面").
+    private boolean autoLogging;
     /// Microsoft.
     private final VBox msBox = new VBox(6);
     private final TextField msName = field("");
@@ -243,6 +248,7 @@ public final class SaoHelmetPage extends StackPane {
         ping.play();
         service.refreshOnline();
 
+        SaoBattery.start();
         sceneProperty().addListener((o, a, b) -> {
             if (b == null) return;
             hookWindow();
@@ -277,7 +283,7 @@ public final class SaoHelmetPage extends StackPane {
         }, empty(SVG.CHAT, "暂无公告"));
         return new SaoFloatWindow("公告", 290, 352, null)
                 .add(scroll(list))
-                .home(258, 156, 40, -24, 0);
+                .home(258, 186, 40, -24, 0);
     }
 
     /// The server, on the right, turned toward the player.
@@ -315,7 +321,7 @@ public final class SaoHelmetPage extends StackPane {
         refresh.setOnAction(e -> service.refreshOnline());
         SaoFloatWindow w = new SaoFloatWindow("服务器", 290, 352, null).add(box);
         w.head.getChildren().add(refresh);
-        return w.home(1022, 156, 40, 24, 0);
+        return w.home(1022, 186, 40, 24, 0);
     }
 
     /// The player, in the middle: the 誓约 account and the character turning in 3D. Signed out it asks for the name and
@@ -377,7 +383,8 @@ public final class SaoHelmetPage extends StackPane {
         service.oathAccount().addListener((o, a, b) -> refreshAccount());
         Accounts.getAccounts().addListener((ListChangeListener<Account>) c -> refreshAccount());
         preselect();
-        return new SaoFloatWindow("", 430, 300, null).add(head, bodyRow).home(640, 160, 0, 0, 0);
+        autoLogin();
+        return new SaoFloatWindow("", 430, 300, null).add(head, bodyRow).home(640, 190, 0, 0, 0);
     }
 
     /// Link Start under the player: what the pack is doing on the left, the button on the right.
@@ -410,7 +417,7 @@ public final class SaoHelmetPage extends StackPane {
         SaoFloatWindow w = new SaoFloatWindow("", 430, 66, null).add(row);
         w.body.setPadding(new Insets(8, 10, 8, 18));
         w.body.getStyleClass().add("vr-window-start");
-        return w.home(640, 476, -24, 0, 0);
+        return w.home(640, 506, -24, 0, 0);
     }
 
     /// The dock: a column of round buttons left of the windows, a label sliding out on hover.
@@ -444,7 +451,7 @@ public final class SaoHelmetPage extends StackPane {
         SaoFloatWindow w = new SaoFloatWindow("", 52, SaoApps.APPS.length * 36 + (SaoApps.APPS.length - 1) * 6 + 16, null).add(col);
         w.body.setPadding(new Insets(8));
         w.body.getStyleClass().add("vr-dock");
-        return w.home(60, 168, -40, -18, 0);
+        return w.home(60, 184, -40, -18, 0);
     }
 
     /// The flat layer on the ear pad: the version at the bottom left, sound, minimise and close at the bottom
@@ -479,7 +486,7 @@ public final class SaoHelmetPage extends StackPane {
         }
         if (appButton != null) appButton.getStyleClass().remove("vr-dock-on");
         SaoFloatWindow w = a.make().make(service, this::closeApp);
-        w.home(660, 104, 0, 0, 0);
+        w.home(660, 146, 0, 0, 0);
         windows.getChildren().add(w);
         w.flyIn(320);
         app = w;
@@ -525,7 +532,9 @@ public final class SaoHelmetPage extends StackPane {
         int w = (int) Math.ceil(getWidth()), h = (int) Math.ceil(getHeight());
         if (w <= 1 || h <= 1) return;
         long minute = System.currentTimeMillis() / 60000;
-        if (w != renderedW || h != renderedH || minute != renderedMinute) {
+        int battery = SaoBattery.version;
+        if (w != renderedW || h != renderedH || minute != renderedMinute || battery != renderedBattery) {
+            renderedBattery = battery;
             boolean resized = w != renderedW || h != renderedH;
             renderedW = w;
             renderedH = h;
@@ -679,12 +688,34 @@ public final class SaoHelmetPage extends StackPane {
         refreshAccount();
     }
 
+    /// Logs in with the remembered name and password, if any; the account shows as signed in at once and the
+    /// password form comes back only when that fails.
+    private void autoLogin() {
+        @Nullable String r = service.rememberedOathName();
+        if (r == null || service.oathAccount().get() != null) return;
+        autoLogging = true;
+        refreshAccount();
+        service.oathLogin(r, null, true).whenComplete((ok, err) -> Platform.runLater(() -> {
+            autoLogging = false;
+            refreshAccount();
+            if (err != null) {
+                pw.setPromptText("密码");
+                problem.setText("! " + SaoSkinApp.message(err) + "，请重新登录");
+            }
+        }));
+    }
+
     /// Shows the account part that fits: signed out, signed in, or Microsoft; and the skin worn now.
     private void refreshAccount() {
         boolean ms = kind.getSelectedToggle() == microsoft;
         SaoData.@Nullable OathAccount a = service.oathAccount().get();
-        signedOut.setVisible(!ms && a == null);
-        signedIn.setVisible(!ms && a != null);
+        boolean waiting = a == null && autoLogging;
+        signedOut.setVisible(!ms && a == null && !waiting);
+        signedIn.setVisible(!ms && (a != null || waiting));
+        if (waiting) {
+            @Nullable String r = service.rememberedOathName();
+            signedIn.getChildren().setAll(key("ARGUS ID"), sao(r == null ? "" : r, 22, true), dim("正在登录…", 12));
+        }
         msBox.setVisible(ms);
         @Nullable MicrosoftAccount m = microsoftAccount();
         msName.setVisible(m != null);
@@ -754,6 +785,10 @@ public final class SaoHelmetPage extends StackPane {
         SaoData.@Nullable OathAccount a = service.oathAccount().get();
         if (a != null) {
             joinAs(a);
+            return;
+        }
+        if (autoLogging) {
+            problem.setText("! 正在登录，稍等");
             return;
         }
         String n = name.getText().strip();
