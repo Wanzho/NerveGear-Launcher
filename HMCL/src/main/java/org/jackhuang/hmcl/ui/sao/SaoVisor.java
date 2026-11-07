@@ -71,7 +71,11 @@ final class SaoVisor {
     static SaoRaster renderFrame(int width, int height, boolean clock) {
         SaoRaster c = new SaoRaster(width, height);
         fitTo(width, height);
+        // James, 7 Nov: "can u make this take up less space? by contracting it": the launcher's arc keeps the
+        // episode's shape, squashed toward the bottom edge.
+        squash = ARC_SQUASH;
         arc(c, 1);
+        squash = 1;
         recess(c, 1);
         if (clock) {
             clock(c, 1);
@@ -88,6 +92,10 @@ final class SaoVisor {
     }
 
     private static float ox,oy,os;
+    /** How tall the bottom arc is drawn, 1 = as measured in the episode. */
+    private static float squash=1;
+    /** The launcher's arc height (James, 7 Nov: take up less space). */
+    static final float ARC_SQUASH=0.45f;
     private static float X(float x){return ox+x*os;}
     private static float Y(float y){return oy+y*os;}
     private static int argb(int rgb,float a){return alpha(rgb,a);}
@@ -125,9 +133,9 @@ final class SaoVisor {
             for(int b=0;b<bands;b++){
                 float[] yy=new float[4];int[] cc=new int[4];
                 for(int s=0;s<2;s++){
-                    int ci=i+s;float e=edge[ci];
+                    int ci=i+s;float e=720-(720-edge[ci])*squash;
                     // b = 0: fringe (e - fringe .. e); b >= 1: depth[b-1] .. depth[b] (or 900 for the last)
-                    float top=b==0?e-fringe:e+depth[b-1],bottom=b==0?e:(b<rows?e+depth[b]:900);
+                    float top=b==0?e-fringe:e+depth[b-1]*squash,bottom=b==0?e:(b<rows?e+depth[b]*squash:900);
                     int ctop=b==0?0:argb(rgb[ci*rows+b-1],a),cbot=b==0?argb(rgb[ci*rows],a):argb(rgb[ci*rows+Math.min(rows-1,b)],a);
                     if(b==0)ctop=rgb[ci*rows]&0xffffff;
                     yy[s*2]=top;yy[s*2+1]=bottom;cc[s*2]=ctop;cc[s*2+1]=cbot;

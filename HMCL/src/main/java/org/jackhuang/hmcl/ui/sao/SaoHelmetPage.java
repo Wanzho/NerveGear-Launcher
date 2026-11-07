@@ -281,7 +281,7 @@ public final class SaoHelmetPage extends StackPane {
         }, empty(SVG.CHAT, "暂无公告"));
         return new SaoFloatWindow("公告", 290, 352, null)
                 .add(scroll(list))
-                .home(258, 116, 40, -24, 0);
+                .home(258, 156, 40, -24, 0);
     }
 
     /// The server, on the right, turned toward the player.
@@ -319,7 +319,7 @@ public final class SaoHelmetPage extends StackPane {
         refresh.setOnAction(e -> service.refreshOnline());
         SaoFloatWindow w = new SaoFloatWindow("服务器", 290, 352, null).add(box);
         w.head.getChildren().add(refresh);
-        return w.home(1022, 116, 40, 24, 0);
+        return w.home(1022, 156, 40, 24, 0);
     }
 
     /// The player, in the middle: the account, the sao_auth password and the character turning in 3D.
@@ -370,7 +370,7 @@ public final class SaoHelmetPage extends StackPane {
         });
         Accounts.getAccounts().addListener((ListChangeListener<Account>) c -> refreshAccount());
         preselect();
-        return new SaoFloatWindow("", 430, 300, null).add(head, bodyRow).home(640, 120, 0, 0, 0);
+        return new SaoFloatWindow("", 430, 300, null).add(head, bodyRow).home(640, 160, 0, 0, 0);
     }
 
     /// Link Start under the player: what the pack is doing on the left, the button on the right.
@@ -403,7 +403,7 @@ public final class SaoHelmetPage extends StackPane {
         SaoFloatWindow w = new SaoFloatWindow("", 430, 66, null).add(row);
         w.body.setPadding(new Insets(8, 10, 8, 18));
         w.body.getStyleClass().add("vr-window-start");
-        return w.home(640, 436, -24, 0, 0);
+        return w.home(640, 476, -24, 0, 0);
     }
 
     /// The dock: a column of round buttons left of the windows, a label sliding out on hover.
@@ -437,7 +437,7 @@ public final class SaoHelmetPage extends StackPane {
         SaoFloatWindow w = new SaoFloatWindow("", 52, 9 * 36 + 8 * 6 + 16, null).add(col);
         w.body.setPadding(new Insets(8));
         w.body.getStyleClass().add("vr-dock");
-        return w.home(60, 128, -40, -18, 0);
+        return w.home(60, 168, -40, -18, 0);
     }
 
     /// The flat layer on the ear pad: the version at the bottom left, sound, minimise and close at the bottom
@@ -472,7 +472,7 @@ public final class SaoHelmetPage extends StackPane {
         }
         if (appButton != null) appButton.getStyleClass().remove("vr-dock-on");
         SaoFloatWindow w = a.make().make(service, this::closeApp);
-        w.home(660, 72, 0, 0, 0);
+        w.home(660, 104, 0, 0, 0);
         windows.getChildren().add(w);
         w.flyIn(320);
         app = w;
