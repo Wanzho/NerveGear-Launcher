@@ -360,7 +360,7 @@ public final class GameDirectoriesTest {
         try (GameDirectoryEnvironment ignored = new GameDirectoryEnvironment(localDirectories, userDirectories)) {
             GameDirectoryManager.init();
 
-            GameDirectory localGameDirectory = assertSingleDefaultGameDirectory(localDirectories, PortablePath.of(".minecraft"));
+            GameDirectory localGameDirectory = assertSingleDefaultGameDirectory(localDirectories, PortablePath.fromPath(Metadata.MINECRAFT_DIRECTORY));
             GameDirectory userGameDirectory = assertSingleDefaultGameDirectory(
                     userDirectories,
                     PortablePath.fromPath(Metadata.MINECRAFT_DIRECTORY));
@@ -385,7 +385,7 @@ public final class GameDirectoriesTest {
         try (GameDirectoryEnvironment ignored = new GameDirectoryEnvironment(localDirectories, userDirectories)) {
             GameDirectoryManager.init();
 
-            GameDirectory localGameDirectory = assertSingleDefaultGameDirectory(localDirectories, PortablePath.of(".minecraft"));
+            GameDirectory localGameDirectory = assertSingleDefaultGameDirectory(localDirectories, PortablePath.fromPath(Metadata.MINECRAFT_DIRECTORY));
             GameDirectory userGameDirectory = assertSingleDefaultGameDirectory(
                     userDirectories,
                     PortablePath.fromPath(Metadata.MINECRAFT_DIRECTORY));

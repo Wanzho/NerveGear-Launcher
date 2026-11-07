@@ -59,8 +59,8 @@ public final class GameDirectoryManager {
     static final GameDirectoryID HOME_GAME_DIRECTORY_ID =
             new GameDirectoryID(new UUID(0xf3eafde8506e5a77L, 0xbc88f24b4728dfb2L));
 
-    /// The default current-workspace game directory path.
-    private static final PortablePath CURRENT_GAME_DIRECTORY_PATH = PortablePath.of(".minecraft");
+    /// The default game directory inside this launcher's isolated storage.
+    private static final PortablePath CURRENT_GAME_DIRECTORY_PATH = PortablePath.fromPath(Metadata.MINECRAFT_DIRECTORY);
 
     /// The default user-home game directory path.
     private static final PortablePath HOME_GAME_DIRECTORY_PATH = PortablePath.fromPath(Metadata.MINECRAFT_DIRECTORY);

@@ -19,147 +19,104 @@ package org.jackhuang.hmcl;
 
 import org.jackhuang.hmcl.util.StringUtils;
 import org.jackhuang.hmcl.util.io.JarUtils;
-import org.jackhuang.hmcl.util.platform.Architecture;
 import org.jackhuang.hmcl.util.platform.OperatingSystem;
+import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.EnumSet;
 
-/**
- * Stores metadata about this application.
- */
+/// Product identity and isolated storage for SAO Oath Launcher; HMCL names remain internal API aliases.
+@NotNullByDefault
 public final class Metadata {
-    private Metadata() {
-    }
+    /// Prevents construction.
+    private Metadata() { }
 
-    public static final String NAME = "HMCL";
-    public static final String FULL_NAME = "Hello Minecraft! Launcher";
-    public static final String VERSION = System.getProperty("hmcl.version.override", JarUtils.getAttribute("hmcl.version", "@develop@"));
-
-    /// Explicit Application User Model ID used for Windows taskbar grouping and pinning.
-    public static final String WINDOWS_APP_USER_MODEL_ID = "org.jackhuang.hmcl";
-
-    public static final String TITLE = NAME + " " + VERSION;
+    /// Localized product name, distinct from the upstream launcher.
+    public static final String NAME = "刀剑神域·誓约 启动器";
+    /// English product name.
+    public static final String FULL_NAME = "SAO Oath Launcher";
+    /// Independent launcher version; pack versions are tracked separately.
+    public static final String VERSION = JarUtils.getAttribute("hmcl.version", "0.1.0");
+    /// Windows taskbar identity owned by this fork.
+    public static final String WINDOWS_APP_USER_MODEL_ID = "org.saooath.launcher";
+    /// Localized window title.
+    public static final String TITLE = NAME;
+    /// English title with the launcher version.
     public static final String FULL_TITLE = FULL_NAME + " v" + VERSION;
-
+    /// Minimum Java feature version that can run the launcher.
     public static final int MINIMUM_REQUIRED_JAVA_VERSION = 17;
+    /// Minimum supported Java feature version.
     public static final int MINIMUM_SUPPORTED_JAVA_VERSION = 17;
+    /// Recommended launcher Java feature version.
     public static final int RECOMMENDED_JAVA_VERSION = 21;
-
-    public static final String PUBLISH_URL = "https://hmcl.huangyuhui.net";
-    public static final String DOWNLOAD_URL = PUBLISH_URL + "/download";
-    public static final String HMCL_UPDATE_URL = System.getProperty("hmcl.update_source.override", PUBLISH_URL + "/api/update_link");
-    public static final String MANUAL_UPDATE_URL = "https://github.com/HMCL-dev/HMCL/releases";
-
-    public static final String DOCS_URL = "https://docs.hmcl.net";
-    public static final String CONTACT_URL = DOCS_URL + "/help.html";
-    public static final String CHANGELOG_URL = DOCS_URL + "/changelog/";
-    public static final String EULA_URL = DOCS_URL + "/eula/hmcl.html";
-    public static final String GROUPS_URL = "https://www.bilibili.com/opus/905435541874409529";
-
-    public static final String BUILD_CHANNEL = JarUtils.getAttribute("hmcl.version.type", "nightly");
-    public static final String GITHUB_SHA = JarUtils.getAttribute("hmcl.version.hash", null);
-
+    /// No upstream publishing endpoint is used by this fork.
+    public static final String PUBLISH_URL = "";
+    /// Distribution location is not configured yet.
+    public static final String DOWNLOAD_URL = "";
+    /// HMCL self-update endpoints are disabled, including system-property overrides.
+    public static final String HMCL_UPDATE_URL = "";
+    /// This fork does not use HMCL's manual upgrade flow.
+    public static final String MANUAL_UPDATE_URL = "";
+    /// Product documentation endpoint is not configured yet.
+    public static final String DOCS_URL = "";
+    /// Product contact endpoint is not configured yet.
+    public static final String CONTACT_URL = "";
+    /// Product changelog endpoint is not configured yet.
+    public static final String CHANGELOG_URL = "";
+    /// License files ship with the source and launcher; no upstream web endpoint is opened.
+    public static final String EULA_URL = "";
+    /// Product community endpoint is not configured yet.
+    public static final String GROUPS_URL = "";
+    /// Stable fork channel also prevents the legacy dev/nightly announcement from being constructed.
+    public static final String BUILD_CHANNEL = "stable";
+    /// Optional source revision embedded by the build.
+    public static final @Nullable String GITHUB_SHA = JarUtils.getAttribute("hmcl.version.hash", null);
+    /// Process working directory, used only as the base for this fork's portable data directory.
     public static final Path CURRENT_DIRECTORY = Path.of(System.getProperty("user.dir")).toAbsolutePath().normalize();
-    public static final Path MINECRAFT_DIRECTORY = OperatingSystem.getWorkingDirectory("minecraft");
+    /// Per-user data directory, isolated from every HMCL location.
     public static final Path HMCL_USER_HOME;
+    /// Portable data directory, isolated from `.hmcl` and all legacy HMCL config names.
     public static final Path HMCL_LOCAL_HOME;
+    /// Runtime dependencies belonging to this launcher.
     public static final Path DEPENDENCIES_DIRECTORY;
+    /// Default Minecraft cache directory belonging to this launcher.
+    public static final Path MINECRAFT_DIRECTORY;
 
     static {
-        String hmclHome = System.getProperty("hmcl.home", System.getenv("HMCL_USER_HOME"));
-        if (StringUtils.isBlank(hmclHome)) {
-            if (OperatingSystem.CURRENT_OS.isLinuxOrBSD()) {
-                String xdgData = System.getenv("XDG_DATA_HOME");
-                if (StringUtils.isNotBlank(xdgData)) {
-                    HMCL_USER_HOME = Path.of(xdgData, "hmcl").toAbsolutePath().normalize();
-                } else {
-                    HMCL_USER_HOME = Path.of(System.getProperty("user.home"), ".local", "share", "hmcl").toAbsolutePath().normalize();
-                }
-            } else {
-                HMCL_USER_HOME = OperatingSystem.getWorkingDirectory("hmcl");
-            }
+        @Nullable String home = System.getProperty("sao.home", System.getenv("SAO_OATH_USER_HOME"));
+        if (StringUtils.isNotBlank(home)) {
+            HMCL_USER_HOME = Path.of(home).toAbsolutePath().normalize();
+        } else if (OperatingSystem.CURRENT_OS.isLinuxOrBSD()) {
+            @Nullable String xdg = System.getenv("XDG_DATA_HOME");
+            HMCL_USER_HOME = StringUtils.isNotBlank(xdg)
+                    ? Path.of(xdg, ".sao-oath-launcher").toAbsolutePath().normalize()
+                    : Path.of(System.getProperty("user.home"), ".local", "share", ".sao-oath-launcher").toAbsolutePath().normalize();
+        } else if (OperatingSystem.CURRENT_OS == OperatingSystem.MACOS) {
+            HMCL_USER_HOME = Path.of(System.getProperty("user.home"), "Library", "Application Support", ".sao-oath-launcher").toAbsolutePath().normalize();
         } else {
-            HMCL_USER_HOME = Path.of(hmclHome).toAbsolutePath().normalize();
+            HMCL_USER_HOME = OperatingSystem.getWorkingDirectory("sao-oath-launcher");
         }
-
-        String hmclCurrentDir = System.getProperty("hmcl.dir", System.getenv("HMCL_LOCAL_HOME"));
-        HMCL_LOCAL_HOME = StringUtils.isNotBlank(hmclCurrentDir)
-                ? Path.of(hmclCurrentDir).toAbsolutePath().normalize()
-                : CURRENT_DIRECTORY.resolve(".hmcl");
-
-        String hmclDependencies = System.getProperty("hmcl.dependencies.dir", System.getenv("HMCL_DEPENDENCIES_DIR"));
-        DEPENDENCIES_DIRECTORY = StringUtils.isNotBlank(hmclDependencies)
-                ? Path.of(hmclDependencies).toAbsolutePath().normalize()
+        @Nullable String local = System.getProperty("sao.dir", System.getenv("SAO_OATH_LOCAL_HOME"));
+        HMCL_LOCAL_HOME = StringUtils.isNotBlank(local) ? Path.of(local).toAbsolutePath().normalize()
+                : CURRENT_DIRECTORY.resolve(".sao-oath-launcher");
+        @Nullable String dependencies = System.getProperty("sao.dependencies.dir", System.getenv("SAO_OATH_DEPENDENCIES_DIR"));
+        DEPENDENCIES_DIRECTORY = StringUtils.isNotBlank(dependencies) ? Path.of(dependencies).toAbsolutePath().normalize()
                 : HMCL_LOCAL_HOME.resolve("dependencies");
+        MINECRAFT_DIRECTORY = HMCL_LOCAL_HOME.resolve("minecraft");
     }
 
-    public static boolean isStable() {
-        return "stable".equals(BUILD_CHANNEL);
-    }
-
-    public static boolean isDev() {
-        return "dev".equals(BUILD_CHANNEL);
-    }
-
-    public static boolean isNightly() {
-        return !isStable() && !isDev();
-    }
-
-    public static @Nullable String getSuggestedJavaDownloadLink() {
-        if (OperatingSystem.CURRENT_OS == OperatingSystem.LINUX && Architecture.SYSTEM_ARCH == Architecture.LOONGARCH64_OW)
-            return "https://www.loongnix.cn/zh/api/java/downloads-jdk21/index.html";
-        else {
-            EnumSet<Architecture> supportedArchitectures;
-            if (OperatingSystem.CURRENT_OS == OperatingSystem.WINDOWS)
-                supportedArchitectures = EnumSet.of(Architecture.X86_64, Architecture.X86, Architecture.ARM64);
-            else if (OperatingSystem.CURRENT_OS == OperatingSystem.LINUX)
-                supportedArchitectures = EnumSet.of(
-                        Architecture.X86_64, Architecture.X86,
-                        Architecture.ARM64, Architecture.ARM32,
-                        Architecture.RISCV64, Architecture.LOONGARCH64
-                );
-            else if (OperatingSystem.CURRENT_OS == OperatingSystem.MACOS)
-                supportedArchitectures = EnumSet.of(Architecture.X86_64, Architecture.ARM64);
-            else
-                supportedArchitectures = EnumSet.noneOf(Architecture.class);
-            if (supportedArchitectures.contains(Architecture.SYSTEM_ARCH))
-                return String.format("https://docs.hmcl.net/downloads/%s/%s.html",
-                        OperatingSystem.CURRENT_OS.getCheckedName(),
-                        Architecture.SYSTEM_ARCH.getCheckedName()
-                );
-            else
-                return null;
-        }
-    }
-
-    /// Directory under [HMCL_LOCAL_HOME] that holds a launcher-bundled modpack for automatic install.
+    /// This fork has no HMCL release channel announcements.
+    public static boolean isStable() { return true; }
+    /// This fork has no HMCL development channel announcements.
+    public static boolean isDev() { return false; }
+    /// This fork has no HMCL nightly channel announcements.
+    public static boolean isNightly() { return false; }
+    /// Java downloads use HMCL's runtime installer, never its documentation website.
+    public static @Nullable String getSuggestedJavaDownloadLink() { return null; }
+    /// Legacy bundled-pack directory, retained for source compatibility.
     public static final String BUNDLED_MODPACK_DIRECTORY_NAME = "modpack";
-
-    /// Returns the directory for a launcher-bundled modpack (`[HMCL_LOCAL_HOME]/modpack`).
-    public static Path getBundledModpackDirectory() {
-        return HMCL_LOCAL_HOME.resolve(BUNDLED_MODPACK_DIRECTORY_NAME);
-    }
-
-    /// Returns the bundled modpack package under [getBundledModpackDirectory], if present.
-    ///
-    /// Prefers `modpack.zip` over `modpack.mrpack` when both exist. Presence of the package is the
-    /// signal to offer automatic install; the file is removed after a successful install.
-    ///
-    /// @return the modpack path, or `null` when no package is present
-    public static @Nullable Path findBundledModpackFile() {
-        Path directory = getBundledModpackDirectory();
-        Path zipModpack = directory.resolve("modpack.zip");
-        if (Files.isRegularFile(zipModpack)) {
-            return zipModpack;
-        }
-        Path mrpackModpack = directory.resolve("modpack.mrpack");
-        if (Files.isRegularFile(mrpackModpack)) {
-            return mrpackModpack;
-        }
-        return null;
-    }
-
+    /// Returns the legacy bundled-pack directory inside this launcher's isolated storage.
+    public static Path getBundledModpackDirectory() { return HMCL_LOCAL_HOME.resolve(BUNDLED_MODPACK_DIRECTORY_NAME); }
+    /// Legacy auto-import is disabled; the SAO engine exclusively manages the embedded pack.
+    public static @Nullable Path findBundledModpackFile() { return null; }
 }

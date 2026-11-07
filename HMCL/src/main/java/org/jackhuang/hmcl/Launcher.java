@@ -41,7 +41,6 @@ import org.jackhuang.hmcl.task.Schedulers;
 import org.jackhuang.hmcl.ui.Controllers;
 import org.jackhuang.hmcl.ui.FXUtils;
 import org.jackhuang.hmcl.ui.animation.AnimationUtils;
-import org.jackhuang.hmcl.upgrade.UpdateChecker;
 import org.jackhuang.hmcl.upgrade.UpdateHandler;
 import org.jackhuang.hmcl.util.*;
 import org.jackhuang.hmcl.util.io.FileUtils;
@@ -140,9 +139,9 @@ public final class Launcher extends Application {
                 // When launcher visibility is set to "hide and reopen" without Platform.implicitExit = false,
                 // Stage.show() cannot work again because JavaFX Toolkit have already shut down.
                 Platform.setImplicitExit(false);
+                org.jackhuang.hmcl.sao.SaoServices.install(new org.jackhuang.hmcl.sao.SaoPackEngine());
                 Controllers.initialize(primaryStage);
 
-                UpdateChecker.init();
 
                 primaryStage.show();
             });
@@ -157,7 +156,6 @@ public final class Launcher extends Application {
         ProxyManager.init();
         Accounts.init();
         GameDirectoryManager.init();
-        AuthlibInjectorServers.init();
         AnimationUtils.init();
 
         CacheRepository.setInstance(HMCLCacheRepository.REPOSITORY);
@@ -272,8 +270,10 @@ public final class Launcher extends Application {
         }
     }
 
+    /// Closes the SAO backend before shutting down the UI and settings runtime.
     @Override
     public void stop() throws Exception {
+        org.jackhuang.hmcl.sao.SaoServices.close();
         Controllers.onApplicationStop();
         SettingsManager.shutdown();
         LOG.shutdown();

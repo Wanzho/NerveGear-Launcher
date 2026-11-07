@@ -1,3 +1,6 @@
+import com.google.gson.JsonArray
+import com.google.gson.JsonObject
+import com.google.gson.JsonParser
 import org.jackhuang.hmcl.gradle.TerracottaConfigUpgradeTask
 import org.jackhuang.hmcl.gradle.addon.FormatJsonFile
 import org.jackhuang.hmcl.gradle.addon.UpdateAddonProjectInfos
@@ -28,31 +31,11 @@ val projectConfig = PropertiesUtils.load(rootProject.file("config/project.proper
 
 val isOfficial = JenkinsUtils.IS_ON_CI || GitHubActionUtils.IS_ON_OFFICIAL_REPO
 
-val versionType = System.getenv("VERSION_TYPE") ?: if (isOfficial) "nightly" else "unofficial"
-val versionRoot = System.getenv("VERSION_ROOT") ?: projectConfig.getProperty("versionRoot") ?: "3"
-
+val versionType = "stable"
 val microsoftAuthId = System.getenv("MICROSOFT_AUTH_ID") ?: ""
 val curseForgeApiKey = System.getenv("CURSEFORGE_API_KEY") ?: ""
-
 val launcherExe = System.getenv("HMCL_LAUNCHER_EXE") ?: ""
-
-val buildNumber = System.getenv("BUILD_NUMBER")?.toInt()
-if (buildNumber != null) {
-    version = if (JenkinsUtils.IS_ON_CI && versionType == "dev") {
-        "$versionRoot.0.$buildNumber"
-    } else {
-        "$versionRoot.$buildNumber"
-    }
-} else {
-    val shortCommit = System.getenv("GITHUB_SHA")?.lowercase()?.substring(0, 7)
-    version = if (shortCommit.isNullOrBlank()) {
-        "$versionRoot.SNAPSHOT"
-    } else if (isOfficial) {
-        "$versionRoot.dev-$shortCommit"
-    } else {
-        "$versionRoot.unofficial-$shortCommit"
-    }
-}
+version = providers.gradleProperty("saoVersion").getOrElse("0.1.0")
 
 val embedResources = configurations.register("embedResources")
 
@@ -80,6 +63,17 @@ dependencies {
 
 fun digest(algorithm: String, bytes: ByteArray): ByteArray = MessageDigest.getInstance(algorithm).digest(bytes)
 
+fun digestStream(algorithm: String, input: java.io.InputStream): ByteArray = input.use {
+    val digest = MessageDigest.getInstance(algorithm)
+    val buffer = ByteArray(65536)
+    while (true) {
+        val count = it.read(buffer)
+        if (count < 0) break
+        digest.update(buffer, 0, count)
+    }
+    digest.digest()
+}
+
 fun createChecksum(file: File) {
     val algorithms = linkedMapOf(
         "SHA-1" to "sha1",
@@ -89,7 +83,7 @@ fun createChecksum(file: File) {
 
     algorithms.forEach { (algorithm, ext) ->
         File(file.parentFile, "${file.name}.$ext").writeText(
-            digest(algorithm, file.readBytes()).joinToString(separator = "", postfix = "\n") { "%02x".format(it) }
+            digestStream(algorithm, file.inputStream()).joinToString(separator = "", postfix = "\n") { "%02x".format(it) }
         )
     }
 }
@@ -110,7 +104,7 @@ fun attachSignature(jar: File) {
             .filter { it.name != "META-INF/hmcl_signature" }
             .forEach {
                 signer.update(digest("SHA-512", it.name.toByteArray()))
-                signer.update(digest("SHA-512", zip.getInputStream(it).readBytes()))
+                signer.update(digestStream("SHA-512", zip.getInputStream(it)))
             }
     }
     val signature = signer.sign()
@@ -186,6 +180,7 @@ val createPropertiesFile = tasks.register("createPropertiesFile") {
 }
 
 tasks.jar {
+    archiveBaseName.set("SAO-Oath-Launcher")
     enabled = false
     dependsOn(tasks["shadowJar"])
 }
@@ -196,6 +191,7 @@ tasks.shadowJar {
     dependsOn(createPropertiesFile)
 
     archiveClassifier.set(null as String?)
+    archiveBaseName.set("SAO-Oath-Launcher")
 
     exclude("**/package-info.class")
     exclude("META-INF/maven/**")
@@ -237,7 +233,138 @@ tasks.shadowJar {
     }
 }
 
+// Distribution pack preparation is opt-in. Development builds contain no fabricated ready pack.
+val saoPack = providers.gradleProperty("saoPack")
+val saoPackOutput = layout.buildDirectory.dir("generated/saoPack")
+val prepareSaoPack = tasks.register("prepareSaoPack") {
+    group = "sao"
+    description = "Hashes overrides and embeds all external pack dependencies, verified by SHA-1 and size."
+    onlyIf { saoPack.isPresent }
+    if (saoPack.isPresent) inputs.file(file(saoPack.get()))
+    inputs.property("packOffline", providers.gradleProperty("saoPackOffline").getOrElse("false"))
+    inputs.property("packVersion", providers.gradleProperty("saoPackVersion").getOrElse("auto"))
+    inputs.property("newsUrl", providers.gradleProperty("saoNewsUrl").getOrElse(""))
+    inputs.property("server", providers.gradleProperty("saoServer").getOrElse(""))
+    providers.gradleProperty("saoPackBaseline").orNull?.let { inputs.file(file(it).let { source -> if (source.isDirectory) source.resolve("oath08-receipt.json") else source }) }
+    outputs.dir(saoPackOutput)
+    doLast {
+        val output = saoPackOutput.get().asFile
+        output.deleteRecursively()
+        output.mkdirs()
+        val packFile = file(saoPack.get())
+        val baselineFiles = mutableMapOf<String, File>()
+        providers.gradleProperty("saoPackBaseline").orNull?.let { location ->
+            val source = file(location)
+            val receipt = if (source.isDirectory) source.resolve("oath08-receipt.json") else source
+            val json = receipt.reader(Charsets.UTF_8).use { JsonParser.parseReader(it).asJsonObject }
+            json.getAsJsonArray("files").forEach { element ->
+                val item = element.asJsonObject
+                val besideReceipt = receipt.parentFile.resolve(item["path"].asString)
+                baselineFiles[item.getAsJsonObject("hashes")["sha1"].asString] =
+                    if (besideReceipt.isFile) besideReceipt else File(item["source"].asString)
+            }
+        }
+        fun sha1(source: java.io.InputStream): String = source.use { input ->
+            val digest = MessageDigest.getInstance("SHA-1")
+            val buffer = ByteArray(65536)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                digest.update(buffer, 0, count)
+            }
+            digest.digest().joinToString("") { "%02x".format(it) }
+        }
+        fun matches(source: File, hash: String, size: Long) = source.isFile && source.length() == size && sha1(source.inputStream()) == hash
+        ZipFile(packFile).use { archive ->
+            val explicit = archive.getEntry("sao-manifest.json")
+            val manifest: JsonObject
+            if (explicit != null) {
+                manifest = archive.getInputStream(explicit).reader(Charsets.UTF_8).use { JsonParser.parseReader(it).asJsonObject }
+            } else {
+                val indexEntry = archive.getEntry("modrinth.index.json") ?: throw GradleException("Missing Modrinth index")
+                val index = archive.getInputStream(indexEntry).reader(Charsets.UTF_8).use { JsonParser.parseReader(it).asJsonObject }
+                val dependencies = index.getAsJsonObject("dependencies")
+                if (dependencies["minecraft"]?.asString != "1.20.1" || dependencies["neoforge"]?.asString != "47.1.106" || dependencies.has("forge"))
+                    throw GradleException("Only Minecraft 1.20.1 + NeoForge 47.1.106 is supported")
+                val files = sortedMapOf<String, JsonObject>()
+                index.getAsJsonArray("files").forEach { element ->
+                    val source = element.asJsonObject
+                    if (source.has("env") && source.getAsJsonObject("env")["client"]?.asString == "unsupported") return@forEach
+                    val item = JsonObject()
+                    item.addProperty("path", source["path"].asString)
+                    item.addProperty("sha1", source.getAsJsonObject("hashes")["sha1"].asString)
+                    item.addProperty("size", source["fileSize"].asLong)
+                    item.add("downloads", source.getAsJsonArray("downloads").deepCopy())
+                    files[item["path"].asString] = item
+                }
+                archive.entries().asSequence().filter { !it.isDirectory && it.name.startsWith("overrides/") }.forEach { entry ->
+                    val path = entry.name.removePrefix("overrides/")
+                    val item = JsonObject()
+                    item.addProperty("path", path)
+                    item.addProperty("sha1", sha1(archive.getInputStream(entry)))
+                    item.addProperty("size", entry.size)
+                    item.addProperty("entry", entry.name)
+                    item.add("downloads", JsonArray())
+                    files[path] = item
+                }
+                manifest = JsonObject()
+                val namedVersion = Regex("""(?i)OATH\s*(\d+(?:\.\d+)+)""").find(index["name"].asString)?.groupValues?.get(1)
+                manifest.addProperty("version", providers.gradleProperty("saoPackVersion").orNull ?: namedVersion ?: index["versionId"].asString)
+                manifest.addProperty("minecraft", "1.20.1")
+                manifest.addProperty("neoforge", "47.1.106")
+                manifest.addProperty("newsUrl", providers.gradleProperty("saoNewsUrl").getOrElse(""))
+                manifest.addProperty("server", providers.gradleProperty("saoServer").getOrElse(""))
+                manifest.add("files", JsonArray().apply { files.values.forEach { add(it) } })
+                manifest.add("removals", JsonArray())
+            }
+            if (manifest["minecraft"]?.asString != "1.20.1" || manifest["neoforge"]?.asString != "47.1.106")
+                throw GradleException("Pack manifest dependencies are incompatible")
+            val external = output.resolve("files").apply { mkdirs() }
+            var count = 0
+            manifest.getAsJsonArray("files").forEach { element ->
+                val item = element.asJsonObject
+                if (item.has("entry") && !item["entry"].isJsonNull) return@forEach
+                val hash = item["sha1"].asString
+                val size = item["size"].asLong
+                if (!hash.matches(Regex("[0-9a-f]{40}")) || size < 0 || size > 2147483648L) throw GradleException("Invalid pack file identity")
+                val destination = external.resolve(hash)
+                val baseline = baselineFiles[hash]
+                if (baseline != null && matches(baseline, hash, size)) baseline.copyTo(destination, overwrite = true)
+                else {
+                    if (providers.gradleProperty("saoPackOffline").getOrElse("false").toBoolean())
+                        throw GradleException("Offline pack build requires verified baseline payload: " + item["path"].asString)
+                    var obtained = false
+                    item.getAsJsonArray("downloads").forEach download@{ url ->
+                        if (obtained) return@download
+                        try {
+                            val uri = URI(url.asString)
+                            if (uri.scheme != "https") throw GradleException("Pack downloads must use HTTPS")
+                            val connection = uri.toURL().openConnection().apply { connectTimeout = 15000; readTimeout = 60000 }
+                            connection.getInputStream().use { input -> destination.outputStream().use { input.copyTo(it) } }
+                            obtained = matches(destination, hash, size)
+                        } catch (failure: Exception) { logger.info("Trying next pack file source: {}", failure.javaClass.simpleName) }
+                    }
+                    if (!obtained) throw GradleException("Cannot obtain verified pack payload: " + item["path"].asString)
+                }
+                if (!matches(destination, hash, size)) throw GradleException("Pack checksum mismatch: " + item["path"].asString)
+                count++
+            }
+            output.resolve("sao-manifest.json").writeText(manifest.toString(), Charsets.UTF_8)
+            logger.lifecycle("Prepared complete SAO pack: {} managed files, {} external payloads, version {}", manifest.getAsJsonArray("files").size(), count, manifest["version"].asString)
+        }
+    }
+}
+
 tasks.processResources {
+    inputs.property("saoPackEmbedded", saoPack.isPresent)
+    doFirst { delete(destinationDir.resolve("assets/sao")) }
+    if (saoPack.isPresent) {
+        dependsOn(prepareSaoPack)
+        into("assets/sao") {
+            from(saoPackOutput)
+            from(file(saoPack.get())) { rename { "pack.zip" } }
+        }
+    }
     dependsOn(createPropertiesFile)
     dependsOn(upsideDownTranslate)
     dependsOn(createLocaleNamesResourceBundle)

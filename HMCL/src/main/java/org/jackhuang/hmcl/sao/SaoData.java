@@ -7,6 +7,7 @@ package org.jackhuang.hmcl.sao;
 
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.Unmodifiable;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -20,6 +21,7 @@ public final class SaoData {
     }
 
     /// What a news entry is.
+    @NotNullByDefault
     public enum NewsKind {
         /// A server notice.
         NOTICE,
@@ -33,6 +35,7 @@ public final class SaoData {
     /// @param title short title
     /// @param date  as shown, for example "11-06"
     /// @param body  plain text, a few lines
+    @NotNullByDefault
     public record News(NewsKind kind, String title, String date, String body) {
     }
 
@@ -44,7 +47,10 @@ public final class SaoData {
     /// @param pingMs  round trip in milliseconds, -1 while unknown
     /// @param motd    the message of the day, plain text
     /// @param names   the sample of player names the ping returned
-    public record ServerStatus(boolean online, int players, int max, int pingMs, String motd, List<String> names) {
+    @NotNullByDefault
+    public record ServerStatus(boolean online, int players, int max, int pingMs, String motd, @Unmodifiable List<String> names) {
+        /// Copies the server's optional player sample so replacing a status never mutates an older record.
+        public ServerStatus { names = List.copyOf(names); }
     }
 
     /// One singleplayer save.
@@ -55,6 +61,7 @@ public final class SaoData {
     /// @param sizeBytes   size on disk
     /// @param icon        its icon.png, or null
     /// @param mode        game mode as shown, for example "生存"
+    @NotNullByDefault
     public record World(String name, Path folder, long lastPlayed, long sizeBytes, @Nullable Path icon, String mode) {
     }
 
@@ -64,6 +71,7 @@ public final class SaoData {
     /// @param world     the world folder it belongs to
     /// @param time      epoch milliseconds
     /// @param sizeBytes size of the zip
+    @NotNullByDefault
     public record Backup(Path file, Path world, long time, long sizeBytes) {
     }
 
@@ -74,6 +82,7 @@ public final class SaoData {
     /// @param description the pack's description line, may be empty
     /// @param enabled     whether it is on (for shaders: the one in use)
     /// @param icon        its pack.png, or null
+    @NotNullByDefault
     public record Pack(String name, Path file, String description, boolean enabled, @Nullable Path icon) {
     }
 
@@ -82,10 +91,12 @@ public final class SaoData {
     /// @param reason HMCL's crash analysis in one line, in the launcher's language
     /// @param detail the matched part of the log or report
     /// @param report the crash report or log file
+    @NotNullByDefault
     public record Crash(String reason, String detail, Path report) {
     }
 
     /// Where the multiplayer room is.
+    @NotNullByDefault
     public enum RoomState {
         /// No room.
         OFF,
@@ -107,6 +118,7 @@ public final class SaoData {
     /// @param code    the room code to share or that was joined, or null
     /// @param members people in the room, counting the player
     /// @param message a short line for the window, or null
+    @NotNullByDefault
     public record Room(RoomState state, @Nullable String code, int members, @Nullable String message) {
         /// No room.
         public static final Room OFF = new Room(RoomState.OFF, null, 0, null);
@@ -118,10 +130,12 @@ public final class SaoData {
     /// @param executable the java executable
     /// @param vendor     for example "Eclipse Adoptium", may be empty
     /// @param managed    whether the launcher downloaded it
+    @NotNullByDefault
     public record JavaRuntime(String version, Path executable, String vendor, boolean managed) {
     }
 
     /// Where downloads come from.
+    @NotNullByDefault
     public enum Source {
         /// The launcher picks (BMCLAPI in China).
         AUTO,
@@ -137,6 +151,7 @@ public final class SaoData {
     /// @param progress      0 to 1, or -1 while unknown
     /// @param bytesPerSecond speed, 0 when unknown
     /// @param done          finished
+    @NotNullByDefault
     public record Task(String name, double progress, long bytesPerSecond, boolean done) {
     }
 
@@ -145,10 +160,12 @@ public final class SaoData {
     /// @param width      pixels
     /// @param height     pixels
     /// @param fullscreen start full screen
+    @NotNullByDefault
     public record GameWindow(int width, int height, boolean fullscreen) {
     }
 
     /// A folder the screen can open in the file manager.
+    @NotNullByDefault
     public enum Folder {
         /// The instance.
         GAME,

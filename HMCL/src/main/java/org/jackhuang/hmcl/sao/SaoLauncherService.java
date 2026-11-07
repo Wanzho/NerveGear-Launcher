@@ -22,7 +22,8 @@ import java.util.List;
 ///
 /// The screen only reads these properties and calls these methods; it never touches HMCL's
 /// version, mod or download pages. All properties change on the JavaFX application thread.
-/// Every method returns at once and does its work in the background.
+/// Install, update, repair and launch methods return at once and work in the background.
+/// Skin validation/storage and small settings accessors are synchronous.
 @NotNullByDefault
 public interface SaoLauncherService {
 
