@@ -61,7 +61,6 @@ import org.jackhuang.hmcl.ui.Controllers;
 import org.jackhuang.hmcl.ui.SVG;
 import org.jackhuang.hmcl.ui.account.CreateAccountPane;
 import org.jackhuang.hmcl.ui.skin.SkinCanvas;
-import org.jackhuang.hmcl.ui.skin.animation.SkinAniRunning;
 import org.jackhuang.hmcl.ui.skin.animation.SkinAniWavingArms;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
@@ -81,6 +80,12 @@ import static org.jackhuang.hmcl.ui.sao.SaoUiKit.*;
 public final class SaoHelmetPage extends StackPane {
     /// The design space the windows are laid out in (the episode picture at depth 0).
     private static final double EW = 1280, EH = 720;
+    /// The dock's turn, its right edge toward the eye.
+    private static final double DOCK_TURN = -18;
+    /// How much wider the dock's icons are drawn so they look round on the turned dock. Seen from the eye (camera
+    /// 30 degree field, eye at 360 / tan 15), a small width at the dock's centre (x 60, depth -40) shrinks by
+    /// cos 18 - 580 sin 18 / (1343.6 - 40) = 0.814 against its height.
+    static final double DOCK_WIDEN = 1 / 0.814;
     /// Half the camera's vertical field of view, radians.
     private static final double HALF_FOV = Math.toRadians(15);
 
@@ -127,6 +132,10 @@ public final class SaoHelmetPage extends StackPane {
     /// The 16:9 picture everything is drawn in, and its clip.
     private final Pane screen = new Pane();
     private final Rectangle screenClip = new Rectangle();
+    /// Shows the k-times world at the window's size (see [#frame(double)]).
+    private final Scale worldShrink = new Scale(1, 1, 0, 0);
+    /// The pixel scale the visor and world were last made for.
+    private double renderedK;
     private final Translate padShift = new Translate();
     /// The soft glint drifting over the glass.
     private final Region glint = new Region();
@@ -171,6 +180,10 @@ public final class SaoHelmetPage extends StackPane {
     };
     /// 确定退出吗？ over the player's body.
     private final VBox confirmOut = new VBox(10);
+    /// 离线游玩: the name and the warning, in place of the body.
+    private final VBox confirmOffline = new VBox(10);
+    /// The name for 离线游玩.
+    private final javafx.scene.control.TextField offlineName = SaoUiKit.field("游戏里的名字");
     /// The character.
     private final Character skin = new Character();
     /// Link Start and its lines.
@@ -208,7 +221,7 @@ public final class SaoHelmetPage extends StackPane {
 
         for (ImageView v : new ImageView[]{glass, frame}) {
             v.setManaged(false);
-            v.setSmooth(false);
+            v.setSmooth(true);
             v.setMouseTransparent(true);
         }
         glint.setManaged(false);
@@ -219,6 +232,7 @@ public final class SaoHelmetPage extends StackPane {
 
         world.setManaged(false);
         world.setFill(Color.TRANSPARENT);
+        world.getTransforms().add(worldShrink);
         world.setCamera(new PerspectiveCamera(false));
         space.getTransforms().addAll(centre, fit, breath, turnY, turnX);
         space.getChildren().add(windows);
@@ -408,7 +422,7 @@ public final class SaoHelmetPage extends StackPane {
         remember.setSelected(true);
         remember.setGraphic(icon(SVG.CHECK, 12));
         remember.getGraphic().visibleProperty().bind(remember.selectedProperty());
-        Text rememberLabel = dim("记住", 12);
+        Text rememberLabel = dim("记住我", 12);
         rememberLabel.setOnMouseClicked(e -> remember.setSelected(!remember.isSelected()));
         HBox rememberRow = new HBox(6, remember, rememberLabel, grow(),
                 SaoAccountApp.link("注册", () -> openAccount(SaoAccountApp.Page.REGISTER)),
@@ -422,7 +436,10 @@ public final class SaoHelmetPage extends StackPane {
         useMicrosoft.setOnAction(e -> premiumLogin());
         HBox outHead = new HBox(8, sao("ARGUS ID", 15, true), grow(), dim("未登录", 12));
         outHead.setAlignment(Pos.CENTER_LEFT);
-        signedOut.getChildren().setAll(outHead, key("用户名"), name, key("密码"), pw, rememberRow, login, rule(), useMicrosoft);
+        // James, 8 Nov: "可以选择不登录任何东西，顶着个名字，但是提醒窗口写这样就登录不了咱服务器".
+        HBox offlineRow = new HBox(SaoAccountApp.link("不登录，离线游玩", this::askOffline));
+        offlineRow.setAlignment(Pos.CENTER);
+        signedOut.getChildren().setAll(outHead, key("用户名"), name, key("密码"), pw, rememberRow, login, rule(), useMicrosoft, offlineRow);
 
         // ---- signed in: filled by refreshAccount; Link Start at its bottom right
         HBox linkRow = buildLinkRow();
@@ -470,7 +487,34 @@ public final class SaoHelmetPage extends StackPane {
             confirmName.setVisible(false);
             confirmNameAction.run();
         });
-        StackPane body = new StackPane(bodyRow, confirmOut, confirmName);
+        // 离线游玩: a name, and the warning that it cannot reach the 誓约 server.
+        Text offTitle = ink("离线游玩", 18);
+        offTitle.setFont(SaoUiKit.ui(18, true));
+        offlineName.setMaxWidth(240);
+        Text offWarn = dim("离线进不了誓约服务器，只能玩单人游戏", 12);
+        offWarn.getStyleClass().setAll("vr-warn");
+        Text offProblem = dim("", 12);
+        offProblem.getStyleClass().setAll("vr-warn");
+        Button offNo = SaoUiKit.button("取消"), offYes = SaoUiKit.accent("离线进入");
+        HBox offAnswers = new HBox(10, offNo, offYes);
+        offAnswers.setAlignment(Pos.CENTER);
+        confirmOffline.getChildren().setAll(offTitle, offlineName, offWarn, offProblem, offAnswers);
+        confirmOffline.setAlignment(Pos.CENTER);
+        confirmOffline.setVisible(false);
+        confirmOffline.visibleProperty().addListener((o, a, shown) -> bodyRow.setVisible(!shown));
+        offNo.setOnAction(e -> confirmOffline.setVisible(false));
+        offYes.setOnAction(e -> {
+            String n = offlineName.getText().strip();
+            if (!n.matches("[A-Za-z0-9_]{3,16}")) {
+                offProblem.setText("名字要 3 到 16 位，只能用英文字母、数字和下划线");
+                return;
+            }
+            offProblem.setText("");
+            confirmOffline.setVisible(false);
+            begin(() -> service.linkStartOffline(n));
+        });
+        offlineName.setOnAction(e -> offYes.fire());
+        StackPane body = new StackPane(bodyRow, confirmOut, confirmName, confirmOffline);
         VBox.setVgrow(body, Priority.ALWAYS);
 
         service.oathAccount().addListener((o, a, b) -> refreshAccount());
@@ -765,6 +809,8 @@ public final class SaoHelmetPage extends StackPane {
             StackPane cell = new StackPane(b, tip);
             cell.setMinSize(36, 36);
             cell.setMaxSize(36, 36);
+            // The dock stays turned, so its icons are drawn wider by what the turn takes off (see DOCK_WIDEN).
+            cell.setScaleX(DOCK_WIDEN);
             tip.resizeRelocate(48, 5, 52, 26);
             b.hoverProperty().addListener((o, x, on) -> tip.setVisible(on));
             b.setOnAction(e -> {
@@ -774,10 +820,12 @@ public final class SaoHelmetPage extends StackPane {
             dockButtons[i] = b;
             col.getChildren().add(cell);
         }
-        SaoFloatWindow w = new SaoFloatWindow("", 52, SaoApps.APPS.length * 36 + (SaoApps.APPS.length - 1) * 6 + 16, null).add(col);
-        w.body.setPadding(new Insets(8));
+        SaoFloatWindow w = new SaoFloatWindow("", 60, SaoApps.APPS.length * 36 + (SaoApps.APPS.length - 1) * 6 + 16, null).add(col);
+        w.body.setPadding(new Insets(8, 12, 8, 12));
         w.body.getStyleClass().add("vr-dock");
-        return w.home(60, 184, -40, 0, 0);  // faces the eye: turned, its icons looked squashed (James, 8 Nov "左边那一系列icons都感觉拉扁了")
+        // James, 8 Nov: first "左边那一系列icons都感觉拉扁了", then, when it was turned to face the eye, "我叫你左边icon不要很宽，你
+        // 怎么直接给修平了": the dock keeps its turn and the icons are widened to look round again.
+        return w.home(60, 184, -40, DOCK_TURN, 0);
     }
 
     /// The flat layer on the ear pad: the version at the bottom left, minimise and close at the bottom
@@ -860,6 +908,12 @@ public final class SaoHelmetPage extends StackPane {
     /// @param t seconds on the clock
     private void frame(double t) {
         double pw = getWidth(), ph = getHeight();
+        // James, 8 Nov: "字体还是糊，不止字体，修全局的antialiasing". Inside the 3D world JavaFX rasterises glyphs and
+        // edges at the model's scale, and a Retina screen's 2x only comes in with the camera, so everything was drawn
+        // at half resolution and stretched. The world is built k times larger and shown at 1/k, and the visor
+        // bitmaps are drawn at k, k being the screen's pixel scale.
+        double k = getScene() != null && getScene().getWindow() != null
+                ? Math.max(1, Math.max(getScene().getWindow().getOutputScaleX(), getScene().getWindow().getOutputScaleY())) : 1;
         int w = (int) Math.floor(Math.min(pw, ph * 16 / 9)), h = (int) Math.round(w * 9 / 16.0);
         if (w <= 1 || h <= 1) return;
         screen.resizeRelocate(Math.floor((pw - w) / 2), Math.floor((ph - h) / 2), w, h);
@@ -867,26 +921,34 @@ public final class SaoHelmetPage extends StackPane {
         screenClip.setHeight(h);
         long minute = System.currentTimeMillis() / 60000;
         int battery = SaoBattery.version;
-        if (w != renderedW || h != renderedH || minute != renderedMinute || battery != renderedBattery) {
+        if (w != renderedW || h != renderedH || k != renderedK || minute != renderedMinute || battery != renderedBattery) {
             renderedBattery = battery;
-            boolean resized = w != renderedW || h != renderedH;
+            boolean resized = w != renderedW || h != renderedH || k != renderedK;
             renderedW = w;
             renderedH = h;
+            renderedK = k;
             renderedMinute = minute;
-            if (resized) glass.setImage(SaoVisor.renderGlass(w, h).image());
-            frameDark = SaoVisor.renderFrame(w, h, false).image();
-            frameLit = SaoVisor.renderFrame(w, h, true).image();
+            int iw = (int) Math.round(w * k), ih = (int) Math.round(h * k);
+            if (resized) glass.setImage(SaoVisor.renderGlass(iw, ih).image());
+            frameDark = SaoVisor.renderFrame(iw, ih, false).image();
+            frameLit = SaoVisor.renderFrame(iw, ih, true).image();
             frame.setImage(poweredOn ? frameLit : frameDark);
-            world.setWidth(w);
-            world.setHeight(h);
+            for (ImageView v : new ImageView[]{glass, frame}) {
+                v.setFitWidth(w);
+                v.setFitHeight(h);
+            }
+            world.setWidth(w * k);
+            world.setHeight(h * k);
+            worldShrink.setX(1 / k);
+            worldShrink.setY(1 / k);
         }
         double s = Math.min(w / EW, h / EH);
         SaoFloatWindow.fitScale = s;
-        fit.setX(s);
-        fit.setY(s);
-        fit.setZ(s);
-        centre.setX(w / 2.0 - EW / 2 * s);
-        centre.setY(h / 2.0 - EH / 2 * s);
+        fit.setX(s * k);
+        fit.setY(s * k);
+        fit.setZ(s * k);
+        centre.setX(w * k / 2.0 - EW / 2 * s * k);
+        centre.setY(h * k / 2.0 - EH / 2 * s * k);
         padFit.setX(s);
         padFit.setY(s);
         padShift.setX(w / 2.0 - EW / 2 * s);
@@ -1115,6 +1177,13 @@ public final class SaoHelmetPage extends StackPane {
         }));
     }
 
+    /// Shows 离线游玩 in place of the sign-in.
+    private void askOffline() {
+        if (offlineName.getText().isBlank() && !name.getText().isBlank()) offlineName.setText(name.getText().strip());
+        confirmOffline.setVisible(true);
+        offlineName.requestFocus();
+    }
+
     /// Link Start, as the signed-in ARGUS ID.
     private void linkStart() {
         SaoData.@Nullable OathAccount a = service.oathAccount().get();
@@ -1329,7 +1398,8 @@ public final class SaoHelmetPage extends StackPane {
 
         /// Builds it with the default skin.
         Character() {
-            canvas.getAnimationPlayer().addSkinAnimation(new SkinAniWavingArms(100, 2000, 7.5, canvas), new SkinAniRunning(100, 100, 30, canvas));
+            // James, 8 Nov: "史蒂夫神秘跑步": HMCL's preview broke into a run at random; only the slight arm sway is left.
+            canvas.getAnimationPlayer().addSkinAnimation(new SkinAniWavingArms(100, 2000, 7.5, canvas));
             // The front follows the hand: dragging right turns the side under the pointer to the right.
             canvas.addEventHandler(MouseEvent.MOUSE_PRESSED, e -> {
                 pressX = e.getScreenX();

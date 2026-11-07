@@ -101,10 +101,12 @@ final class SaoFloatWindow extends Group {
         // gaps and pulled to the front (James, 8 Nov: "打开这个了后不应该选择不了别的界面了吗？").
         mouseTransparentProperty().bind(glass.lessThan(0.99));
         getChildren().add(0, body);
-        // The glass and its shadow are kept as a picture between changes: the shadow is not blurred again every
-        // frame, and the text keeps its full resolution inside the turned space.
-        body.setCache(true);
-        body.setCacheHint(javafx.scene.CacheHint.QUALITY);
+        // The glass and its shadow are kept as a picture between changes so the shadow is not blurred again every
+        // frame; the page builds the space at the screen's pixel scale, so the picture is made at full resolution.
+        if (Boolean.parseBoolean(System.getProperty("sao.cacheWindows", "true"))) {
+            body.setCache(true);
+            body.setCacheHint(javafx.scene.CacheHint.QUALITY);
+        }
         yaw.setPivotX(w / 2);
         yaw.setPivotY(h / 2);
         pitch.setPivotX(w / 2);

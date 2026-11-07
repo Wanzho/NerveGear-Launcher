@@ -95,7 +95,7 @@ final class SaoAccountApp {
 
         private Node register() {
             TextField name = field("3-16 位字母、数字、下划线");
-            TextField email = field("用来收验证码、找回密码");
+            TextField email = field("用于接收验证码及找回密码");
             PasswordField pw = password(""), again = password("");
             Text problem = warn();
             Button go = accent("注册");

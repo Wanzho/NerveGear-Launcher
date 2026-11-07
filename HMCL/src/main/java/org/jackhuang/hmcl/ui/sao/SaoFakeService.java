@@ -572,6 +572,11 @@ public final class SaoFakeService implements SaoLauncherService {
     }
 
     @Override
+    public void linkStartOffline(String name) {
+        linkStart(null, null);
+    }
+
+    @Override
     public @Nullable Path oathSkin() {
         return skin;
     }

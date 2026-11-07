@@ -266,15 +266,18 @@
 .theme-sao .vr-icon { -fx-fill: #6b6b6b; }
 .theme-sao .vr-warn { -fx-fill: #d9822b; }
 .theme-sao .vr-rule { -fx-background-color: #dcdcdc; }
-.theme-sao .vr-button, .theme-sao .vr-round, .theme-sao .vr-chip { -fx-background-color: #ffffff; -fx-background-radius: 4; -fx-border-color: #d6d6d6; -fx-border-width: 1; -fx-border-radius: 4; -fx-text-fill: #555555; }
+/* James, 8 Nov: "很多button值得restyle". Soft light keys with no outline, rounder, the orange only for the
+   main action and under the pointer; small text links instead of grey system buttons. */
+.theme-sao .vr-button, .theme-sao .vr-round, .theme-sao .vr-chip { -fx-background-color: #ededf0; -fx-background-radius: 7; -fx-border-color: transparent; -fx-border-width: 0; -fx-border-radius: 7; -fx-text-fill: #4c4c52; }
 .theme-sao .vr-round { -fx-background-radius: 30; -fx-border-radius: 30; }
 .theme-sao .vr-button:hover, .theme-sao .vr-round:hover, .theme-sao .vr-chip:hover, .theme-sao .vr-chip:selected { -fx-background-color: #f2a43a; -fx-border-color: #f2a43a; -fx-text-fill: #ffffff; }
 .theme-sao .vr-round:hover .vr-icon, .theme-sao .vr-dock-on .vr-icon { -fx-fill: #ffffff; }
 .theme-sao .vr-dock-button { -fx-background-color: transparent; -fx-border-color: transparent; }
 .theme-sao .vr-dock-on { -fx-background-color: #f2a43a; -fx-border-color: #f2a43a; }
-.theme-sao .vr-accent, .theme-sao .vr-start { -fx-background-color: #f2a43a; -fx-border-color: #f2a43a; -fx-text-fill: #ffffff; -fx-background-radius: 4; -fx-border-radius: 4; }
+.theme-sao .vr-accent, .theme-sao .vr-start { -fx-background-color: #f2a43a; -fx-border-color: transparent; -fx-text-fill: #ffffff; -fx-background-radius: 7; -fx-border-radius: 7; }
+.theme-sao .vr-button:pressed, .theme-sao .vr-round:pressed, .theme-sao .vr-accent:pressed { -fx-background-color: #df8f25; -fx-text-fill: #ffffff; }
 .theme-sao .vr-accent:hover, .theme-sao .vr-start:hover { -fx-background-color: #f7b75a; }
-.theme-sao .vr-field, .theme-sao .vr-field:focused { -fx-background-color: #ffffff; -fx-background-radius: 3; -fx-border-radius: 3; -fx-border-color: #d0d0d0; -fx-text-fill: #333333; -fx-prompt-text-fill: #a8a8a8; }
+.theme-sao .vr-field, .theme-sao .vr-field:focused { -fx-background-color: #ffffff; -fx-background-radius: 7; -fx-border-radius: 7; -fx-border-color: #dcdce0; -fx-text-fill: #333333; -fx-prompt-text-fill: #a8a8a8; }
 .theme-sao .vr-field:focused { -fx-border-color: #f2a43a; }
 .theme-sao .vr-tile { -fx-background-color: rgba(255,255,255,0.85); -fx-background-radius: 4; -fx-border-color: #e2e2e2; -fx-border-radius: 4; }
 .theme-sao .vr-tile:hover { -fx-background-color: #ffffff; }
@@ -326,3 +329,8 @@
 .vr-part { -fx-background-color: #d9d9dc; -fx-background-radius: 2; -fx-border-color: #c4c4c8; -fx-border-radius: 2; -fx-padding: 0; -fx-cursor: hand; }
 .vr-part:selected { -fx-background-color: #f2a43a; -fx-border-color: #e0912a; }
 .vr-part:hover { -fx-border-color: #f2a43a; -fx-border-width: 2; }
+
+/* Text links (注册, 忘记密码, 离线游玩): no box, grey, orange under the pointer. */
+.vr-link { -fx-background-color: transparent; -fx-border-color: transparent; -fx-padding: 2 4 2 4; -fx-cursor: hand; -fx-text-fill: #8a8a90; }
+.vr-link:hover { -fx-text-fill: #f2a43a; -fx-underline: true; }
+.vr-link:pressed { -fx-text-fill: #df8f25; }
