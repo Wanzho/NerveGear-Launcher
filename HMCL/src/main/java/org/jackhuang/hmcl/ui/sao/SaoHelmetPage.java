@@ -315,12 +315,19 @@ public final class SaoHelmetPage extends StackPane {
         openNodes = () -> {
             if (!nodes.isVisible()) more.fire();
         };
-        for (String n : service.serverNodes()) {
-            // No light: the launcher does not ping the nodes.
-            Text t = sao(n, 12, false);
-            t.getStyleClass().setAll("vr-dim");
-            nodes.getChildren().add(t);
-        }
+        // The manifest loads in the background (launcherback5): read the address and nodes again once it has.
+        Runnable fillNodes = () -> {
+            address.setText(service.serverAddress());
+            nodes.getChildren().clear();
+            for (String n : service.serverNodes()) {
+                // No light: the launcher does not ping the nodes.
+                Text t = sao(n, 12, false);
+                t.getStyleClass().setAll("vr-dim");
+                nodes.getChildren().add(t);
+            }
+        };
+        fillNodes.run();
+        service.state().addListener((o, a, b) -> fillNodes.run());
         nodes.setVisible(false);
         nodes.setManaged(false);
         HBox addressRow = new HBox(8, address, grow(), more);
