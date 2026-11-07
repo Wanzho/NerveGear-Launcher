@@ -789,6 +789,16 @@ public final class SaoHelmetPage extends StackPane {
 
     // ------------------------------------------------------------------ tools
 
+    /// Presses the first danger button in view, for example settings' 一键卸载 (screenshot tools).
+    void forceDanger() {
+        for (javafx.scene.Node n : space.lookupAll(".vr-danger")) {
+            if (n instanceof javafx.scene.control.Button b && b.isVisible() && n.getParent() != null && n.getParent().isVisible()) {
+                b.fire();
+                return;
+            }
+        }
+    }
+
     /// Skips the power-on (screenshot tools).
     void forceLit() {
         poweredOn = true;

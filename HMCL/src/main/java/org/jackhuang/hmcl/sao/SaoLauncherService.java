@@ -290,6 +290,32 @@ public interface SaoLauncherService {
     default void openFile(Path file) {
     }
 
+    /// How much the launcher's game takes on disk: the instance, its runtimes and libraries and the launcher's data.
+    ///
+    /// @return bytes, or -1 while unknown
+    default long installedBytes() {
+        return -1;
+    }
+
+    /// One-click uninstall for players who would not know how (James, 7 Nov: "加个一键卸载功能，在设置里，以防一些萌新不会搞").
+    /// Removes everything the launcher put on this computer: the game instance (game, mods, configs, saves), the Java
+    /// runtimes and libraries it downloaded, its own settings and the remembered account and password, and the launcher
+    /// itself once it has quit. Files go to the system's Trash / Recycle Bin where there is one, so a mistake can be
+    /// undone; where there is none they are deleted. Nothing outside the launcher's own folders is touched (not the
+    /// official .minecraft, not other launchers). Refused with [#lastError] while the game runs or a download is busy.
+    /// When done the launcher quits.
+    ///
+    /// @param keepSaves first copy the saves and screenshots to a folder on the desktop, [#keptSavesFolder]
+    default void uninstall(boolean keepSaves) {
+    }
+
+    /// Where [#uninstall] keeps the saves and screenshots when asked to.
+    ///
+    /// @return the folder, on the desktop
+    default Path keptSavesFolder() {
+        return Path.of(System.getProperty("user.home"), "Desktop", "刀剑神域·誓约 存档");
+    }
+
     /// The service the running launcher uses.
     static SaoLauncherService get() {
         return SaoServices.service();

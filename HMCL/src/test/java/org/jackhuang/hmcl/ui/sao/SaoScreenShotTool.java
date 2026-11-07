@@ -31,7 +31,21 @@ public final class SaoScreenShotTool {
     ///
     /// @param args the output folder, then optional width and height
     /// @throws Exception when rendering or writing fails
-    public static void main(String[] args) throws Exception {
+    public static void main(String[] args) {
+        // Never hang on a failure: a stuck tool once held the shared build slot for three hours.
+        try {
+            run(args);
+        } catch (Throwable t) {
+            t.printStackTrace();
+            System.exit(1);
+        }
+    }
+
+    /// Writes every shot.
+    ///
+    /// @param args the output folder
+    /// @throws Exception on any failure
+    private static void run(String[] args) throws Exception {
         Path out = Path.of(args.length > 0 ? args[0] : "sao-shots");
         int[][] sizes = {{1000, 620}, {1920, 1080}};
         Files.createDirectories(out);
@@ -58,6 +72,12 @@ public final class SaoScreenShotTool {
                 for (int i = 0; i < apps.length; i++) {
                     shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, i, out.resolve(p + String.format("%02d-%s.png", i + 1, apps[i])));
                 }
+                shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, 0, out.resolve(p + "20-settings-uninstall.png"));
+                fx(() -> page[0].forceDanger());
+                Thread.sleep(500);
+                WritableImage[] img = new WritableImage[1];
+                fx(() -> img[0] = scene[0].snapshot(null));
+                write(img[0], out.resolve(p + "20-settings-uninstall.png"));
             } else {
                 shot(scene[0], page[0], fake, SaoPackState.WORKING, 0.42, "安装 NeoForge", 0, 0, -1, out.resolve(p + "01-home-installing.png"));
                 shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, 0, out.resolve(p + "10-app-settings.png"));

@@ -255,14 +255,65 @@ final class SaoApps {
         folder.setOnAction(e -> s.openFolder(SaoData.Folder.GAME));
         Text where = dim(s.instanceDir().toString(), 11);
         where.setWrappingWidth(318);
+        Button uninstall = button("一键卸载");
+        uninstall.getStyleClass().add("vr-danger");
         VBox right = column(318,
                 key("启动参数（高级）"), jvm,
                 rule(),
                 key("整合包 v" + s.embeddedVersion()),
                 new HBox(8, repair, folder),
+                rule(),
+                uninstall,
                 grow(),
                 where);
-        return new SaoFloatWindow("设置", W, H, close).add(columns(left, right));
+        HBox main = columns(left, right);
+        VBox confirm = uninstallConfirm(s);
+        confirm.setVisible(false);
+        StackPane body = new StackPane(main, confirm);
+        VBox.setVgrow(body, Priority.ALWAYS);
+        uninstall.setOnAction(e -> {
+            main.setVisible(false);
+            confirm.setVisible(true);
+        });
+        confirm.setUserData((Runnable) () -> {
+            confirm.setVisible(false);
+            main.setVisible(true);
+        });
+        return new SaoFloatWindow("设置", W, H, close).add(body);
+    }
+
+    /// The uninstall question, in place of the settings: what goes, keep the saves, cancel or uninstall.
+    private static VBox uninstallConfirm(SaoLauncherService s) {
+        boolean windows = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("win");
+        long bytes = s.installedBytes();
+        Text title = ink("卸载刀剑神域·誓约", 20);
+        title.setFont(ui(20, true));
+        Text what = ink("游戏、模组、Java、账号和启动器本身" + (bytes > 0 ? "（约 " + size(bytes) + "）" : "")
+                + "都会移到" + (windows ? "回收站" : "废纸篓") + "，启动器随后退出。", 14);
+        what.setWrappingWidth(560);
+        ToggleButton keep = toggle(true);
+        Text where = dim("复制到桌面「" + s.keptSavesFolder().getFileName() + "」", 12);
+        where.visibleProperty().bind(keep.selectedProperty());
+        HBox keepRow = row(ink("保留存档和截图", 14), keep);
+        keepRow.setMaxWidth(560);
+        Button cancel = button("取消");
+        Button go = button("卸载");
+        go.getStyleClass().add("vr-danger");
+        boolean busy = s.state().get() == org.jackhuang.hmcl.sao.SaoPackState.RUNNING;
+        go.setDisable(busy);
+        Text running = dim("游戏运行中，先退出游戏", 12);
+        running.setVisible(busy);
+        VBox box = new VBox(14, title, what, keepRow, where, grow(), running, new HBox(10, cancel, go));
+        box.setAlignment(Pos.TOP_LEFT);
+        box.setPadding(new Insets(6, 4, 4, 4));
+        cancel.setOnAction(e -> ((Runnable) box.getUserData()).run());
+        go.setOnAction(e -> {
+            go.setDisable(true);
+            cancel.setDisable(true);
+            go.setText("正在卸载…");
+            s.uninstall(keep.isSelected());
+        });
+        return box;
     }
 
     // ------------------------------------------------------------------ worlds

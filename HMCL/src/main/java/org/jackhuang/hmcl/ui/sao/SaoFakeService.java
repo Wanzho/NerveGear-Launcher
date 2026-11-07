@@ -129,6 +129,21 @@ public final class SaoFakeService implements SaoLauncherService {
     public void repair() {
     }
 
+    /// Whether the fake was asked to uninstall, and how (tools read it).
+    @Nullable Boolean uninstalled;
+
+    /// {@inheritDoc}
+    @Override
+    public long installedBytes() {
+        return 9_870_000_000L;
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public void uninstall(boolean keepSaves) {
+        uninstalled = keepSaves;
+    }
+
     /// {@inheritDoc}
     @Override
     public void applyUpdateZip(Path zip) {

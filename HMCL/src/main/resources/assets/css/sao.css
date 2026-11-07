@@ -291,3 +291,7 @@
 .theme-sao .vr-logo { -fx-effect: dropshadow(gaussian, rgba(40,50,70,0.85), 3, 0.6, 0, 0); }
 
 /* ---- Dark glass, minimal: smoked panels with a hairline, white for the main action */
+
+/* One-click uninstall (7 Nov): the only red in the launcher. */
+.vr-danger, .theme-sao .vr-danger { -fx-background-color: #ffffff; -fx-border-color: #e0605a; -fx-text-fill: #d2443d; }
+.vr-danger:hover, .theme-sao .vr-danger:hover { -fx-background-color: #e0605a; -fx-border-color: #e0605a; -fx-text-fill: #ffffff; }
