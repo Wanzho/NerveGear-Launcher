@@ -241,7 +241,7 @@ final class SaoSkinApp {
         apply.setMaxWidth(Double.MAX_VALUE);
         apply.setOnAction(e -> {
             if (s.oathAccount().get() == null) {
-                status.setText("! 先登录誓约账号，别人才看得到");
+                status.setText("! 先登录 ARGUS ID，别人才看得到");
                 return;
             }
             try {

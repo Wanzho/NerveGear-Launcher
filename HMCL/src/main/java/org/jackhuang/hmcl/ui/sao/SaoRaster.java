@@ -151,6 +151,35 @@ final class SaoRaster {
         px[i] = 0xff000000 | r << 16 | g << 8 | b;
     }
 
+    /// Averages every s × s block into one pixel (the shapes' edges come out smooth): drawn at s times the size,
+    /// shown at 1.
+    ///
+    /// @param s the factor the buffer was drawn at
+    /// @return a buffer s times smaller
+    SaoRaster downsample(int s) {
+        SaoRaster o = new SaoRaster(w / s, h / s);
+        int n = s * s;
+        for (int y = 0; y < o.h; y++) {
+            for (int x = 0; x < o.w; x++) {
+                long sa = 0, sr = 0, sg = 0, sb = 0;
+                for (int j = 0; j < s; j++) {
+                    int row = (y * s + j) * w + x * s;
+                    for (int i = 0; i < s; i++) {
+                        int c = px[row + i], a = c >>> 24;
+                        sa += a;
+                        sr += (long) (c >> 16 & 255) * a;
+                        sg += (long) (c >> 8 & 255) * a;
+                        sb += (long) (c & 255) * a;
+                    }
+                }
+                if (sa == 0) continue;
+                o.px[y * o.w + x] = (int) ((sa + n / 2) / n) << 24 | clamp((int) (sr / sa)) << 16
+                        | clamp((int) (sg / sa)) << 8 | clamp((int) (sb / sa));
+            }
+        }
+        return o;
+    }
+
     /// Copies the buffer into a JavaFX image.
     ///
     /// @return the image

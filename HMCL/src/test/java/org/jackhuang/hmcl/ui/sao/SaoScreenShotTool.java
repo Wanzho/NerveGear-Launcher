@@ -47,7 +47,7 @@ public final class SaoScreenShotTool {
     /// @throws Exception on any failure
     private static void run(String[] args) throws Exception {
         Path out = Path.of(args.length > 0 ? args[0] : "sao-shots");
-        int[][] sizes = {{1000, 620}, {1920, 1080}};
+        int[][] sizes = {{1024, 576, 0}, {1920, 1080, 0}, {1920, 1080, 1}};
         Files.createDirectories(out);
         Platform.setImplicitExit(false);
         CountDownLatch up = new CountDownLatch(1);
@@ -56,7 +56,10 @@ public final class SaoScreenShotTool {
         System.out.println("SCENE3D supported: " + Platform.isSupported(javafx.application.ConditionalFeature.SCENE3D));
         for (int[] size : sizes) {
             int w = size[0], h = size[1];
-            boolean big = w > 1500;
+            boolean win = size[2] == 1, big = w > 1500 && !win;
+            // The small size and the second big one show the Windows/Linux layout of the window buttons (top right),
+            // the first big one the Mac's.
+            System.setProperty("sao.windowButtons", big ? "left" : "right");
             SaoFakeService fake = new SaoFakeService();
             SaoHelmetPage[] page = new SaoHelmetPage[1];
             Scene[] scene = new Scene[1];
@@ -65,8 +68,28 @@ public final class SaoScreenShotTool {
                 scene[0] = new Scene(page[0], w, h);
             });
             Thread.sleep(2500);
-            String p = w + "x" + h + "-";
-            if (big) {
+            String p = w + "x" + h + (win ? "-win-" : "-");
+            if (win) {
+                // Signed in, as on the Mac, with the buttons on the right.
+                fx(() -> fake.forceOath(true));
+                shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "21-home-signed-in.png"));
+                fx(() -> page[0].forceNodes());
+                Thread.sleep(500);
+                WritableImage[] im = new WritableImage[1];
+                fx(() -> im[0] = scene[0].snapshot(null));
+                write(im[0], out.resolve(p + "40-server-nodes.png"));
+                // The nickname edited in place: a free name, then a taken one.
+                for (String[] t : new String[][]{{"Kirito_Black", "41-name-edit-free"}, {"Asuna", "42-name-edit-taken"}}) {
+                    fx(() -> page[0].forceNameEdit(t[0]));
+                    Thread.sleep(900);
+                    fx(() -> im[0] = scene[0].snapshot(null));
+                    write(im[0], out.resolve(p + t[1] + ".png"));
+                }
+                fx(() -> page[0].forceNameConfirm("Kirito_Black"));
+                Thread.sleep(500);
+                fx(() -> im[0] = scene[0].snapshot(null));
+                write(im[0], out.resolve(p + "43-name-confirm.png"));
+            } else if (big) {
                 String[] apps = {"settings", "skin", "worlds", "multiplayer", "packs", "screenshots", "logs", "java", "downloads", "about"};
                 shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "00-home.png"));
                 for (int i = 0; i < apps.length; i++) {
@@ -78,6 +101,28 @@ public final class SaoScreenShotTool {
                 WritableImage[] img = new WritableImage[1];
                 fx(() -> img[0] = scene[0].snapshot(null));
                 write(img[0], out.resolve(p + "20-settings-uninstall.png"));
+                // The battery, as the computer reports it: charging, on battery, and low (red).
+                int[][] batt = {{85, 1}, {60, 0}, {15, 0}, {12, 1}};
+                for (int[] b : batt) {
+                    SaoBattery.now = new SaoBattery.State(b[0], b[1] == 1);
+                    SaoBattery.version++;
+                    shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1,
+                            out.resolve(p + "30-battery-" + b[0] + (b[1] == 1 ? "-charging" : "") + ".png"));
+                }
+                SaoBattery.now = new SaoBattery.State(100, true);
+                SaoBattery.version++;
+                // Signed in: 确定退出吗？; then signed out, the ARGUS ID form and the 正版 tab.
+                fx(() -> fake.forceOath(true));
+                shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "tmp.png"));
+                fx(() -> page[0].forceConfirmOut());
+                Thread.sleep(400);
+                fx(() -> img[0] = scene[0].snapshot(null));
+                write(img[0], out.resolve(p + "31-confirm-logout.png"));
+                fx(() -> {
+                    fake.remembered = null;
+                    fake.oathLogout();
+                });
+                shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "32-signed-out.png"));
                 // 誓约账号: signed in (verified, then waiting for the code), and each page of its window.
                 fx(() -> fake.forceOath(true));
                 shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "21-home-signed-in.png"));

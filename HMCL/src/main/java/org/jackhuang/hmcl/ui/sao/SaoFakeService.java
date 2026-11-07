@@ -7,6 +7,7 @@ package org.jackhuang.hmcl.ui.sao;
 
 import javafx.animation.KeyFrame;
 import javafx.animation.Timeline;
+import javafx.beans.property.ObjectProperty;
 import javafx.beans.property.ReadOnlyDoubleProperty;
 import javafx.beans.property.ReadOnlyObjectProperty;
 import javafx.beans.property.ReadOnlyStringProperty;
@@ -30,6 +31,7 @@ import java.nio.file.StandardCopyOption;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import org.jackhuang.hmcl.sao.SaoAccountException;
@@ -334,8 +336,21 @@ public final class SaoFakeService implements SaoLauncherService {
     ///
     /// @param verified whether the mailbox is verified
     void forceOath(boolean verified) {
+        card.set(new SaoData.PlayerCard(24, 1, 12_400, System.currentTimeMillis() - 20 * 3600_000L, 12 * 3600 + 40 * 60,
+                List.of("Asuna", "Klein")));
         oath.set(new SaoData.OathAccount("Kirito_07", "0f3b6a1c2d4e4f50a1b2c3d4e5f60718", "ja***@163.com", verified,
                 false, verified ? 0 : 47 * 3600 + 12 * 60, null));
+    }
+
+    /// Renames today (pretend limit of three).
+    private int renames;
+
+    /// Pretend player card.
+    private final ObjectProperty<SaoData.@Nullable PlayerCard> card = new SimpleObjectProperty<>();
+
+    @Override
+    public ReadOnlyObjectProperty<SaoData.@Nullable PlayerCard> playerCard() {
+        return card;
     }
 
     @Override
@@ -394,6 +409,20 @@ public final class SaoFakeService implements SaoLauncherService {
     }
 
     @Override
+    public CompletableFuture<Boolean> oathNameAvailable(String name) {
+        return CompletableFuture.completedFuture(!List.of("kirito", "asuna", "klein", "agil").contains(name.toLowerCase(Locale.ROOT)));
+    }
+
+    @Override
+    public CompletableFuture<Void> oathRename(String name) {
+        if (!oathNameAvailable(name).join()) return CompletableFuture.failedFuture(new SaoAccountException("这个昵称已经有人用了", "nameTaken"));
+        if (++renames > 3) return CompletableFuture.failedFuture(new SaoAccountException("今天已经改了 3 次，明天再来", "renameLimit"));
+        SaoData.@Nullable OathAccount a = oath.get();
+        if (a != null) oath.set(new SaoData.OathAccount(name, a.profileId(), a.maskedEmail(), a.emailVerified(), a.locked(), a.graceSeconds(), a.premiumName()));
+        return CompletableFuture.completedFuture(null);
+    }
+
+    @Override
     public CompletableFuture<Void> oathChangePassword(char[] password, char[] newPassword) {
         return CompletableFuture.completedFuture(null);
     }
@@ -406,8 +435,15 @@ public final class SaoFakeService implements SaoLauncherService {
     }
 
     @Override
+    public CompletableFuture<Void> oathPremiumLogin() {
+        oath.set(new SaoData.OathAccount("Kirito", "0f3b6a1c2d4e4f50a1b2c3d4e5f60718", "", false, false, 48 * 3600, "Kirito"));
+        return CompletableFuture.completedFuture(null);
+    }
+
+    @Override
     public void oathLogout() {
         oath.set(null);
+        remembered = null;
     }
 
     @Override

@@ -69,19 +69,28 @@ final class SaoVisor {
     /// @param clock  whether the display is on
     /// @return the raster
     static SaoRaster renderFrame(int width, int height, boolean clock) {
-        SaoRaster c = new SaoRaster(width, height);
-        fitTo(width, height);
+        // James, 7 Nov: "on top helmet, pixels are clearly seen": drawn at 2-3 times the size and averaged down, so
+        // the recess, the arc, the clock and the battery have smooth edges.
+        int k = width < 1500 ? 3 : 2;
+        SaoRaster c = new SaoRaster(width * k, height * k);
+        fitTo(width * k, height * k);
+        ss = k;
         // James, 7 Nov: "can u make this take up less space? by contracting it": the launcher's arc keeps the
         // episode's shape, squashed toward the bottom edge.
         squash = ARC_SQUASH;
+        // James, 7 Nov: "是不是头盔本身是歪的？是的话你给头盔调一下": the episode's helmet sits off the middle (the
+        // recess centre at 619, the arc's lowest point at 624, of 1280), so the launcher's stands it straight.
+        straight = true;
         arc(c, 1);
-        squash = 1;
         recess(c, 1);
         if (clock) {
             clock(c, 1);
             battery(c, 1);
         }
-        return c;
+        straight = false;
+        squash = 1;
+        ss = 1;
+        return c.downsample(k);
     }
 
     /// Contain-fits the episode picture to a size.
@@ -92,8 +101,12 @@ final class SaoVisor {
     }
 
     private static float ox,oy,os;
+    /** Device pixels per raster pixel's side while drawing supersampled (1 otherwise). */
+    private static float ss=1;
     /** How tall the bottom arc is drawn, 1 = as measured in the episode. */
     private static float squash=1;
+    /** Stand the helmet straight: the recess centred and the bottom arc mirrored even about the middle. */
+    private static boolean straight;
     /** The launcher's arc height (James, 7 Nov: take up less space). */
     static final float ARC_SQUASH=0.45f;
     private static float X(float x){return ox+x*os;}
@@ -127,13 +140,16 @@ final class SaoVisor {
         float[] edge=SaoVisorData.BOTTOM_EDGE,depth=SaoVisorData.DEPTHS;int[] rgb=SaoVisorData.BOTTOM_RGB;
         int cols=edge.length,rows=depth.length;
         // Rows: the fringe above the edge (transparent), then every depth, then a last row far below with the deepest colour.
-        int bands=rows+1;float fringe=1/os;
+        int bands=rows+1;float fringe=ss/os;
         float[] xy=new float[(cols-1)*bands*12];int[] ink=new int[(cols-1)*bands*6];int n=0;
         for(int i=0;i+1<cols;i++){
             for(int b=0;b<bands;b++){
                 float[] yy=new float[4];int[] cc=new int[4];
                 for(int s=0;s<2;s++){
-                    int ci=i+s;float e=720-(720-edge[ci])*squash;
+                    int ci=i+s;
+                    // Columns i and cols-1-i stand at the same distance either side of x = 640 (x = 16 i - 16).
+                    float ed=straight?(edge[ci]+edge[cols-1-ci])/2:edge[ci];
+                    float e=720-(720-ed)*squash;
                     // b = 0: fringe (e - fringe .. e); b >= 1: depth[b-1] .. depth[b] (or 900 for the last)
                     float top=b==0?e-fringe:e+depth[b-1]*squash,bottom=b==0?e:(b<rows?e+depth[b]*squash:900);
                     int ctop=b==0?0:argb(rgb[ci*rows+b-1],a),cbot=b==0?argb(rgb[ci*rows],a):argb(rgb[ci*rows+Math.min(rows-1,b)],a);
@@ -150,7 +166,7 @@ final class SaoVisor {
     }
     /** The inner edge of the recess at x, episode pixels. */
     private static float topY(float x){
-        float[] t=SaoVisorData.TOP;float u=(x-t[0])/t[1];
+        float[] t=SaoVisorData.TOP;float u=(x-(straight?640:t[0]))/t[1];
         return t[2]+t[3]*(float)Math.sqrt(Math.max(0,1-u*u));
     }
     /**
@@ -158,11 +174,12 @@ final class SaoVisor {
      * outside it (2.12 px), each band with crisp edges and a fringe one device pixel wide toward the glass.
      */
     private static void recess(SaoRaster c,float a){
-        float[] t=SaoVisorData.TOP;float rimW=SaoVisorData.RIM_W,lineW=SaoVisorData.LINE_W,fringe=1/os,reach=rimW+lineW+fringe;
+        float[] t=SaoVisorData.TOP;float rimW=SaoVisorData.RIM_W,lineW=SaoVisorData.LINE_W,fringe=ss/os,reach=rimW+lineW+fringe;
         // The columns where the bands still reach into the picture.
-        float x0=t[0],x1=t[0];
-        while(x0>t[0]-t[1]+1&&topY(x0)+reach>-2)x0-=2;
-        while(x1<t[0]+t[1]-1&&topY(x1)+reach>-2)x1+=2;
+        float mid=straight?640:t[0];
+        float x0=mid,x1=mid;
+        while(x0>mid-t[1]+1&&topY(x0)+reach>-2)x0-=2;
+        while(x1<mid+t[1]-1&&topY(x1)+reach>-2)x1+=2;
         int cols=Math.max(2,(int)Math.ceil((x1-x0)/6)+1);
         float[] px=new float[cols],py=new float[cols],nx=new float[cols],ny=new float[cols];
         for(int i=0;i<cols;i++){
@@ -245,13 +262,16 @@ final class SaoVisor {
             glyphQuad(c,0,45,8.5f,53,grow[pass],ink[pass]);
         }
     }
+    /** In the launcher the battery stands this much further in from the right edge (James, 7 Nov: "你把电池稍微往里面
+     * 移一点", then "不要挪太多"): a little. */
+    private static float BX(float x){return X(x+(straight?-10:0));}
     /** The battery's body corners (TL, TR, BR, BL), episode pixels: it stands in the visor's perspective. */
     private static final float[] BODY={1136.7f,51.7f,1230.7f,41,1226,83.3f,1132.3f,92.7f};
-    private static final int CELL_LIGHT=0x95999d,CELL_LINE=0x3c4044,BOLT=0x1e2226;
+    private static final int CELL_LIGHT=0x95999d,CELL_LINE=0x3c4044,BOLT=0x1e2226,LEVEL=0x62676b,LOW=0xd2443d;
     /** A point of the body by its shares u (left to right) and v (top to bottom). */
     private static float bu(float u,float v,int k){return (1-v)*((1-u)*BODY[k]+u*BODY[2+k])+v*((1-u)*BODY[6+k]+u*BODY[4+k]);}
     private static void bodyQuad(SaoRaster c,float u0,float v0,float u1,float v1,int colour){
-        c.polygon(colour,X(bu(u0,v0,0)),Y(bu(u0,v0,1)),X(bu(u1,v0,0)),Y(bu(u1,v0,1)),X(bu(u1,v1,0)),Y(bu(u1,v1,1)),X(bu(u0,v1,0)),Y(bu(u0,v1,1)));
+        c.polygon(colour,BX(bu(u0,v0,0)),Y(bu(u0,v0,1)),BX(bu(u1,v0,0)),Y(bu(u1,v0,1)),BX(bu(u1,v1,0)),Y(bu(u1,v1,1)),BX(bu(u0,v1,0)),Y(bu(u0,v1,1)));
     }
     /** The battery, charging (measured on 01:25.8): a light body with a thin line inside its edge, the cap with a dark slit, a dark bolt. */
     private static void battery(SaoRaster c,float a){
@@ -264,11 +284,20 @@ final class SaoVisor {
         bodyQuad(c,iu,iv,1-iu,iv+lv,line);bodyQuad(c,iu,1-iv-lv,1-iu,1-iv,line);
         bodyQuad(c,iu,iv,iu+lu,1-iv,line);bodyQuad(c,1-iu-lu,iv,1-iu,1-iv,line);
         // The cap: a light block beyond the body's right edge, a dark slit between them.
-        c.polygon(light,X(1228),Y(50.7f),X(1245),Y(49),X(1241),Y(72.7f),X(1226),Y(75));
-        c.polygon(line,X(1227.5f),Y(57),X(1231),Y(56.5f),X(1230),Y(74.5f),X(1226.5f),Y(75));
-        // The bolt (top tip, down to the left, a step right, the bottom tip, up to the right, a step left).
+        c.polygon(light,BX(1228),Y(50.7f),BX(1245),Y(49),BX(1241),Y(72.7f),BX(1226),Y(75));
+        c.polygon(line,BX(1227.5f),Y(57),BX(1231),Y(56.5f),BX(1230),Y(74.5f),BX(1226.5f),Y(75));
+        // The charge, from the computer (James, 7 Nov: "可以让那个标志同步电脑吗"): a bar inside the line, as long as
+        // the charge; red under 20 % ("低于20显示红色"). No battery (a desktop): full.
+        SaoBattery.State st=SaoBattery.now;
+        int pct=st.percent()<0?100:st.percent();
+        float fu0=iu+lu+2*ru,fv0=iv+lv+2*rv,fu1=1-iu-lu-2*ru,fv1=1-iv-lv-2*rv;
+        if(pct>0)bodyQuad(c,fu0,fv0,fu0+(fu1-fu0)*Math.max(0.04f,pct/100f),fv1,argb(pct<20?LOW:LEVEL,a));
+        // The bolt only while charging ("充电中和不在充电中有闪电的区分"). Drawn as two convex halves (it is a concave
+        // shape: filled in one fan it spilled over its top right): top tip, left, step; step, bottom tip, right.
+        if(!st.charging())return;
         float[] b={1191,51,1166,70.5f,1177.5f,69,1167,87,1192,65,1180.5f,66.5f};
-        float[] xy=new float[12];for(int i=0;i<12;i+=2){xy[i]=X(b[i]);xy[i+1]=Y(b[i+1]);}
-        c.polygon(bolt,xy);
+        float[] xy=new float[12];for(int i=0;i<12;i+=2){xy[i]=BX(b[i]);xy[i+1]=Y(b[i+1]);}
+        c.polygon(bolt,xy[0],xy[1],xy[2],xy[3],xy[4],xy[5],xy[10],xy[11]);
+        c.polygon(bolt,xy[10],xy[11],xy[4],xy[5],xy[6],xy[7],xy[8],xy[9]);
     }
 }

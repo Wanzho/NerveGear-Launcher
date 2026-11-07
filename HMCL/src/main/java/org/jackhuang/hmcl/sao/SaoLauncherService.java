@@ -374,8 +374,45 @@ public interface SaoLauncherService {
         return unsupported();
     }
 
+    /// The signed-in player's card for the player window: level, floor and Col from the account server; the last time
+    /// in the game and the play time kept by the launcher; friends online from the server. Null while signed out or
+    /// before the first answer. Refreshed on login, when the game exits and with the server status.
+    default ReadOnlyObjectProperty<SaoData.@Nullable PlayerCard> playerCard() {
+        return new javafx.beans.property.SimpleObjectProperty<>(null);
+    }
+
+    /// The address players join, shown under 服务器 (James, 7 Nov: "服务器下面写mc.saooath.com").
+    default String serverAddress() {
+        return "mc.saooath.com";
+    }
+
+    /// The other nodes (relay lines), shown under 其他节点; mc.saooath.com's SRV record points at zz.
+    default java.util.List<String> serverNodes() {
+        return java.util.List.of("zz.saooath.com", "tz.saooath.com", "sq.saooath.com");
+    }
+
     /// Changes the signed-in account's mailbox (`POST /sao/email`); a code goes to the new one.
     default CompletableFuture<Void> oathChangeEmail(String email) {
+        return unsupported();
+    }
+
+    /// Whether a 游戏昵称 is free, for the check while the player types it. Names never collide (James, 7 Nov: "名字不能撞，
+    /// 永远不能"): one name, ignoring case, belongs to one ARGUS ID only, and the server refuses a taken one on rename and
+    /// register whatever this said.
+    ///
+    /// @param name the name typed
+    default CompletableFuture<Boolean> oathNameAvailable(String name) {
+        return CompletableFuture.failedFuture(new SaoAccountException("账号服务暂不可用"));
+    }
+
+    /// Renames the signed-in ARGUS ID (James, 7 Nov: a pencil by the name, "indication that you can change it"; then
+    /// "点击铅笔可以直接在那个界面换昵称": edited in place on the home screen). The
+    /// profile ID stays, so worlds, inventory and skin stay with the player. Fails with a message when the name is
+    /// taken (ignoring case, never shared: see [#oathNameAvailable]) or not allowed, or when it is the fourth change today (James, 7 Nov: "一天最多换三次名字"; the account
+    /// server counts, per account, over the last 24 hours).
+    ///
+    /// @param name the new name, 3 to 16 letters, digits or underscores
+    default CompletableFuture<Void> oathRename(String name) {
         return unsupported();
     }
 
@@ -390,7 +427,17 @@ public interface SaoLauncherService {
         return unsupported();
     }
 
-    /// Signs out and revokes the session (`/authserver/invalidate`); keeps a remembered name and password.
+    /// Logs in to ARGUS ID with the signed-in Microsoft (正版) account, so signing in with Microsoft is signing in to
+    /// ARGUS ID (James, 7 Nov: "这样直接登录微软也可以等于登录sao"): the ARGUS ID linked to it, or, the first time, a new
+    /// ARGUS ID with the Microsoft name, linked to it. Fails with a message when that name belongs to another ARGUS ID
+    /// (then the player logs in to that one and links Microsoft from it).
+    default CompletableFuture<Void> oathPremiumLogin() {
+        return unsupported();
+    }
+
+    /// Signs out and revokes the session (`/authserver/invalidate`), and forgets the remembered password, so the next
+    /// opening does not log in again by itself. The launcher logs in with a remembered password on opening (James,
+    /// 7 Nov: "登录进去就直接显示已登录，别再显示一整个密码界面"), so signing out has to stop that.
     default void oathLogout() {
     }
 

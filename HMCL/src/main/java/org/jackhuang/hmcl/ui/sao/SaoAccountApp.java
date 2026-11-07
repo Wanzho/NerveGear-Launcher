@@ -15,11 +15,18 @@ import javafx.scene.control.PasswordField;
 import javafx.scene.control.TextField;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.scene.text.Text;
 import javafx.util.Duration;
+import javafx.collections.ListChangeListener;
+import org.jackhuang.hmcl.auth.Account;
+import org.jackhuang.hmcl.auth.microsoft.MicrosoftAccount;
 import org.jackhuang.hmcl.sao.SaoData;
+import org.jackhuang.hmcl.setting.Accounts;
+import org.jackhuang.hmcl.ui.Controllers;
+import org.jackhuang.hmcl.ui.account.CreateAccountPane;
 import org.jackhuang.hmcl.sao.SaoLauncherService;
 import org.jackhuang.hmcl.ui.SVG;
 import org.jetbrains.annotations.NotNullByDefault;
@@ -56,7 +63,7 @@ final class SaoAccountApp {
     static SaoFloatWindow make(SaoLauncherService s, Runnable close, Page first) {
         StackPane pages = new StackPane();
         VBox.setVgrow(pages, Priority.ALWAYS);
-        SaoFloatWindow w = new SaoFloatWindow("誓约账号", SaoApps.W, SaoApps.H, close).add(pages);
+        SaoFloatWindow w = new SaoFloatWindow("ARGUS ID", SaoApps.W, SaoApps.H, close).add(pages);
         Nav nav = new Nav(s, pages, close);
         nav.go(first);
         return w;
@@ -96,7 +103,7 @@ final class SaoAccountApp {
             go.setOnAction(e -> {
                 String n = name.getText().strip(), m = email.getText().strip();
                 if (!NAME.matcher(n).matches()) {
-                    problem.setText("! 名字 3-16 位：字母、数字、下划线");
+                    problem.setText("! 昵称 3-16 位：字母、数字、下划线");
                     return;
                 }
                 if (!EMAIL.matcher(m).matches()) {
@@ -117,13 +124,18 @@ final class SaoAccountApp {
                 call(go, problem, () -> s.oathRegister(n, m, p), () -> go(Page.VERIFY), p);
             });
             VBox form = form(
-                    key("名字"), name,
+                    key("游戏昵称"), name,
                     key("邮箱"), email,
                     key("密码"), pw,
                     key("再输一次"), again,
                     problem, footer(go));
-            return page(SVG.PERSON, "创建誓约账号", "名字就是游戏里的角色名", form,
-                    link("已有账号？去登录", close));
+            // James, 7 Nov: "在这里也来个绑定正版账号，这样直接登录微软也可以等于登录sao".
+            Button premium = button("绑定正版账号");
+            premium.setOnAction(e -> withMicrosoft(() -> call(premium, problem, s::oathPremiumLogin, close)));
+            Text premiumWhy = dim("拥有微软正版可以直接登录", 11);
+            premiumWhy.setWrappingWidth(230);
+            VBox below = new VBox(8, link("已有账号？去登录", close), rule(), premium, premiumWhy);
+            return page(SVG.PERSON, "创建 ARGUS ID", "", form, below);
         }
 
         // -------------------------------------------------------------- verify
@@ -230,7 +242,7 @@ final class SaoAccountApp {
 
         private Node manage() {
             SaoData.@Nullable OathAccount a = s.oathAccount().get();
-            if (a == null) return page(SVG.PERSON, "誓约账号", "还没有登录", empty(SVG.PERSON, "在主界面登录后再来"), link("注册新账号", () -> go(Page.REGISTER)));
+            if (a == null) return page(SVG.PERSON, "ARGUS ID", "还没有登录", empty(SVG.PERSON, "在主界面登录后再来"), link("注册新账号", () -> go(Page.REGISTER)));
             Text name = sao(a.name(), 26, true);
             Node mail = mailRow(a, () -> go(Page.VERIFY));
 
@@ -246,6 +258,20 @@ final class SaoAccountApp {
                 call(changeMail, problem, () -> s.oathChangeEmail(m), () -> go(Page.VERIFY));
             });
             HBox.setHgrow(email, Priority.ALWAYS);
+
+            // 游戏昵称 (James, 7 Nov: "把名字换成游戏昵称"): the pencil beside it on the home screen opens here. At most
+            // three changes a day; the server says so when the fourth is tried.
+            TextField newName = field("新昵称");
+            Button rename = button("修改");
+            rename.setOnAction(e -> {
+                String n = newName.getText().strip();
+                if (!NAME.matcher(n).matches()) {
+                    problem.setText("! 昵称 3-16 位：字母、数字、下划线");
+                    return;
+                }
+                call(rename, problem, () -> s.oathRename(n), () -> go(Page.MANAGE));
+            });
+            HBox.setHgrow(newName, Priority.ALWAYS);
 
             PasswordField old = password("当前密码"), neu = password("新密码"), again = password("再输一次");
             Button changePw = button("改密码");
@@ -274,11 +300,9 @@ final class SaoAccountApp {
                 r.setAlignment(Pos.CENTER_LEFT);
                 premium = r;
             } else {
-                Button link = button("正版验证");
+                Button link = button("绑定 Microsoft");
                 link.setOnAction(e -> call(link, problem, s::oathLinkPremium, () -> go(Page.MANAGE)));
-                Text why = dim("用已登录的 Microsoft 正版绑定这个账号，名字被占时可找回", 11);
-                why.setWrappingWidth(250);
-                premium = new VBox(6, link, why);
+                premium = link;
             }
             Button out = button("退出登录");
             out.setOnAction(e -> {
@@ -286,16 +310,20 @@ final class SaoAccountApp {
                 close.run();
             });
 
-            VBox left = new VBox(10, name, mail, rule(), key("正版"), premium, grow(), out);
-            left.setMinWidth(280);
-            left.setMaxWidth(280);
+            VBox left = new VBox(10, name, mail, rule(), key("Microsoft"), premium, out);
+            left.setMinWidth(260);
+            left.setMaxWidth(260);
             VBox right = new VBox(7,
+                    key("游戏昵称"), new HBox(8, newName, rename),
+                    rule(),
                     key("邮箱"), new HBox(8, email, changeMail),
                     rule(),
                     key("密码"), old, neu, new HBox(8, again, changePw),
-                    grow(), problem);
+                    problem);
             HBox.setHgrow(again, Priority.ALWAYS);
-            HBox.setHgrow(right, Priority.ALWAYS);
+            for (Button b : new Button[]{rename, changeMail, changePw}) b.setMinWidth(76);
+            right.setMinWidth(320);
+            right.setMaxWidth(320);
             return columns(left, right);
         }
 
@@ -344,6 +372,29 @@ final class SaoAccountApp {
         return r;
     }
 
+    /// The Microsoft account signed in to the launcher, or null.
+    static @Nullable MicrosoftAccount microsoftAccount() {
+        if (Accounts.getSelectedAccount() instanceof MicrosoftAccount m) return m;
+        for (Account a : Accounts.getAccounts()) if (a instanceof MicrosoftAccount m) return m;
+        return null;
+    }
+
+    /// Runs a step that needs Microsoft: at once when signed in, else after the Microsoft sign-in dialog succeeds.
+    static void withMicrosoft(Runnable then) {
+        if (microsoftAccount() != null) {
+            then.run();
+            return;
+        }
+        @SuppressWarnings("unchecked") ListChangeListener<Account>[] once = new ListChangeListener[1];
+        once[0] = c -> {
+            if (microsoftAccount() == null) return;
+            Accounts.getAccounts().removeListener(once[0]);
+            then.run();
+        };
+        Accounts.getAccounts().addListener(once[0]);
+        Controllers.dialog(new CreateAccountPane(Accounts.FACTORY_MICROSOFT));
+    }
+
     /// "47 小时" or "12 分钟".
     static String hours(long seconds) {
         return seconds >= 3600 ? seconds / 3600 + " 小时" : Math.max(1, seconds / 60) + " 分钟";
@@ -359,18 +410,18 @@ final class SaoAccountApp {
         badge.getStyleClass().add("vr-stage");
         badge.setMinSize(64, 64);
         badge.setMaxSize(64, 64);
-        VBox left = new VBox(12, badge, t, line, grow(), below);
-        left.setMinWidth(250);
-        left.setMaxWidth(250);
+        VBox left = new VBox(12, badge, t, line, below);
+        if (sub.isEmpty()) left.getChildren().remove(line);
+        left.setMinWidth(240);
+        left.setMaxWidth(240);
         return columns(left, (VBox) form);
     }
 
     /// The form column.
     private static VBox form(Node... nodes) {
         VBox v = new VBox(6, nodes);
-        v.setMaxWidth(340);
-        v.setPrefWidth(340);
-        HBox.setHgrow(v, Priority.ALWAYS);
+        v.setMinWidth(320);
+        v.setMaxWidth(320);
         return v;
     }
 
@@ -380,7 +431,15 @@ final class SaoAccountApp {
         line.getStyleClass().add("vr-rule");
         line.setMinWidth(1);
         line.setMaxWidth(1);
-        HBox h = new HBox(22, left, line, right);
+        line.setPrefHeight(250);
+        line.setMaxHeight(Region.USE_PREF_SIZE);
+        // The two columns sit together in the middle of the window (James, 7 Nov: "更中间一点").
+        for (VBox v : new VBox[]{left, right}) {
+            v.setMaxHeight(Region.USE_PREF_SIZE);
+            v.setAlignment(Pos.CENTER_LEFT);
+        }
+        HBox h = new HBox(30, left, line, right);
+        h.setAlignment(Pos.CENTER);
         VBox.setVgrow(h, Priority.ALWAYS);
         return h;
     }
@@ -417,7 +476,7 @@ final class SaoAccountApp {
         Text t = new Text();
         t.getStyleClass().add("vr-warn");
         t.setFont(ui(12, false));
-        t.setWrappingWidth(330);
+        t.setWrappingWidth(310);
         return t;
     }
 
