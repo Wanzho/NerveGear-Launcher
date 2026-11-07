@@ -55,14 +55,26 @@ public final class SettingsManager {
     private SettingsManager() {
     }
 
+    /// True after terminal uninstall shutdown; normal application stop must not queue state again.
+    private static volatile boolean uninstallShutdown;
+
+    /// Stops all asynchronous settings writes before uninstall removes the account/configuration roots.
+    /// This is terminal even if later filesystem cleanup fails, so retry requires restarting the launcher.
+    public static void shutdownForUninstall() {
+        uninstallShutdown = true;
+        FileSaver.shutdownForUninstall();
+    }
+
     /// Saves deferred launcher state changes and shutdown file saver.
     public static void shutdown() {
+        if (uninstallShutdown) return;
         savePendingChanges();
         FileSaver.shutdown();
     }
 
     /// Saves deferred launcher state changes.
     public static void savePendingChanges() {
+        if (uninstallShutdown) return;
         if (launcherState != null && launcherState.isSavable() && launcherState.isSavePending()) {
             launcherState.setSavePending(false);
             STATE_FILE.save(launcherState);

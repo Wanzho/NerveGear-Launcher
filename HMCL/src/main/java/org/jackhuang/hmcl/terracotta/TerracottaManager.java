@@ -210,7 +210,9 @@ public final class TerracottaManager {
                 finally { Files.deleteIfExists(bundle); }
             }
             checkOpen();
-            Path directory = Files.createTempDirectory("sao-terracotta-"); transfer = directory;
+            Path transfers = org.jackhuang.hmcl.Metadata.HMCL_LOCAL_HOME.resolve("terracotta-transfers");
+            Files.createDirectories(transfers);
+            Path directory = Files.createTempDirectory(transfers, "sao-terracotta-"); transfer = directory;
             Path portFile = directory.resolve("http");
             Process started;
             synchronized (this) {
