@@ -37,6 +37,10 @@ public final class FileSaver extends Thread {
     private static final AtomicBoolean running = new AtomicBoolean(false);
     private static final ReentrantLock runningLock = new ReentrantLock();
     private static volatile boolean shutdown = false;
+    /// Serializes actual file writes separately from the worker lifetime and its idle polling.
+    private static final ReentrantLock writeLock = new ReentrantLock();
+    /// Uninstall is terminal: shutdown hooks and late property listeners must not recreate removed credentials.
+    private static volatile boolean discardWrites;
 
     private static void addAction(Action action) {
         queue.add(action);
@@ -51,7 +55,9 @@ public final class FileSaver extends Thread {
         }
     }
 
+    /// Queues a file replacement unless terminal uninstall has disabled persistence.
     public static void save(Path file, String content) {
+        if (discardWrites) return;
         Objects.requireNonNull(file);
         Objects.requireNonNull(content);
 
@@ -60,18 +66,33 @@ public final class FileSaver extends Thread {
         addAction(new DoSave(file, content));
     }
 
+    /// Replaces one file while holding the write fence shared with terminal uninstall shutdown.
     public static void saveSync(Path file, String content) {
-        LOG.info("Saving file " + file);
+        writeLock.lock();
         try {
-            FileUtils.saveSafely(file, content);
-        } catch (Throwable e) {
-            LOG.warning("Failed to save " + file, e);
-        }
+            if (discardWrites) return;
+            LOG.info("Saving file " + file);
+            try { FileUtils.saveSafely(file, content); }
+            catch (Throwable e) { LOG.warning("Failed to save " + file, e); }
+        } finally { writeLock.unlock(); }
     }
 
     public static void shutdown() {
         shutdown = true;
         queue.add(Shutdown.INSTANCE);
+    }
+
+    /// Stops the saver and waits for its current write to finish, discarding pending and future writes.
+    /// This terminal operation is used only after uninstall has validated paths and preserved player data.
+    public static void shutdownForUninstall() {
+        discardWrites = true;
+        shutdown();
+        runningLock.lock();
+        try {
+            writeLock.lock();
+            try { queue.clear(); }
+            finally { writeLock.unlock(); }
+        } finally { runningLock.unlock(); }
     }
 
     /// Wait for all saves to complete.

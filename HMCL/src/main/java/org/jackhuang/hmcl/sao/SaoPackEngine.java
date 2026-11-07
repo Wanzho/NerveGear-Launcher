@@ -50,6 +50,24 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     private final AtomicBoolean busy = new AtomicBoolean(true);
     /// Stops pending work and prevents a late launch after the launcher exits.
     private final AtomicBoolean closed = new AtomicBoolean(false);
+    /// Rejects new mutations and settings writes from the moment an uninstall request is accepted.
+    private final AtomicBoolean uninstalling = new AtomicBoolean();
+    /// Filesystem-only uninstall plan, isolated from system integration in explicit fixture engines.
+    private final SaoUninstaller uninstaller;
+    /// Prepares the native post-exit cleanup; tests replace this with an inert sequencing recorder.
+    private final SaoUninstallHelper.Factory uninstallHelper;
+    /// Terminal settings/logger shutdown, injected as a no-op in explicit fixture engines.
+    private final Runnable uninstallShutdown;
+    /// Requests normal JavaFX application exit only after uninstall reaches its commit point.
+    private final Runnable uninstallQuit;
+    /// Only the process's production engine is allowed to discover its packaged application for removal.
+    private final boolean productionUninstall;
+    /// Last completed background logical-byte measurement; -1 means unknown or invalidated.
+    private volatile long cachedInstalledBytes = -1;
+    /// Timestamp of the last requested measurement, bounding repeated settings-window getter calls.
+    private volatile long sizeRequestedAt;
+    /// Coalesces background size requests so a directory scan never runs on the JavaFX thread.
+    private final AtomicBoolean sizeRefreshing = new AtomicBoolean();
     /// One pending password buffer, retained only until hand-off/failure and wiped by close.
     private volatile char @Nullable [] activePassword;
     /// Last progress publication time, limiting JavaFX queue pressure during large inventories.
@@ -151,17 +169,43 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
 
 
     /// Creates the engine under the launcher's isolated local storage.
-    public SaoPackEngine() { this(Metadata.HMCL_LOCAL_HOME); }
+    public SaoPackEngine() { this(Metadata.HMCL_LOCAL_HOME, null, true, true, null,
+            SaoUninstallHelper::prepare, () -> {
+                org.jackhuang.hmcl.setting.SettingsManager.shutdownForUninstall();
+                org.jackhuang.hmcl.util.logging.Logger.LOG.shutdown();
+            }, Platform::exit); }
 
     /// Creates an isolated backend, also usable by headless proof tools without toolkit or windows.
     public SaoPackEngine(Path dataRoot) { this(dataRoot, null, true); }
 
     /// Injects a release in headless tests without consulting resources or development properties.
     SaoPackEngine(Path dataRoot, @Nullable SaoPackArchive supplied, boolean loadEmbedded) {
+        this(dataRoot, supplied, loadEmbedded, false, null, SaoUninstallHelper::prepare, () -> { }, () -> { });
+    }
+
+    /// Injects file/helper/shutdown seams for synthetic uninstall tests; never discovers the running application.
+    SaoPackEngine(Path dataRoot, SaoUninstaller uninstaller, SaoUninstallHelper.Factory helper, Runnable shutdown, Runnable quit) {
+        this(dataRoot, null, false, false, uninstaller, helper, shutdown, quit);
+    }
+
+    /// Centralizes production and explicitly isolated fixture initialization without opening any window.
+    private SaoPackEngine(Path dataRoot, @Nullable SaoPackArchive supplied, boolean loadEmbedded,
+                          boolean production, @Nullable SaoUninstaller suppliedUninstaller,
+                          SaoUninstallHelper.Factory helper, Runnable shutdown, Runnable quit) {
         root = dataRoot.toAbsolutePath().normalize();
         try { settings = new SaoSettings(root); }
         catch (IOException failure) { throw new java.io.UncheckedIOException("Cannot read launcher settings", failure); }
         game = new SaoGameBridge(root, this::reportProgress);
+        productionUninstall = production;
+        uninstallHelper = helper;
+        uninstallShutdown = shutdown;
+        uninstallQuit = quit;
+        @Unmodifiable List<Path> uninstallRoots = production
+                ? List.of(root, Metadata.HMCL_USER_HOME, Metadata.DEPENDENCIES_DIRECTORY) : List.of(root);
+        Path desktop = production ? Path.of(System.getProperty("user.home"), "Desktop")
+                : Objects.requireNonNull(root.getParent()).resolve("kept-saves");
+        uninstaller = suppliedUninstaller != null ? suppliedUninstaller
+                : new SaoUninstaller(uninstallRoots, game.instanceDir(), desktop, SaoUninstaller.desktopTrash(), production);
         game.observeTasks(this::recordTask);
         game.setDownloadSource(downloadSource());
         game.restoreJava(java());
@@ -191,7 +235,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
                 publish(() -> { gameLog.setAll(logs.snapshot()); crash.set(previousCrash); });
                 refreshState();
             } catch (Exception failure) { fail("读取整合包失败", failure); }
-            finally { busy.set(false); }
+            finally { busy.set(false); refreshInstalledBytes(); }
         });
     }
 
@@ -210,7 +254,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
 
     /// {@inheritDoc}
     @Override public void linkStart(Account account, char @Nullable [] authPassword) {
-        if (closed.get()) {
+        if (closed.get() || uninstalling.get()) {
             if (authPassword != null) Arrays.fill(authPassword, '\0');
             return;
         }
@@ -247,7 +291,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
                     /// Reconciles the fixed instance and analyzes this run after the real process exits.
                     @Override public void onExit(int code, ExitType type) {
                         gameRunning.set(false);
-                        if (closed.get()) return;
+                        if (closed.get() || uninstalling.get()) return;
                         worker.execute(() -> {
                             try {
                                 saveSetting("lastExitAbnormal", code != 0 || type != ExitType.NORMAL);
@@ -328,13 +372,103 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     /// {@inheritDoc}
     @Override public Path instanceDir() { return game.instanceDir(); }
 
+    /// Returns only a cached count; an expired/unknown inventory is measured on the serialized worker.
+    @Override public long installedBytes() { refreshInstalledBytes(); return cachedInstalledBytes; }
+
+    /// {@inheritDoc}
+    @Override public Path keptSavesFolder() { return uninstaller.keptSavesFolder(); }
+
+    /// Accepts uninstall only while all game, file and room/download work is idle.
+    /// Failed validation or preservation never stops settings persistence or removes an original file.
+    @Override public void uninstall(boolean keepSaves) {
+        synchronized (org.jackhuang.hmcl.terracotta.TerracottaManager.class) {
+            if (closed.get() || uninstalling.get()) {
+                windowFailure("卸载被拒绝", new IOException("启动器已关闭或正在卸载")); return;
+            }
+            boolean taskBusy;
+            synchronized (taskRecords) { taskBusy = taskRecords.values().stream().anyMatch(task -> !task.done()); }
+            if (gameRunning.get() || state.get() == SaoPackState.RUNNING || taskBusy
+                    || org.jackhuang.hmcl.terracotta.TerracottaManager.hasRequestedRoom() || !busy.compareAndSet(false, true)) {
+                windowFailure("卸载被拒绝", new IOException("请先退出游戏、离开联机房间并等待所有任务完成")); return;
+            }
+            uninstalling.set(true);
+        }
+        working();
+        worker.execute(() -> {
+            @Nullable SaoUninstallHelper.Prepared helper = null;
+            boolean terminal = false;
+            try {
+                reportProgress("检查卸载目录", -1);
+                uninstaller.validate();
+                if (keepSaves) { reportProgress("复制并校验存档与截图", -1); uninstaller.preserve(); }
+                if (closed.get() || Thread.currentThread().isInterrupted()) throw new IOException("启动器已关闭，卸载未继续");
+                @Unmodifiable List<Path> application = productionUninstall ? SaoUninstallHelper.runningApplication() : List.of();
+                if (productionUninstall && application.isEmpty())
+                    org.jackhuang.hmcl.util.logging.Logger.LOG.info("Uninstall: development/IDE or unsupported application source; self-removal skipped");
+                helper = uninstallHelper.prepare(uninstaller.roots(), application);
+                // No new backend writes are accepted after this fence. Drain/cancel online work before data removal.
+                closed.set(true);
+                terminal = true;
+                roomGeneration.incrementAndGet();
+                online.close();
+                onlineWorker.shutdownNow();
+                if (!onlineWorker.awaitTermination(5, TimeUnit.SECONDS)) throw new IOException("后台联网任务未结束，未移除启动器数据");
+                publications.shutdownNow();
+                game.close();
+                char @Nullable [] password = activePassword;
+                if (password != null) Arrays.fill(password, '\0');
+                activePassword = null;
+                uninstallShutdown.run();
+                List<Path> deferred = new ArrayList<>(application);
+                deferred.add(Path.of(System.getProperty("java.home")).toAbsolutePath().normalize());
+                reportProgress("移除启动器专属数据", -1);
+                uninstaller.remove(deferred);
+                helper.arm();
+                cachedInstalledBytes = 0;
+                publish(() -> {
+                    error.set(null); progress.set(1); step.set("卸载完成"); installedVersion.set(null);
+                    state.set(SaoPackState.NOT_INSTALLED);
+                    uninstallQuit.run();
+                });
+            } catch (Exception failure) {
+                if (helper != null) helper.cancel();
+                fail(terminal ? "卸载失败，请重启启动器后重试" : "卸载失败，原始数据未删除", failure);
+            } finally {
+                if (!terminal) uninstalling.set(false);
+                busy.set(false);
+            }
+        });
+    }
+
+    /// Schedules at most one directory-size inventory every thirty seconds; failures preserve unknown status.
+    private void refreshInstalledBytes() {
+        if (closed.get() || uninstalling.get()) return;
+        long now = System.nanoTime();
+        if (sizeRequestedAt != 0 && now - sizeRequestedAt < TimeUnit.SECONDS.toNanos(30)) return;
+        if (!sizeRefreshing.compareAndSet(false, true)) return;
+        sizeRequestedAt = now;
+        try {
+            worker.execute(() -> {
+                try {
+                    long bytes = uninstaller.installedBytes();
+                    if (productionUninstall) for (Path application : SaoUninstallHelper.runningApplication())
+                        if (uninstaller.roots().stream().noneMatch(application::startsWith))
+                            bytes = Math.addExact(bytes, SaoUninstaller.treeBytes(application));
+                    cachedInstalledBytes = bytes;
+                }
+                catch (Exception ignored) { cachedInstalledBytes = -1; }
+                finally { sizeRefreshing.set(false); }
+            });
+        } catch (java.util.concurrent.RejectedExecutionException closedWorker) { sizeRefreshing.set(false); }
+    }
+
     /// {@inheritDoc}
     @Override public @UnmodifiableView ObservableList<SaoData.News> news() { return newsView; }
     /// {@inheritDoc}
     @Override public ReadOnlyObjectProperty<SaoData.@Nullable ServerStatus> serverStatus() { return serverStatus.getReadOnlyProperty(); }
     /// {@inheritDoc}
     @Override public void refreshOnline() {
-        if (closed.get() || !onlineRefreshing.compareAndSet(false, true)) return;
+        if (closed.get() || uninstalling.get() || !onlineRefreshing.compareAndSet(false, true)) return;
         onlineWorker.execute(() -> {
             try {
                 @Nullable SaoPackArchive pack = source;
@@ -554,7 +688,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
         if (gameRunning.get() || state.get() == SaoPackState.RUNNING) {
             windowFailure("操作被拒绝", new IOException("游戏运行中，请退出游戏后修改存档、皮肤或资源包")); return false;
         }
-        return !closed.get();
+        return !closed.get() && !uninstalling.get();
     }
 
     /// Serializes a local mutation with install/repair and reports contention instead of silently losing a request.
@@ -570,12 +704,13 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
 
     /// Runs read/export/settings work in the serialized background queue without altering pack state.
     private void background(Operation operation) {
-        if (closed.get()) return;
+        if (closed.get() || uninstalling.get()) return;
         worker.execute(() -> { try { operation.run(); } catch (Exception failure) { windowFailure("操作失败", failure); } });
     }
 
     /// Persists one small setting and keeps errors in the service property instead of throwing into a UI handler.
     private void saveSetting(String key, @Nullable Object value) {
+        if (closed.get() || uninstalling.get()) return;
         try { settings.put(key, value); }
         catch (IOException failure) { windowFailure("保存设置失败", failure); }
     }
@@ -621,8 +756,9 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
 
     /// Requests the lazy Terracotta controller only from an explicit host/join action.
     private void startRoom(@Nullable String code) {
-        if (closed.get()) return;
+        if (closed.get() || uninstalling.get()) return;
         synchronized (org.jackhuang.hmcl.terracotta.TerracottaManager.class) {
+            if (closed.get() || uninstalling.get()) return;
             if (org.jackhuang.hmcl.terracotta.TerracottaManager.hasRequestedRoom()) {
                 windowFailure("联机操作被拒绝", new IOException("请先离开当前联机房间")); return;
             }
@@ -727,7 +863,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
 
     /// Accepts one background operation while idle and always releases its operation gate.
     private void submit(Operation operation) {
-        if (closed.get() || !busy.compareAndSet(false, true)) return;
+        if (closed.get() || uninstalling.get() || !busy.compareAndSet(false, true)) return;
         working();
         worker.execute(() -> {
             try { operation.run(); }
@@ -752,7 +888,6 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     }
     /// Uses the JavaFX thread in the app and a synchronous fallback only when no toolkit exists.
     private static void publish(Runnable action) {
-        if (Platform.isFxApplicationThread()) { action.run(); return; }
         try { Platform.runLater(action); }
         catch (IllegalStateException uninitializedToolkit) { action.run(); }
     }

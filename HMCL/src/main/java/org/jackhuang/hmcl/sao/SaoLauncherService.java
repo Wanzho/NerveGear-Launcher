@@ -297,7 +297,7 @@ public interface SaoLauncherService {
         return -1;
     }
 
-    /// One-click uninstall for players who would not know how (James, 7 Nov: "加个一键卸载功能，在设置里，以防一些萌新不会搞").
+    /// One-click uninstall for players who would not know how to remove the launcher manually.
     /// Removes everything the launcher put on this computer: the game instance (game, mods, configs, saves), the Java
     /// runtimes and libraries it downloaded, its own settings and the remembered account and password, and the launcher
     /// itself once it has quit. Files go to the system's Trash / Recycle Bin where there is one, so a mistake can be
