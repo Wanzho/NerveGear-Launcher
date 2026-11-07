@@ -374,8 +374,27 @@ public interface SaoLauncherService {
         return unsupported();
     }
 
+    /// The address players join, shown under 服务器 (James, 7 Nov: "服务器下面写mc.saooath.com").
+    default String serverAddress() {
+        return "mc.saooath.com";
+    }
+
+    /// The other nodes (relay lines), shown under 其他节点; mc.saooath.com's SRV record points at zz.
+    default java.util.List<String> serverNodes() {
+        return java.util.List.of("zz.saooath.com", "tz.saooath.com", "sq.saooath.com");
+    }
+
     /// Changes the signed-in account's mailbox (`POST /sao/email`); a code goes to the new one.
     default CompletableFuture<Void> oathChangeEmail(String email) {
+        return unsupported();
+    }
+
+    /// Renames the signed-in ARGUS ID (James, 7 Nov: a pencil by the name, "indication that you can change it"). The
+    /// profile ID stays, so worlds, inventory and skin stay with the player. Fails with a message when the name is
+    /// taken or not allowed.
+    ///
+    /// @param name the new name, 3 to 16 letters, digits or underscores
+    default CompletableFuture<Void> oathRename(String name) {
         return unsupported();
     }
 

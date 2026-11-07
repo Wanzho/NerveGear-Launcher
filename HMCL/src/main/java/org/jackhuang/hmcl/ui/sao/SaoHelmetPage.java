@@ -292,11 +292,36 @@ public final class SaoHelmetPage extends StackPane {
     private SaoFloatWindow buildServer() {
         VBox box = new VBox(10);
         VBox.setVgrow(box, Priority.ALWAYS);
+        // The address under the title, and 其他节点 opening the other nodes (James, 7 Nov: "更多改成其他节点").
+        Text address = sao(service.serverAddress(), 19, true);
+        VBox nodes = new VBox(4);
+        Button[] moreRef = new Button[1];
+        Button more = SaoAccountApp.link("其他节点", () -> {
+            boolean open = !nodes.isVisible();
+            nodes.setVisible(open);
+            nodes.setManaged(open);
+            moreRef[0].setText(open ? "收起" : "其他节点");
+        });
+        moreRef[0] = more;
+        openNodes = () -> {
+            if (!nodes.isVisible()) more.fire();
+        };
+        for (String n : service.serverNodes()) {
+            // No light: the launcher does not ping the nodes.
+            Text t = sao(n, 12, false);
+            t.getStyleClass().setAll("vr-dim");
+            nodes.getChildren().add(t);
+        }
+        nodes.setVisible(false);
+        nodes.setManaged(false);
+        HBox addressRow = new HBox(8, address, grow(), more);
+        addressRow.setAlignment(Pos.CENTER_LEFT);
+        VBox where = new VBox(6, addressRow, nodes);
         Runnable show = () -> {
             @Nullable SaoData.ServerStatus st = service.serverStatus().get();
             box.getChildren().clear();
             if (st == null) {
-                box.getChildren().add(empty(SVG.PUBLIC, "正在连接服务器"));
+                box.getChildren().addAll(where, empty(SVG.PUBLIC, "正在连接服务器"));
                 return;
             }
             HBox state = new HBox(8, light(st.online()), ink(st.online() ? "在线" : "离线", 13), grow(),
@@ -315,7 +340,7 @@ public final class SaoHelmetPage extends StackPane {
                 chip.getStyleClass().add("vr-name");
                 names.getChildren().add(chip);
             }
-            box.getChildren().addAll(state, rule(), players, motd, names);
+            box.getChildren().addAll(where, state, rule(), players, motd, names);
         };
         service.serverStatus().addListener((o, a, b) -> show.run());
         show.run();
@@ -440,13 +465,6 @@ public final class SaoHelmetPage extends StackPane {
         });
     }
 
-    /// 验证 on the Microsoft row: links the signed-in ARGUS ID to Microsoft.
-    private void linkPremium() {
-        SaoAccountApp.withMicrosoft(() -> service.oathLinkPremium().whenComplete((ok, err) -> Platform.runLater(() -> {
-            if (err != null) problem.setText("! " + SaoSkinApp.message(err));
-        })));
-    }
-
     /// Link Start inside the player window, bottom right. While the pack downloads or installs, only a progress bar
     /// across the row (James, 7 Nov: "那个就绪可以删了，下载的时候linkstart别显示然后只有进度条就行").
     private HBox buildLinkRow() {
@@ -463,9 +481,42 @@ public final class SaoHelmetPage extends StackPane {
             SaoPackState s = service.state().get();
             return s == SaoPackState.WORKING ? bw * Math.max(0.03, service.progress().get()) : 0.0;
         }, service.state(), service.progress()));
-        StackPane bar = new StackPane(track, fill);
-        bar.setAlignment(Pos.CENTER_LEFT);
+        StackPane track2 = new StackPane(track, fill);
+        track2.setAlignment(Pos.CENTER_LEFT);
+        track2.setMaxWidth(bw);
+        // James, 7 Nov: "write more stuff on the progress bar while downloading": the step and how far over it,
+        // the speed and how many files are left under it.
+        Text step = SaoUiKit.ink("", 12), percent = dim("", 12), speed = dim("", 11), left = dim("", 11);
+        percent.setFont(SaoAssets.sao(13, false));
+        speed.setFont(SaoAssets.sao(12, false));
+        HBox above = new HBox(6, step, grow(), percent);
+        above.setAlignment(Pos.BASELINE_LEFT);
+        HBox below = new HBox(6, speed, grow(), left);
+        below.setAlignment(Pos.BASELINE_LEFT);
+        VBox bar = new VBox(5, above, track2, below);
         bar.setMaxWidth(bw);
+        bar.setAlignment(Pos.CENTER_LEFT);
+        Runnable words = () -> {
+            SaoPackState s = service.state().get();
+            double p = service.progress().get();
+            String label = service.stepLabel().get();
+            step.setText(s == SaoPackState.CHECKING ? "检查文件" : label.isEmpty() ? "准备中" : label);
+            percent.setText(p >= 0 ? Math.round(p * 100) + "%" : "");
+            long bps = 0;
+            int open = 0;
+            for (SaoData.Task t : service.tasks()) {
+                if (t.done()) continue;
+                open++;
+                bps += t.bytesPerSecond();
+            }
+            speed.setText(bps > 0 ? speedText(bps) : "");
+            left.setText(open > 0 ? "剩 " + open + " 项" : "");
+        };
+        service.state().addListener((o, a, b) -> words.run());
+        service.progress().addListener((o, a, b) -> words.run());
+        service.stepLabel().addListener((o, a, b) -> words.run());
+        service.tasks().addListener((ListChangeListener<SaoData.Task>) c -> words.run());
+        words.run();
         start.getStyleClass().add("vr-start");
         start.setFont(ui(20, true));
         start.setMinWidth(Region.USE_PREF_SIZE);
@@ -494,6 +545,12 @@ public final class SaoHelmetPage extends StackPane {
         HBox row = new HBox(slot);
         row.setAlignment(Pos.CENTER_LEFT);
         return row;
+    }
+
+    /// A download speed in a few characters: 820 KB/s, 3.2 MB/s.
+    private static String speedText(long bps) {
+        if (bps < 1024 * 1024) return Math.max(1, bps / 1024) + " KB/s";
+        return String.format(java.util.Locale.ROOT, "%.1f MB/s", bps / (1024.0 * 1024));
     }
 
     /// The dock: a column of round buttons left of the windows, a label sliding out on hover.
@@ -811,52 +868,23 @@ public final class SaoHelmetPage extends StackPane {
             settings.setOnAction(e -> openAccount(SaoAccountApp.Page.MANAGE));
             HBox head = new HBox(8, sao("ARGUS ID", 15, true), out, settings);
             head.setAlignment(Pos.CENTER_LEFT);
-            // James, 7 Nov: "让名字大一点"; a long name shrinks to stay in the column.
-            Text n = sao(a.name(), 44, true);
+            // James, 7 Nov: "让名字大一点", then "a bit too big now"; a long name shrinks to stay in the column.
+            Text n = sao(a.name(), 38, true);
             double nw = n.getLayoutBounds().getWidth();
-            if (nw > 250) n.setFont(ui(44 * 250 / nw, true));
+            if (nw > 216) n.setFont(ui(38 * 216 / nw, true));
             n.getStyleClass().add("vr-link-text");
             n.setOnMouseClicked(e -> openAccount(SaoAccountApp.Page.MANAGE));
-            // The mailbox: verified, waiting (with the time left), or none yet.
-            String mail = a.maskedEmail().isEmpty() ? "邮箱" : a.maskedEmail();
-            @Nullable String mailNote = a.emailVerified() ? null
-                    : a.maskedEmail().isEmpty() ? "未绑定"
-                    : a.locked() ? "已过期，验证后才能进游戏"
-                    : "待验证 · 还剩 " + SaoAccountApp.hours(a.graceSeconds());
-            Node mailRow = checkRow(a.emailVerified(), mail, mailNote, "验证", "已验证", a.emailVerified() ? null
-                    : () -> openAccount(a.maskedEmail().isEmpty() ? SaoAccountApp.Page.MANAGE : SaoAccountApp.Page.VERIFY));
-            boolean linked = a.premiumName() != null;
-            // Microsoft is linked, not verified (James, 7 Nov: "Microsoft那里不是验证，是绑定").
-            Node msRow = checkRow(linked, linked ? "Microsoft · " + a.premiumName() : "Microsoft",
-                    linked ? null : "未绑定", "绑定", "已绑定", linked ? null : this::linkPremium);
-            signedIn.getChildren().setAll(head, n, mailRow, msRow);
+            // The mailbox and Microsoft live in 设置 only (James, 7 Nov).
+            // A pencil beside the name: it can be changed (James, 7 Nov), in 设置.
+            Button rename = round(SVG.EDIT, 26, 13);
+            rename.setOnAction(e -> openAccount(SaoAccountApp.Page.MANAGE));
+            HBox nameRow = new HBox(8, n, rename);
+            nameRow.setAlignment(Pos.CENTER_LEFT);
+            signedIn.getChildren().setAll(head, nameRow);
         }
         problem.setText("");
         @Nullable Path worn = service.oathSkin() != null ? service.oathSkin() : service.skin();
         skin.show(worn, service.skinSlim());
-    }
-
-    /// One line of the signed-in side: a light, what it is (and a note under it), and its button (验证, 绑定) when not done.
-    private static Node checkRow(boolean done, String what, @Nullable String note, String action, String doneLabel,
-                                 @Nullable Runnable verify) {
-        Text w = SaoUiKit.ink(what, 13);
-        VBox words = new VBox(1, w);
-        if (note != null) {
-            Text t = new Text(note);
-            t.getStyleClass().add(done ? "vr-dim" : "vr-warn");
-            t.setFont(SaoUiKit.ui(11, false));
-            words.getChildren().add(t);
-        }
-        HBox row = new HBox(8, light(done), words, grow());
-        row.setAlignment(Pos.CENTER_LEFT);
-        if (verify != null) {
-            Button v = SaoUiKit.accent(action);
-            v.setOnAction(e -> verify.run());
-            row.getChildren().add(v);
-        } else if (done) {
-            row.getChildren().add(dim(doneLabel, 12));
-        }
-        return row;
     }
 
     /// The status line and Link Start from the engine.
@@ -957,6 +985,15 @@ public final class SaoHelmetPage extends StackPane {
     void forceAccount(SaoAccountApp.Page page) {
         openAccount(page);
     }
+
+    /// Opens the server's other nodes (the screenshot tool).
+    void forceNodes() {
+        openNodes.run();
+    }
+
+    /// What 其他节点 does, set by the server window.
+    private Runnable openNodes = () -> {
+    };
 
     /// Presses the first danger button in view, for example settings' 一键卸载 (screenshot tools).
     void forceDanger() {

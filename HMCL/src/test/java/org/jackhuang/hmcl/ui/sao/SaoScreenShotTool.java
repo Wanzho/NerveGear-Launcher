@@ -73,6 +73,11 @@ public final class SaoScreenShotTool {
                 // Signed in, as on the Mac, with the buttons on the right.
                 fx(() -> fake.forceOath(true));
                 shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "21-home-signed-in.png"));
+                fx(() -> page[0].forceNodes());
+                Thread.sleep(500);
+                WritableImage[] im = new WritableImage[1];
+                fx(() -> im[0] = scene[0].snapshot(null));
+                write(im[0], out.resolve(p + "40-server-nodes.png"));
             } else if (big) {
                 String[] apps = {"settings", "skin", "worlds", "multiplayer", "packs", "screenshots", "logs", "java", "downloads", "about"};
                 shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "00-home.png"));

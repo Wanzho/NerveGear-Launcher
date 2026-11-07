@@ -69,8 +69,12 @@ final class SaoVisor {
     /// @param clock  whether the display is on
     /// @return the raster
     static SaoRaster renderFrame(int width, int height, boolean clock) {
-        SaoRaster c = new SaoRaster(width, height);
-        fitTo(width, height);
+        // James, 7 Nov: "on top helmet, pixels are clearly seen": drawn at 2-3 times the size and averaged down, so
+        // the recess, the arc, the clock and the battery have smooth edges.
+        int k = width < 1500 ? 3 : 2;
+        SaoRaster c = new SaoRaster(width * k, height * k);
+        fitTo(width * k, height * k);
+        ss = k;
         // James, 7 Nov: "can u make this take up less space? by contracting it": the launcher's arc keeps the
         // episode's shape, squashed toward the bottom edge.
         squash = ARC_SQUASH;
@@ -85,7 +89,8 @@ final class SaoVisor {
         }
         straight = false;
         squash = 1;
-        return c;
+        ss = 1;
+        return c.downsample(k);
     }
 
     /// Contain-fits the episode picture to a size.
@@ -96,6 +101,8 @@ final class SaoVisor {
     }
 
     private static float ox,oy,os;
+    /** Device pixels per raster pixel's side while drawing supersampled (1 otherwise). */
+    private static float ss=1;
     /** How tall the bottom arc is drawn, 1 = as measured in the episode. */
     private static float squash=1;
     /** Stand the helmet straight: the recess centred and the bottom arc mirrored even about the middle. */
@@ -133,7 +140,7 @@ final class SaoVisor {
         float[] edge=SaoVisorData.BOTTOM_EDGE,depth=SaoVisorData.DEPTHS;int[] rgb=SaoVisorData.BOTTOM_RGB;
         int cols=edge.length,rows=depth.length;
         // Rows: the fringe above the edge (transparent), then every depth, then a last row far below with the deepest colour.
-        int bands=rows+1;float fringe=1/os;
+        int bands=rows+1;float fringe=ss/os;
         float[] xy=new float[(cols-1)*bands*12];int[] ink=new int[(cols-1)*bands*6];int n=0;
         for(int i=0;i+1<cols;i++){
             for(int b=0;b<bands;b++){
@@ -167,7 +174,7 @@ final class SaoVisor {
      * outside it (2.12 px), each band with crisp edges and a fringe one device pixel wide toward the glass.
      */
     private static void recess(SaoRaster c,float a){
-        float[] t=SaoVisorData.TOP;float rimW=SaoVisorData.RIM_W,lineW=SaoVisorData.LINE_W,fringe=1/os,reach=rimW+lineW+fringe;
+        float[] t=SaoVisorData.TOP;float rimW=SaoVisorData.RIM_W,lineW=SaoVisorData.LINE_W,fringe=ss/os,reach=rimW+lineW+fringe;
         // The columns where the bands still reach into the picture.
         float mid=straight?640:t[0];
         float x0=mid,x1=mid;

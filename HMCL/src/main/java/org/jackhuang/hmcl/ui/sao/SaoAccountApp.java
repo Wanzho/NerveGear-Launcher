@@ -259,6 +259,19 @@ final class SaoAccountApp {
             });
             HBox.setHgrow(email, Priority.ALWAYS);
 
+            // The name: the pencil beside it on the home screen opens here.
+            TextField newName = field("新名字");
+            Button rename = button("改名");
+            rename.setOnAction(e -> {
+                String n = newName.getText().strip();
+                if (!NAME.matcher(n).matches()) {
+                    problem.setText("! 名字 3-16 位：字母、数字、下划线");
+                    return;
+                }
+                call(rename, problem, () -> s.oathRename(n), () -> go(Page.MANAGE));
+            });
+            HBox.setHgrow(newName, Priority.ALWAYS);
+
             PasswordField old = password("当前密码"), neu = password("新密码"), again = password("再输一次");
             Button changePw = button("改密码");
             changePw.setOnAction(e -> {
@@ -286,7 +299,7 @@ final class SaoAccountApp {
                 r.setAlignment(Pos.CENTER_LEFT);
                 premium = r;
             } else {
-                Button link = button("正版验证");
+                Button link = button("绑定 Microsoft");
                 link.setOnAction(e -> call(link, problem, s::oathLinkPremium, () -> go(Page.MANAGE)));
                 Text why = dim("用已登录的 Microsoft 正版绑定这个账号，名字被占时可找回", 11);
                 why.setWrappingWidth(240);
@@ -298,15 +311,18 @@ final class SaoAccountApp {
                 close.run();
             });
 
-            VBox left = new VBox(10, name, mail, rule(), key("正版"), premium, out);
+            VBox left = new VBox(10, name, mail, rule(), key("Microsoft"), premium, out);
             left.setMinWidth(260);
             left.setMaxWidth(260);
             VBox right = new VBox(7,
+                    key("名字"), new HBox(8, newName, rename),
+                    rule(),
                     key("邮箱"), new HBox(8, email, changeMail),
                     rule(),
                     key("密码"), old, neu, new HBox(8, again, changePw),
                     problem);
             HBox.setHgrow(again, Priority.ALWAYS);
+            for (Button b : new Button[]{rename, changeMail, changePw}) b.setMinWidth(76);
             right.setMinWidth(320);
             right.setMaxWidth(320);
             return columns(left, right);
