@@ -55,9 +55,6 @@ final class SaoApps {
     private SaoApps() {
     }
 
-    /// Called when the settings change the launcher's sound (the page restarts it).
-    static Runnable onSoundChanged = () -> {
-    };
 
     /// The size every app window has.
     static final double W = 700, H = 392;
@@ -168,7 +165,7 @@ final class SaoApps {
 
     // ------------------------------------------------------------------ settings
 
-    /// Settings: memory, the game window, sound, JVM arguments, repair and the game folder.
+    /// Settings: memory, the game window, JVM arguments, repair and the game folder.
     static SaoFloatWindow settings(SaoLauncherService s, Runnable close) {
         int max = Math.max(4096, s.systemMemoryMiB());
         Slider memory = new Slider(2048, max, Math.min(max, s.memoryMiB()));
@@ -224,29 +221,10 @@ final class SaoApps {
         size.setAlignment(Pos.CENTER_LEFT);
         HBox windowRow = row(size, dim("全屏", 12), full);
 
-        ToggleGroup sound = new ToggleGroup();
-        ToggleButton helmet = chip("头盔", sound);
-        ToggleButton song = chip("crossing field", sound);
-        ToggleButton off = chip("关", sound);
-        helmet.setUserData("helmet");
-        song.setUserData("song");
-        off.setUserData("off");
-        String now = s.preference("sound", "helmet");
-        sound.selectToggle(now.equals("song") ? song : now.equals("off") ? off : helmet);
-        keepOne(sound);
-        sound.selectedToggleProperty().addListener((o, a, b) -> {
-            if (b != null) {
-                s.setPreference("sound", (String) b.getUserData());
-                onSoundChanged.run();
-            }
-        });
-
         VBox left = column(318,
                 memHead, memory, memAuto,
                 rule(),
-                key("游戏窗口"), windowRow,
-                rule(),
-                key("启动器音效"), new HBox(6, helmet, song, off));
+                key("游戏窗口"), windowRow);
 
         TextField jvm = field("例如 -XX:+UseZGC");
         jvm.setText(s.jvmArgs());

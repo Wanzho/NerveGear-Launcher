@@ -351,7 +351,7 @@ public class CreateAccountPane extends JFXDialogLayout implements DialogAware {
 
             int rowIndex = 0;
 
-            if (!IntegrityChecker.isOfficial() && !(factory instanceof OfflineAccountFactory)) {
+            if (!IntegrityChecker.isOfficial() && !(factory instanceof OfflineAccountFactory) && !org.jackhuang.hmcl.ui.sao.SaoUi.enabled()) {
                 HintPane hintPane = new HintPane(MessageDialogPane.MessageType.WARNING);
                 hintPane.setSegment(i18n("unofficial.hint"));
                 GridPane.setColumnSpan(hintPane, 2);

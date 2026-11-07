@@ -1,0 +1,66 @@
+/* 刀剑神域·誓约 启动器: HMCL's own dialogs (EULA, Microsoft sign-in, warnings, tasks) in the SAO menu look of the
+   launcher's windows (light glass, grey ink, orange for the chosen and hovered). James, 8 Nov: "hmcl的东西按照我们restyle". */
+.root {
+    -monet-primary: #f2a43a;
+    -monet-on-primary: #ffffff;
+    -monet-primary-container: #fbe3c0;
+    -monet-on-primary-container: #5a3a08;
+    -monet-primary-fixed-dim: #f6f6f8;
+    -monet-on-primary-fixed: #474747;
+    -monet-inverse-primary: #f2a43a;
+    -monet-primary-transparent-50: rgba(242,164,58,0.5);
+    -monet-secondary-container: #ececee;
+    -monet-on-secondary-container: #474747;
+    -monet-tertiary: #e0605a;
+    -monet-tertiary-fixed-dim: #fff3df;
+    -monet-on-tertiary-fixed: #6b4a12;
+    -monet-error: #d9534f;
+    -monet-error-container: #fde8e7;
+    -monet-on-error-container: #8a2420;
+    -monet-surface: #f3f3f5;
+    -monet-surface-bright: #ffffff;
+    -monet-surface-tint: #f2a43a;
+    -monet-surface-variant: #e4e4e6;
+    -monet-surface-container-lowest: #ffffff;
+    -monet-surface-container-low: #f7f7f9;
+    -monet-surface-container: #f3f3f5;
+    -monet-surface-container-high: #f3f3f5;
+    -monet-surface-container-highest: #e4e4e6;
+    -monet-on-surface: #474747;
+    -monet-on-surface-variant: #6e6e6e;
+    -monet-outline: #c9c9cc;
+    -monet-outline-variant: #dedee0;
+    -monet-inverse-surface: #474747;
+    -monet-inverse-on-surface: #f3f3f5;
+    -fx-hyperlink-fill: #d98a1f;
+}
+
+.jfx-dialog-layout, .task-executor-dialog-layout {
+    -fx-background-color: rgba(243,243,245,0.97);
+    -fx-background-radius: 6;
+    -fx-border-color: rgba(255,255,255,0.95);
+    -fx-border-radius: 6;
+    -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.30), 26, 0, 0, 8);
+}
+.jfx-layout-heading, .jfx-layout-heading .label, .jfx-layout-heading Text { -fx-text-fill: #474747; -fx-fill: #474747; }
+.jfx-layout-body .label { -fx-text-fill: #555555; }
+
+.hint { -fx-background-radius: 4; -fx-border-radius: 4; -fx-border-color: #dedee0; }
+.hint.info { -fx-background-color: #ffffff; }
+.hint.warning { -fx-background-color: #fff3df; -fx-border-color: #f2c98a; }
+.hint.error { -fx-background-color: #fde8e7; -fx-border-color: #f0b4b1; }
+
+/* Buttons: white with a hairline, orange on hover; the accept button orange. */
+.jfx-layout-actions .jfx-button, .dialog-accept, .dialog-cancel, .dialog-error {
+    -fx-background-color: #ffffff;
+    -fx-background-radius: 4;
+    -fx-border-color: #d6d6d6;
+    -fx-border-radius: 4;
+    -fx-text-fill: #555555;
+    -fx-padding: 6 16 6 16;
+}
+.dialog-accept { -fx-background-color: #f2a43a; -fx-border-color: #f2a43a; -fx-text-fill: #ffffff; }
+.dialog-error { -fx-text-fill: #d9534f; }
+.jfx-layout-actions .jfx-button:hover, .dialog-cancel:hover { -fx-background-color: #f2a43a; -fx-border-color: #f2a43a; -fx-text-fill: #ffffff; }
+.dialog-accept:hover { -fx-background-color: #f7b75a; -fx-border-color: #f7b75a; }
+.hyperlink, .jfx-hyperlink { -fx-text-fill: #d98a1f; }

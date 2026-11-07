@@ -51,6 +51,10 @@ public final class StyleSheets {
                 getBrightnessStyleSheet(),
                 "/assets/css/root.css"
         };
+        if (org.jackhuang.hmcl.ui.sao.SaoUi.enabled()) {
+            array = Arrays.copyOf(array, array.length + 1);
+            array[array.length - 1] = "/assets/css/sao-hmcl.css";
+        }
         stylesheets = FXCollections.observableList(Arrays.asList(array));
 
         FontManager.fontProperty().addListener(o -> stylesheets.set(FONT_STYLE_SHEET_INDEX, getFontStyleSheet()));

@@ -45,6 +45,9 @@ final class SaoFloatWindow extends Group {
     private final Rotate pitch = new Rotate(0, Rotate.X_AXIS);
     /// Grows a little while the mouse is over the window (James, 7 Nov: "hover动画（对全局）鼠标在的界面会略微放大一点点").
     private final javafx.scene.transform.Scale grow = new javafx.scene.transform.Scale(1, 1, 1);
+    /// How lit the glass is, 0 to 1. Kept off the window itself: opacity on the turned window flattened it, so the
+    /// side windows stood straight while another window was open (James, 8 Nov: "什么叫做开了别的窗口你俩就不斜了").
+    final DoubleProperty glass = new SimpleDoubleProperty(1);
     /// Extra depth while another window is in front (animated).
     final DoubleProperty recede = new SimpleDoubleProperty(0);
     /// The size of the glass in design pixels.
@@ -89,10 +92,18 @@ final class SaoFloatWindow extends Group {
             x.setOnAction(e -> close.run());
             x.setManaged(false);
             x.resizeRelocate(w / 2 - 12, h + 8, 24, 24);
+            x.opacityProperty().bind(glass);
             getChildren().add(x);
         }
         body.setOnMousePressed(e -> toFront());
+        body.opacityProperty().bind(glass);
+        // Unlit glass takes no clicks, as when the whole window faded.
+        mouseTransparentProperty().bind(glass.lessThan(0.05));
         getChildren().add(0, body);
+        // The glass and its shadow are kept as a picture between changes: the shadow is not blurred again every
+        // frame, and the text keeps its full resolution inside the turned space.
+        body.setCache(true);
+        body.setCacheHint(javafx.scene.CacheHint.QUALITY);
         yaw.setPivotX(w / 2);
         yaw.setPivotY(h / 2);
         pitch.setPivotX(w / 2);
@@ -151,7 +162,7 @@ final class SaoFloatWindow extends Group {
         return this;
     }
 
-    /// Animates the depth and the light of the window.
+    /// Animates the depth and the light of the glass.
     ///
     /// @param depth   extra depth
     /// @param opacity glass opacity
@@ -159,7 +170,7 @@ final class SaoFloatWindow extends Group {
     void moveBack(double depth, double opacity, double ms) {
         new Timeline(new KeyFrame(Duration.millis(ms),
                 new KeyValue(recede, depth, Interpolator.SPLINE(0.2, 0.8, 0.2, 1)),
-                new KeyValue(opacityProperty(), opacity, Interpolator.EASE_BOTH))).play();
+                new KeyValue(glass, opacity, Interpolator.EASE_BOTH))).play();
     }
 
     /// Flies the window in from behind and below, growing out of the dock's light.
@@ -167,7 +178,7 @@ final class SaoFloatWindow extends Group {
     /// @param ms duration
     void flyIn(double ms) {
         recede.set(420);
-        setOpacity(0);
+        glass.set(0);
         moveBack(0, 1, ms);
     }
 }

@@ -29,6 +29,7 @@ import javafx.scene.effect.BlendMode;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.input.KeyCode;
+import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.FlowPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Pane;
@@ -107,6 +108,16 @@ public final class SaoHelmetPage extends StackPane {
     private final Scale fit = new Scale(1, 1, 1);
     private final Rotate turnY = new Rotate(0, Rotate.Y_AXIS);
     private final Rotate turnX = new Rotate(0, Rotate.X_AXIS);
+    /// The breath: the whole space rises and falls a few design pixels.
+    private final Translate breath = new Translate();
+    /// How far the view sinks at the top of a breath, in design pixels.
+    private static final double BREATH_PX = 2.6;
+    /// One breath, in seconds (about 13 a minute at rest).
+    private static final double BREATH_S = 4.6;
+    /// The glint's light, made once.
+    private static final javafx.scene.layout.Background GLINT = new javafx.scene.layout.Background(new javafx.scene.layout.BackgroundFill(
+            new RadialGradient(0, 0, 0.5, 0.5, 0.5, true, CycleMethod.NO_CYCLE,
+                    new Stop(0, Color.color(0.45, 0.75, 1, 0.06)), new Stop(1, Color.color(0.45, 0.75, 1, 0))), null, null));
     /// The windows, back to front.
     private final Group windows = new Group();
     /// The flat layer on the ear pad (version and window buttons), in design coordinates.
@@ -130,10 +141,6 @@ public final class SaoHelmetPage extends StackPane {
     /// The dock's buttons.
     private final Button[] dockButtons = new Button[SaoApps.APPS.length];
 
-    /// The helmet hum.
-    private final SaoMusic hum = new SaoMusic("helmet_intro.ogg", "helmet_loop.ogg", 0.55);
-    /// crossing field, when the player picked it.
-    private final SaoMusic song = new SaoMusic(null, "title.ogg", 0.5);
     /// Mouse position in parts of the window, -0.5 to 0.5, and its smoothed follow.
     private double headX, headY, lookX, lookY;
     /// Whether the display is on.
@@ -169,8 +176,6 @@ public final class SaoHelmetPage extends StackPane {
     private final Button start = new Button("Link Start");
     private final Text problem = new Text();
     private final Region fill = new Region();
-    /// The sound button on the pad.
-    private final Button sound = round(SVG.WB_SUNNY, 30, 15);
 
     /// Builds the page with the installed engine, or a stand-in when none is installed yet.
     public SaoHelmetPage() {
@@ -194,7 +199,11 @@ public final class SaoHelmetPage extends StackPane {
         Rectangle clip = new Rectangle();
         clip.widthProperty().bind(widthProperty());
         clip.heightProperty().bind(heightProperty());
+        clip.setArcWidth(30);
+        clip.setArcHeight(30);
         setClip(clip);
+        screenClip.setArcWidth(30);
+        screenClip.setArcHeight(30);
 
         for (ImageView v : new ImageView[]{glass, frame}) {
             v.setManaged(false);
@@ -210,7 +219,7 @@ public final class SaoHelmetPage extends StackPane {
         world.setManaged(false);
         world.setFill(Color.TRANSPARENT);
         world.setCamera(new PerspectiveCamera(false));
-        space.getTransforms().addAll(centre, fit, turnY, turnX);
+        space.getTransforms().addAll(centre, fit, breath, turnY, turnX);
         space.getChildren().add(windows);
 
         news = buildNews();
@@ -223,11 +232,6 @@ public final class SaoHelmetPage extends StackPane {
         // The window style James picked (6 Nov, from four): the anime's light menu panels with orange highlights.
         getStyleClass().add("theme-sao");
         space.getStyleClass().add("theme-sao");
-        SaoApps.onSoundChanged = () -> {
-            stopSound();
-            if (poweredOn) startSound();
-            refreshSoundIcon();
-        };
         // James, 7 Nov: "make sure only 16:9 is available": the helmet is one 16:9 picture, centred, black around it
         // when the window or the screen is another shape.
         screen.setManaged(false);
@@ -235,10 +239,6 @@ public final class SaoHelmetPage extends StackPane {
         screen.getChildren().setAll(glass, world, frame, pad, glint, black);
         getChildren().setAll(screen);
 
-        setOnMouseMoved(e -> {
-            headX = e.getX() / Math.max(1, getWidth()) - 0.5;
-            headY = e.getY() / Math.max(1, getHeight()) - 0.5;
-        });
         setOnKeyPressed(e -> {
             if (e.getCode() == KeyCode.ESCAPE && app != null) closeApp();
         });
@@ -292,7 +292,7 @@ public final class SaoHelmetPage extends StackPane {
             v.getStyleClass().add("vr-tile");
             return v;
         }, empty(SVG.CHAT, "暂无公告"));
-        return new SaoFloatWindow("公告", 290, 352, null)
+        return new SaoFloatWindow("公告", 290, 430, null)
                 .add(scroll(list))
                 .home(246, 175, 40, -24, 0);
     }
@@ -362,7 +362,7 @@ public final class SaoHelmetPage extends StackPane {
         show.run();
         Button refresh = round(SVG.REFRESH, 26, 14);
         refresh.setOnAction(e -> service.refreshOnline());
-        SaoFloatWindow w = new SaoFloatWindow("服务器", 290, 352, null).add(box);
+        SaoFloatWindow w = new SaoFloatWindow("服务器", 290, 430, null).add(box);
         w.head.getChildren().add(refresh);
         return w.home(1034, 175, 40, 24, 0);
     }
@@ -467,7 +467,7 @@ public final class SaoHelmetPage extends StackPane {
         Accounts.getAccounts().addListener((ListChangeListener<Account>) c -> refreshAccount());
         refreshAccount();
         autoLogin();
-        SaoFloatWindow w = new SaoFloatWindow("", 448, 330, null).add(body);
+        SaoFloatWindow w = new SaoFloatWindow("", 448, 410, null).add(body);
         w.body.setPadding(new Insets(16, 18, 16, 18));
         return w.home(640, 186, 0, 0, 0);
     }
@@ -766,10 +766,10 @@ public final class SaoHelmetPage extends StackPane {
         SaoFloatWindow w = new SaoFloatWindow("", 52, SaoApps.APPS.length * 36 + (SaoApps.APPS.length - 1) * 6 + 16, null).add(col);
         w.body.setPadding(new Insets(8));
         w.body.getStyleClass().add("vr-dock");
-        return w.home(60, 184, -40, -18, 0);
+        return w.home(60, 184, -40, 0, 0);  // faces the eye: turned, its icons looked squashed (James, 8 Nov "左边那一系列icons都感觉拉扁了")
     }
 
-    /// The flat layer on the ear pad: the version at the bottom left, sound, minimise and close at the bottom
+    /// The flat layer on the ear pad: the version at the bottom left, minimise and close at the bottom
     /// right, where the pack's helmet screen keeps its Skip and gear.
     private void buildPad() {
         pad.setManaged(false);
@@ -777,7 +777,6 @@ public final class SaoHelmetPage extends StackPane {
         pad.getTransforms().addAll(padShift, padFit);
         Text version = dim("刀剑神域·誓约 启动器 " + Metadata.VERSION + " · 基于 HMCL", 10);
         version.relocate(64, 676);
-        sound.setOnAction(e -> cycleSound());
         Button minimize = round(SVG.MINIMIZE_CENTER, 30, 15);
         minimize.setOnAction(e -> Controllers.getDecorator().minimizeWindow());
         Button close = round(SVG.CLOSE, 30, 15);
@@ -787,10 +786,10 @@ public final class SaoHelmetPage extends StackPane {
         @Nullable String side = System.getProperty("sao.windowButtons");
         boolean mac = side != null ? side.equals("left")
                 : org.jackhuang.hmcl.util.platform.OperatingSystem.CURRENT_OS == org.jackhuang.hmcl.util.platform.OperatingSystem.MACOS;
-        HBox row = mac ? new HBox(6, close, minimize, sound) : new HBox(6, sound, minimize, close);
-        row.relocate(mac ? 16 : EW - 16 - 102, 8);
+        // No sound or music in the launcher (James, 8 Nov: "启动器里不要有任何音效", "启动器不要留音乐").
+        HBox row = mac ? new HBox(6, close, minimize) : new HBox(6, minimize, close);
+        row.relocate(mac ? 16 : EW - 16 - 66, 8);
         pad.getChildren().setAll(version, row);
-        refreshSoundIcon();
     }
 
     // ------------------------------------------------------------------ apps
@@ -884,8 +883,9 @@ public final class SaoHelmetPage extends StackPane {
 
         // The head turns about the eye: the space moves the other way, near windows more than far ones.
         double eye = -(h / 2.0) / Math.tan(HALF_FOV) / s;
-        lookX += (headX + Math.sin(t * 0.5) * 0.04 - lookX) * 0.06;
-        lookY += (headY + Math.sin(t * 0.37 + 1) * 0.03 - lookY) * 0.06;
+        // James, 8 Nov: "为什么要乱晃" / "模拟呼吸不是这么模拟的". The view no longer follows the mouse or drifts
+        // on two axes. It only breathes: a slow vertical rise and fall, inhale quicker than exhale, then a short rest.
+        breath.setY(BREATH_PX * breath(t));
         turnY.setPivotX(EW / 2);
         turnY.setPivotY(EH / 2);
         turnY.setPivotZ(eye);
@@ -894,14 +894,13 @@ public final class SaoHelmetPage extends StackPane {
         turnX.setPivotZ(eye);
         turnY.setAngle(lookX * 3.2);
         turnX.setAngle(lookY * 2.4);
+        if (glint.getBackground() == null) glint.setBackground(GLINT);
 
         black.resizeRelocate(0, 0, w, h);
         glass.relocate(0, 0);
         frame.relocate(0, 0);
         double r = 420 * s, gx = (((t * 0.045) % 1.6) - 0.3) * w, gy = h * 0.42;
         glint.resizeRelocate(gx - r, gy - r, 2 * r, 2 * r);
-        glint.setBackground(new javafx.scene.layout.Background(new javafx.scene.layout.BackgroundFill(new RadialGradient(0, 0, 0.5, 0.5, 0.5, true, CycleMethod.NO_CYCLE,
-                new Stop(0, Color.color(0.45, 0.75, 1, 0.06)), new Stop(1, Color.color(0.45, 0.75, 1, 0))), null, null)));
     }
 
     // ------------------------------------------------------------------ power
@@ -910,11 +909,10 @@ public final class SaoHelmetPage extends StackPane {
     /// after another.
     private void powerOn() {
         poweredOn = true;
-        startSound();
         world.setOpacity(1);
         SaoFloatWindow[] order = {player, news, server, dock};
         for (SaoFloatWindow w : order) {
-            w.setOpacity(0);
+            w.glass.set(0);
             w.recede.set(420);
         }
         Timeline t = new Timeline(
@@ -934,8 +932,6 @@ public final class SaoHelmetPage extends StackPane {
     /// black.
     private void powerDown() {
         poweredOn = false;
-        stopSound();
-        if (!soundMode().equals("off")) SaoMusic.once("helmet_outro.ogg", 0.55);
         if (app != null) closeApp();
         for (SaoFloatWindow w : new SaoFloatWindow[]{news, server, player, dock}) w.moveBack(600, 0, 300);
         Timeline t = new Timeline(
@@ -955,53 +951,6 @@ public final class SaoHelmetPage extends StackPane {
             p.setOnFinished(e -> powerOn());
             p.play();
         }
-    }
-
-    // ------------------------------------------------------------------ sound
-
-    /// helmet, song or off.
-    private String soundMode() {
-        return service.preference("sound", "helmet");
-    }
-
-    /// Starts what the player picked.
-    private void startSound() {
-        if (service.state().get() == SaoPackState.RUNNING) return;
-        switch (soundMode()) {
-            case "song" -> song.start();
-            case "off" -> {
-            }
-            default -> hum.start();
-        }
-    }
-
-    /// Stops every sound.
-    private void stopSound() {
-        hum.stop();
-        song.stop();
-    }
-
-    /// The pad's sound button steps helmet, song, off.
-    private void cycleSound() {
-        String next = switch (soundMode()) {
-            case "helmet" -> "song";
-            case "song" -> "off";
-            default -> "helmet";
-        };
-        service.setPreference("sound", next);
-        stopSound();
-        if (poweredOn) startSound();
-        refreshSoundIcon();
-    }
-
-    /// Shows the sound mode on its button.
-    private void refreshSoundIcon() {
-        sound.setGraphic(icon(switch (soundMode()) {
-            case "song" -> NOTE;
-            case "off" -> MUTED;
-            default -> SPEAKER;
-        }, 15));
-        sound.setOpacity(soundMode().equals("off") ? 0.55 : 1);
     }
 
     // ------------------------------------------------------------------ choices
@@ -1194,7 +1143,8 @@ public final class SaoHelmetPage extends StackPane {
     private void hookWindow() {
         try {
             Controllers.getDecorator().capableDraggingWindow(this);
-            Controllers.getDecorator().forbidDraggingWindow(world);
+            // James, 8 Nov: "为什么没有任何一个可以拖动整个窗口的地方？": the empty space around the windows moves it.
+            Controllers.getDecorator().forbidDraggingWindow(windows);
             Controllers.getDecorator().forbidDraggingWindow(pad);
         } catch (NullPointerException | IllegalStateException noWindow) {
             // Screenshot tools: no launcher window.
@@ -1239,7 +1189,7 @@ public final class SaoHelmetPage extends StackPane {
         black.setOpacity(0);
         for (SaoFloatWindow w : new SaoFloatWindow[]{news, server, player, dock}) {
             w.recede.set(0);
-            w.setOpacity(1);
+            w.glass.set(1);
         }
     }
 
@@ -1254,11 +1204,19 @@ public final class SaoHelmetPage extends StackPane {
             appButton = null;
             for (SaoFloatWindow home : new SaoFloatWindow[]{news, server, player}) {
                 home.recede.set(0);
-                home.setOpacity(1);
+                home.glass.set(1);
             }
             return;
         }
         openApp(SaoApps.APPS[i], dockButtons[i]);
+    }
+
+    /// The breath at time `t`, 0 at rest to 1 at the top: inhale over 40 % of the breath, exhale over 50 %, rest 10 %.
+    private static double breath(double t) {
+        double p = (t % BREATH_S) / BREATH_S;
+        if (p < 0.4) return 0.5 - 0.5 * Math.cos(Math.PI * p / 0.4);
+        if (p < 0.9) return 0.5 + 0.5 * Math.cos(Math.PI * (p - 0.4) / 0.5);
+        return 0;
     }
 
     /// Turns the head (screenshot tools).
@@ -1268,14 +1226,52 @@ public final class SaoHelmetPage extends StackPane {
     }
 
     /// The player's character, turning slowly in HMCL's 3D skin view and turned by dragging.
+    /// Which way a drag turns and tips the character (checked by dragging the real window).
+    static double TURN_SIGN = 1, TILT_SIGN = -1;
+
     private static final class Character extends StackPane {
         /// HMCL's skin model.
-        private final SkinCanvas canvas = new SkinCanvas(TexturesLoader.getDefaultSkinImage(), 150, 214, true);
+        private final Turntable canvas = new Turntable();
+        /// Where a drag started, and the turn then.
+        private double pressX, pressY, pressYaw, pressTilt;
+
+        /// HMCL's model, turned only about its own upright axis and tipped a little, never rolled
+        /// (James, 8 Nov: "你的这个3d皮肤拖动鼠标的这个很搞笑，根本没做好反人类").
+        private static final class Turntable extends SkinCanvas {
+            Turntable() {
+                super(TexturesLoader.getDefaultSkinImage(), 150, 214, true);
+            }
+
+            double yaw() {
+                return yRotate.getAngle();
+            }
+
+            double tilt() {
+                return xRotate.getAngle();
+            }
+
+            void turn(double yaw, double tilt) {
+                yRotate.setAngle(yaw);
+                xRotate.setAngle(Math.max(-20, Math.min(20, tilt)));
+                zRotate.setAngle(0);
+            }
+        }
 
         /// Builds it with the default skin.
         Character() {
-            canvas.enableRotation(0.5);
             canvas.getAnimationPlayer().addSkinAnimation(new SkinAniWavingArms(100, 2000, 7.5, canvas), new SkinAniRunning(100, 100, 30, canvas));
+            // The front follows the hand: dragging right turns the side under the pointer to the right.
+            canvas.addEventHandler(MouseEvent.MOUSE_PRESSED, e -> {
+                pressX = e.getScreenX();
+                pressY = e.getScreenY();
+                pressYaw = canvas.yaw();
+                pressTilt = canvas.tilt();
+                e.consume();
+            });
+            canvas.addEventHandler(MouseEvent.MOUSE_DRAGGED, e -> {
+                canvas.turn(pressYaw + TURN_SIGN * (e.getScreenX() - pressX) * 0.7, pressTilt + TILT_SIGN * (e.getScreenY() - pressY) * 0.25);
+                e.consume();
+            });
             getChildren().add(canvas);
         }
 

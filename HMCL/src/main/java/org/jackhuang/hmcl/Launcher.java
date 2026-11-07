@@ -202,11 +202,25 @@ public final class Launcher extends Application {
     }
 
     private static ButtonType showAlert(AlertType alertType, String contentText, ButtonType... buttons) {
-        return new Alert(alertType, contentText, buttons).showAndWait().orElse(null);
+        return saoStyle(new Alert(alertType, contentText, buttons)).showAndWait().orElse(null);
+    }
+
+    /// Gives a start-up alert the SAO launcher's look: a light panel, grey ink, orange buttons, no system title bar
+    /// (James, 8 Nov: "hmcl的东西按照我们restyle").
+    private static Alert saoStyle(Alert alert) {
+        if (!org.jackhuang.hmcl.ui.sao.SaoUi.enabled()) return alert;
+        alert.initStyle(javafx.stage.StageStyle.TRANSPARENT);
+        alert.setHeaderText(null);
+        alert.setGraphic(null);
+        javafx.scene.control.DialogPane pane = alert.getDialogPane();
+        pane.getStylesheets().add(java.util.Objects.requireNonNull(Launcher.class.getResource("/assets/css/sao-alert.css")).toExternalForm());
+        pane.getStyleClass().add("sao-alert");
+        alert.setOnShowing(e -> pane.getScene().setFill(javafx.scene.paint.Color.TRANSPARENT));
+        return alert;
     }
 
     private static boolean confirmWithCountdown(Alert.AlertType alertType, String contentText, int seconds) {
-        Alert alert = new Alert(alertType, contentText, ButtonType.YES, ButtonType.NO);
+        Alert alert = saoStyle(new Alert(alertType, contentText, ButtonType.YES, ButtonType.NO));
         Button okButton = (Button) alert.getDialogPane().lookupButton(ButtonType.YES);
 
         okButton.setDisable(true);

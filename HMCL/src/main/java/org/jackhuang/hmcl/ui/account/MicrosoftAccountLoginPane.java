@@ -141,7 +141,7 @@ public class MicrosoftAccountLoginPane extends JFXDialogLayout implements Dialog
 
         StackPane warningPane = new StackPane();
 
-        if (!IntegrityChecker.isOfficial()) {
+        if (!IntegrityChecker.isOfficial() && !org.jackhuang.hmcl.ui.sao.SaoUi.enabled()) {
             var unofficialHintPane = new HintPane(MessageDialogPane.MessageType.WARNING);
             unofficialHintPane.setSegment(i18n("unofficial.hint"));
             warningPane.getChildren().add(unofficialHintPane);

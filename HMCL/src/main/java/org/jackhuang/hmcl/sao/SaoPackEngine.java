@@ -361,7 +361,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     /// {@inheritDoc}
     @Override public boolean skinSlim() { return skins.slim(); }
     /// {@inheritDoc}
-    @Override public int memoryMiB() { return settings.number("memoryMiB", 4096); }
+    @Override public int memoryMiB() { return settings.number("memoryMiB", 8192); }
     /// {@inheritDoc}
     @Override public void setMemoryMiB(int mib) {
         long free = new org.jackhuang.hmcl.util.platform.hardware.HardwareDetector().getFreeMemorySize() / (1024 * 1024);
