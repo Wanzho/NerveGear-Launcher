@@ -374,6 +374,13 @@ public interface SaoLauncherService {
         return unsupported();
     }
 
+    /// The signed-in player's card for the player window: level, floor and Col from the account server; the last time
+    /// in the game and the play time kept by the launcher; friends online from the server. Null while signed out or
+    /// before the first answer. Refreshed on login, when the game exits and with the server status.
+    default ReadOnlyObjectProperty<SaoData.@Nullable PlayerCard> playerCard() {
+        return new javafx.beans.property.SimpleObjectProperty<>(null);
+    }
+
     /// The address players join, shown under 服务器 (James, 7 Nov: "服务器下面写mc.saooath.com").
     default String serverAddress() {
         return "mc.saooath.com";

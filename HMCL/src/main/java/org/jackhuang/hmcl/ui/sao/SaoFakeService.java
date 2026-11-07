@@ -7,6 +7,7 @@ package org.jackhuang.hmcl.ui.sao;
 
 import javafx.animation.KeyFrame;
 import javafx.animation.Timeline;
+import javafx.beans.property.ObjectProperty;
 import javafx.beans.property.ReadOnlyDoubleProperty;
 import javafx.beans.property.ReadOnlyObjectProperty;
 import javafx.beans.property.ReadOnlyStringProperty;
@@ -334,8 +335,18 @@ public final class SaoFakeService implements SaoLauncherService {
     ///
     /// @param verified whether the mailbox is verified
     void forceOath(boolean verified) {
+        card.set(new SaoData.PlayerCard(24, 1, 12_400, System.currentTimeMillis() - 20 * 3600_000L, 12 * 3600 + 40 * 60,
+                List.of("Asuna", "Klein")));
         oath.set(new SaoData.OathAccount("Kirito_07", "0f3b6a1c2d4e4f50a1b2c3d4e5f60718", "ja***@163.com", verified,
                 false, verified ? 0 : 47 * 3600 + 12 * 60, null));
+    }
+
+    /// Pretend player card.
+    private final ObjectProperty<SaoData.@Nullable PlayerCard> card = new SimpleObjectProperty<>();
+
+    @Override
+    public ReadOnlyObjectProperty<SaoData.@Nullable PlayerCard> playerCard() {
+        return card;
     }
 
     @Override

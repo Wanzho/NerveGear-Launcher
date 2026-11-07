@@ -145,6 +145,22 @@ public final class SaoData {
         OFFICIAL
     }
 
+    /// What the player window shows under the signed-in name (James, 7 Nov): the character's level, floor and Col
+    /// from the server, the last time in the game and the play time, and the friends in the game now.
+    ///
+    /// @param level         the character's level, -1 while unknown
+    /// @param floor         the floor the character was last on, -1 while unknown
+    /// @param col           the character's Col, -1 while unknown
+    /// @param lastPlayed    when the game last ran with this account, epoch milliseconds, 0 for never
+    /// @param playSeconds   time in the game with this account, in seconds
+    /// @param friendsOnline the friends in the game now, by name
+    @NotNullByDefault
+    public record PlayerCard(int level, int floor, long col, long lastPlayed, long playSeconds,
+                             @Unmodifiable List<String> friendsOnline) {
+        /// Copies the friends so a new card never shares a list with an older one.
+        public PlayerCard { friendsOnline = List.copyOf(friendsOnline); }
+    }
+
     /// One download task.
     ///
     /// @param name          short label

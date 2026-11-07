@@ -434,6 +434,7 @@ public final class SaoHelmetPage extends StackPane {
         VBox.setVgrow(body, Priority.ALWAYS);
 
         service.oathAccount().addListener((o, a, b) -> refreshAccount());
+        service.playerCard().addListener((o, a, b) -> refreshAccount());
         Accounts.getAccounts().addListener((ListChangeListener<Account>) c -> refreshAccount());
         refreshAccount();
         autoLogin();
@@ -545,6 +546,32 @@ public final class SaoHelmetPage extends StackPane {
         HBox row = new HBox(slot);
         row.setAlignment(Pos.CENTER_LEFT);
         return row;
+    }
+
+    /// One number on the player card: the value large in the SAO face, what it is small under it.
+    private static Node statTile(String what, String value) {
+        Text v = sao(value, 20, true);
+        Text k = dim(what, 11);
+        VBox t = new VBox(0, v, k);
+        t.getStyleClass().add("vr-tile");
+        t.setPadding(new Insets(5, 10, 5, 10));
+        // Three equal tiles across the column.
+        t.setMinWidth(0);
+        t.setPrefWidth(1);
+        HBox.setHgrow(t, Priority.ALWAYS);
+        t.setMaxWidth(Double.MAX_VALUE);
+        return t;
+    }
+
+    /// When the game last ran, in a few words: 今天 21:40, 昨天 21:40, 3 天前.
+    private static String whenText(long epochMs) {
+        java.time.ZoneId z = java.time.ZoneId.systemDefault();
+        java.time.LocalDateTime t = java.time.Instant.ofEpochMilli(epochMs).atZone(z).toLocalDateTime();
+        long days = java.time.temporal.ChronoUnit.DAYS.between(t.toLocalDate(), java.time.LocalDate.now(z));
+        String hm = String.format(java.util.Locale.ROOT, "%02d:%02d", t.getHour(), t.getMinute());
+        if (days <= 0) return "今天 " + hm;
+        if (days == 1) return "昨天 " + hm;
+        return days + " 天前";
     }
 
     /// A download speed in a few characters: 820 KB/s, 3.2 MB/s.
@@ -881,6 +908,44 @@ public final class SaoHelmetPage extends StackPane {
             HBox nameRow = new HBox(8, n, rename);
             nameRow.setAlignment(Pos.CENTER_LEFT);
             signedIn.getChildren().setAll(head, nameRow);
+            // Under the name (James, 7 Nov, picked 1 3 4 5): LV, floor and Col; the last time in the game and the
+            // play time; friends in the game now; and a red line while the mailbox waits for its code.
+            SaoData.@Nullable PlayerCard card = service.playerCard().get();
+            if (card != null) {
+                HBox tiles = new HBox(6,
+                        statTile("LV", card.level() < 0 ? "-" : Integer.toString(card.level())),
+                        statTile("楼层", card.floor() < 0 ? "-" : Integer.toString(card.floor())),
+                        statTile("Col", card.col() < 0 ? "-" : String.format(java.util.Locale.ROOT, "%,d", card.col())));
+                Text last = dim(card.lastPlayed() <= 0 ? "还没进过游戏"
+                        : "上次进入 " + whenText(card.lastPlayed()) + " · 共 " + SaoAccountApp.hours(card.playSeconds()), 12);
+                HBox friends = new HBox(6);
+                friends.setAlignment(Pos.CENTER_LEFT);
+                if (card.friendsOnline().isEmpty()) {
+                    friends.getChildren().add(dim("没有好友在线", 12));
+                } else {
+                    friends.getChildren().add(dim("好友在线", 12));
+                    for (String f : card.friendsOnline().subList(0, Math.min(3, card.friendsOnline().size()))) {
+                        HBox chip = new HBox(5, light(true), sao(f, 12, false));
+                        chip.setAlignment(Pos.CENTER_LEFT);
+                        chip.getStyleClass().add("vr-name");
+                        friends.getChildren().add(chip);
+                    }
+                    if (card.friendsOnline().size() > 3) friends.getChildren().add(dim("+" + (card.friendsOnline().size() - 3), 12));
+                }
+                signedIn.getChildren().addAll(tiles, last, friends);
+            }
+            if (!a.emailVerified()) {
+                Text w = new Text(a.maskedEmail().isEmpty() ? "还没有邮箱，绑定后才能找回密码"
+                        : a.locked() ? "邮箱没验证，验证后才能进游戏"
+                        : "邮箱待验证 · 还剩 " + SaoAccountApp.hours(a.graceSeconds()));
+                w.getStyleClass().add("vr-warn");
+                w.setFont(SaoUiKit.ui(12, false));
+                Button go = SaoAccountApp.link(a.maskedEmail().isEmpty() ? "去设置" : "去验证",
+                        () -> openAccount(a.maskedEmail().isEmpty() ? SaoAccountApp.Page.MANAGE : SaoAccountApp.Page.VERIFY));
+                HBox warnRow = new HBox(6, w, grow(), go);
+                warnRow.setAlignment(Pos.CENTER_LEFT);
+                signedIn.getChildren().add(warnRow);
+            }
         }
         problem.setText("");
         @Nullable Path worn = service.oathSkin() != null ? service.oathSkin() : service.skin();
