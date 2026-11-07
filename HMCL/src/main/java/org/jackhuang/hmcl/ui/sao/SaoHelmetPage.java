@@ -156,6 +156,11 @@ public final class SaoHelmetPage extends StackPane {
     private boolean editingName;
     /// A name to start the editor with instead of the current one (the screenshot tool).
     private @Nullable String typedName;
+    /// 确定改成…吗？ over the player's body, before a new 游戏昵称 is saved.
+    private final VBox confirmName = new VBox(10);
+    /// What 确定 on [#confirmName] does.
+    private Runnable confirmNameAction = () -> {
+    };
     /// 确定退出吗？ over the player's body.
     private final VBox confirmOut = new VBox(10);
     /// The character.
@@ -434,7 +439,20 @@ public final class SaoHelmetPage extends StackPane {
             confirmOut.setVisible(false);
             service.oathLogout();
         });
-        StackPane body = new StackPane(bodyRow, confirmOut);
+        // 确定改成…吗？, the same way.
+        Button nameNo = SaoUiKit.button("取消"), nameYes = SaoUiKit.accent("确定");
+        HBox nameAnswers = new HBox(10, nameNo, nameYes);
+        nameAnswers.setAlignment(Pos.CENTER);
+        confirmName.setAlignment(Pos.CENTER);
+        confirmName.setVisible(false);
+        confirmName.getProperties().put("answers", nameAnswers);
+        confirmName.visibleProperty().addListener((o, a, shown) -> bodyRow.setVisible(!shown && !confirmOut.isVisible()));
+        nameNo.setOnAction(e -> confirmName.setVisible(false));
+        nameYes.setOnAction(e -> {
+            confirmName.setVisible(false);
+            confirmNameAction.run();
+        });
+        StackPane body = new StackPane(bodyRow, confirmOut, confirmName);
         VBox.setVgrow(body, Priority.ALWAYS);
 
         service.oathAccount().addListener((o, a, b) -> refreshAccount());
@@ -576,16 +594,19 @@ public final class SaoHelmetPage extends StackPane {
                 problem.setText("! 昵称 3-16 位：字母、数字、下划线");
                 return;
             }
-            ok.setDisable(true);
-            service.oathRename(n).whenComplete((v, err) -> Platform.runLater(() -> {
-                ok.setDisable(false);
-                if (err != null) {
-                    problem.setText("! " + SaoSkinApp.message(err));
-                    return;
-                }
-                problem.setText("");
-                close.run();
-            }));
+            // James, 7 Nov: "确定的时候弹个确认框出来".
+            askName(n, () -> {
+                ok.setDisable(true);
+                service.oathRename(n).whenComplete((v, err) -> Platform.runLater(() -> {
+                    ok.setDisable(false);
+                    if (err != null) {
+                        problem.setText("! " + SaoSkinApp.message(err));
+                        return;
+                    }
+                    problem.setText("");
+                    close.run();
+                }));
+            });
         };
         ok.setOnAction(e -> save.run());
         cancel.setOnAction(e -> close.run());
@@ -606,7 +627,7 @@ public final class SaoHelmetPage extends StackPane {
                 service.oathNameAvailable(n).whenComplete((free, err) -> Platform.runLater(() -> {
                     if (!f.getText().strip().equals(n) || err != null) return;
                     note.getStyleClass().setAll(free ? "vr-dim" : "vr-warn");
-                    note.setText(free ? "可以用" : "已经有人用了");
+                    note.setText(free ? "昵称可用" : "昵称被占用了，请换昵称再试");
                     ok.setDisable(!free);
                 }));
                 return;
@@ -628,6 +649,23 @@ public final class SaoHelmetPage extends StackPane {
         HBox row = new HBox(6, f, ok, cancel);
         row.setAlignment(Pos.CENTER_LEFT);
         return new VBox(3, row, note);
+    }
+
+    /// Asks before saving a new 游戏昵称.
+    private void askName(String name, Runnable yes) {
+        Text sure = ink("确定把昵称改成", 16);
+        sure.setFont(SaoUiKit.ui(16, true));
+        Text n = sao(name, 30, true);
+        Text after = dim("一天最多改 3 次", 12);
+        confirmName.getChildren().setAll(sure, n, after, (Node) confirmName.getProperties().get("answers"));
+        confirmNameAction = yes;
+        confirmName.setVisible(true);
+    }
+
+    /// Shows 确定把昵称改成… (the screenshot tool).
+    void forceNameConfirm(String name) {
+        askName(name, () -> {
+        });
     }
 
     /// Opens the name editor with a name typed (the screenshot tool).

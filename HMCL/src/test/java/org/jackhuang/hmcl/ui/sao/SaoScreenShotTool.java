@@ -85,6 +85,10 @@ public final class SaoScreenShotTool {
                     fx(() -> im[0] = scene[0].snapshot(null));
                     write(im[0], out.resolve(p + t[1] + ".png"));
                 }
+                fx(() -> page[0].forceNameConfirm("Kirito_Black"));
+                Thread.sleep(500);
+                fx(() -> im[0] = scene[0].snapshot(null));
+                write(im[0], out.resolve(p + "43-name-confirm.png"));
             } else if (big) {
                 String[] apps = {"settings", "skin", "worlds", "multiplayer", "packs", "screenshots", "logs", "java", "downloads", "about"};
                 shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "00-home.png"));
