@@ -412,7 +412,35 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     @Override public CompletableFuture<Boolean> oathNameAvailable(String name) { return oath.nameAvailable(name); }
     /// {@inheritDoc}
     @Override public CompletableFuture<Void> oathRename(String name) { return oath.rename(name); }
-    /// {@inheritDoc}
+    /// Stable live friends list for the ARGUS friends screen.
+    @Override public @UnmodifiableView ObservableList<SaoData.Friend> friends(){return oath.friends.friends();}
+    /// Both incoming and outgoing friend requests from the account server.
+    @Override public @UnmodifiableView ObservableList<SaoData.FriendRequest> friendRequests(){return oath.friends.requests();}
+    /// Live conversations ordered by most recent message.
+    @Override public @UnmodifiableView ObservableList<SaoData.Chat> chats(){return oath.friends.chats();}
+    /// Stable oldest-first messages; repeated access loads older server history pages.
+    @Override public @UnmodifiableView ObservableList<SaoData.ChatMessage> messages(String id){return oath.friends.messages(id);}
+    /// Requests friendship by the current game nickname.
+    @Override public CompletableFuture<Void> addFriend(String name){return oath.friends.operation("request",SaoFriends.object("name",name)).thenApply(value->null);}
+    /// Accepts or declines only an incoming request.
+    @Override public CompletableFuture<Void> answerFriend(String name,boolean accept){var body=SaoFriends.object("name",name);body.addProperty("accept",accept);return oath.friends.operation("answer",body).thenApply(value->null);}
+    /// Ends the friendship and its direct conversation.
+    @Override public CompletableFuture<Void> removeFriend(String name){return oath.friends.operation("remove",SaoFriends.object("name",name)).thenApply(value->null);}
+    /// Blocks requests and messages from the named player.
+    @Override public CompletableFuture<Void> blockPlayer(String name){return oath.friends.operation("block",SaoFriends.object("name",name)).thenApply(value->null);}
+    /// Resolves the server's unique direct conversation for a current friend.
+    @Override public CompletableFuture<String> directChat(String name){return oath.friends.operation("direct",SaoFriends.object("name",name)).thenApply(value->value.get("id").getAsString());}
+    /// Creates an invitation-only ARGUS group from current friends.
+    @Override public CompletableFuture<String> createGroup(String title,List<String> members){var body=SaoFriends.object("title",title);var names=new com.google.gson.JsonArray();members.forEach(names::add);body.add("members",names);return oath.friends.operation("group",body).thenApply(value->value.get("id").getAsString());}
+    /// Adds the caller's friends to a group without exposing pre-invitation history.
+    @Override public CompletableFuture<Void> inviteToGroup(String id,List<String> members){var body=SaoFriends.object("chat",id);var names=new com.google.gson.JsonArray();members.forEach(names::add);body.add("members",names);return oath.friends.operation("invite",body).thenApply(value->null);}
+    /// Leaves an ARGUS group, deleting it if this was the last member.
+    @Override public CompletableFuture<Void> leaveGroup(String id){return oath.friends.operation("leave",SaoFriends.object("chat",id)).thenApply(value->null);}
+    /// Shows pending immediately and reconciles the server-assigned message ID after delivery.
+    @Override public CompletableFuture<Void> sendMessage(String id,String text){return oath.friends.send(id,text);}
+    /// Advances read status through messages actually applied to this open conversation.
+    @Override public void markRead(String id){oath.friends.markRead(id);}
+    /// Current server card merged with this account's local process history.
     @Override public ReadOnlyObjectProperty<SaoData.@Nullable PlayerCard> playerCard() { return oath.playerCard(); }
     /// {@inheritDoc}
     @Override public String serverAddress() {

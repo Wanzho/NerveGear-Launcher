@@ -164,6 +164,33 @@ final class SaoAccountClient {
         }
         catch (RuntimeException ignored) { }
         @Nullable SaoAccountException known = switch (code) {
+            case "playerMissing" -> new SaoAccountException("没有找到这位玩家", "playerMissing");
+            case "selfFriend" -> new SaoAccountException("不能添加自己", "selfFriend");
+            case "playerBlocked" -> new SaoAccountException("无法向对方发送消息", "playerBlocked");
+            case "alreadyFriends" -> new SaoAccountException("已经是好友了", "alreadyFriends");
+            case "friendsFull" -> new SaoAccountException("好友列表已满", "friendsFull");
+            case "requestsFull" -> new SaoAccountException("好友请求已满", "requestsFull");
+            case "requestMissing" -> new SaoAccountException("好友请求已结束", "requestMissing");
+            case "notFriends" -> new SaoAccountException("对方不在好友列表", "notFriends");
+            case "invalidGroupName" -> new SaoAccountException("群名限 1—12 字，请勿使用空格或括号", "invalidGroupName");
+            case "groupNameTaken" -> new SaoAccountException("这个群名已被使用", "groupNameTaken");
+            case "groupsFull" -> new SaoAccountException("加入的群太多了", "groupsFull");
+            case "groupNeedsFriends" -> new SaoAccountException("请至少选择一位好友", "groupNeedsFriends");
+            case "groupFull" -> new SaoAccountException("群已满", "groupFull");
+            case "notGroup" -> new SaoAccountException("这不是群聊", "notGroup");
+            case "chatMissing" -> new SaoAccountException("会话已结束", "chatMissing");
+            case "messageLength" -> new SaoAccountException("消息限 1—1024 字，请勿换行", "messageLength");
+            case "messageRate" -> new SaoAccountException("发太快了，稍后再试", "messageRate");
+            case "nonceConflict" -> new SaoAccountException("消息状态已改变，请重试", "nonceConflict");
+            case "invalidNonce" -> new SaoAccountException("消息凭证无效，请重试", "invalidNonce");
+            case "invalidCursor" -> new SaoAccountException("消息同步位置无效，请重新登录", "invalidCursor");
+            case "invalidDevice" -> new SaoAccountException("设备信息无效，请重新登录", "invalidDevice");
+            case "devicesFull" -> new SaoAccountException("聊天设备已满", "devicesFull");
+            case "socialCapacity" -> new SaoAccountException("聊天空间已满，请联系管理员", "socialCapacity");
+            case "socialInput" -> new SaoAccountException("请检查聊天内容", "socialInput");
+            case "socialEndpoint" -> new SaoAccountException("请更新启动器后使用聊天", "socialEndpoint");
+            case "socialMethod" -> new SaoAccountException("聊天操作无效", "socialMethod");
+            case "socialSession" -> new SaoAccountException("登录已失效，请重新登录", "socialSession");
             case "nameTaken" -> new SaoAccountException("这个昵称已被占用", "nameTaken");
             case "reservedName" -> new SaoAccountException("这个昵称暂不可用", "reservedName");
             case "renameLimit" -> new SaoAccountException("今天已经改了 3 次，明天再来", "renameLimit");

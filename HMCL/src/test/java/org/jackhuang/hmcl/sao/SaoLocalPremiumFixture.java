@@ -67,16 +67,31 @@ final class SaoLocalPremiumFixture implements AutoCloseable {
         ygg.getClass().getField("enabled").setBoolean(ygg, true);
         ygg.getClass().getField("publicUrl").set(ygg, root().toString());
         config.getClass().getField("accountFailureLimit").setInt(config, 100);
-        Object store = type("AccountStore").getConstructor(Path.class).newInstance(directory.resolve("accounts.json"));
+        Object store = type("AccountStore").getConstructor(Path.class).newInstance(directory.resolve("sao-auth/accounts.json"));
         Object identity = type("AuthCrypto$Identity").getMethod("load", Path.class).invoke(null, directory.resolve("identity"));
         Class<?> senderType = type("AccountMail$Sender");
         Object sender = Proxy.newProxyInstance(loader, new Class<?>[]{senderType}, (proxy, method, args) -> null);
         mail = type("AccountMail").getConstructor(senderType).newInstance(sender);
         Object flows = type("AccountFlows").getConstructor(Path.class, type("AccountStore"), type("AuthConfig"),
-                type("AuthCrypto$Identity"), type("AccountMail")).newInstance(directory.resolve("flows.json"), store, config, identity, mail);
+                type("AuthCrypto$Identity"), type("AccountMail")).newInstance(directory.resolve("sao-auth/account-flows.json"), store, config, identity, mail);
         Class<?> hooksType = type("YggdrasilService$Hooks");
         Object hooks = Proxy.newProxyInstance(loader, new Class<?>[]{hooksType}, (proxy, method, args) -> {
             if (method.getName().equals("operator")) return false;
+            if (method.getName().equals("rename")) {
+                // Match the server's shared stable-ID transaction; the dedicated harness verifies game coordination.
+                Object target = java.util.Objects.requireNonNull(args)[0], expected = args[1];
+                String previous = (String) type("AccountStore$Account").getMethod("name").invoke(expected);
+                if (type("AccountStore").getMethod("find", String.class).invoke(target, previous) != expected)
+                    throw new IOException("Fixture account changed");
+                Object files = type("FileTransaction").getConstructor(Path.class).newInstance(directory);
+                Object plan = type("MigrationPlan").getConstructor(type("FileTransaction"), type("AccountStore"), String.class,
+                        String.class, boolean.class, long.class).newInstance(files, target, previous, args[2], false, args[3]);
+                type("AccountFlows").getMethod("addApprovalToPlan", type("MigrationPlan")).invoke(null, plan);
+                type("MigrationPlan").getMethod("execute").invoke(plan);
+                type("AccountStore").getMethod("reload").invoke(target);
+                type("AccountFlows").getMethod("reload").invoke(flows);
+                return type("AccountStore").getMethod("find", String.class).invoke(target, args[2]);
+            }
             if (method.getName().equals("premium")) {
                 if (args == null || !"PremiumFixture".equals(args[0]) || !args[1].equals(joinedChallenge)) return null;
                 return type("PremiumProof$Identity").getConstructor(String.class, UUID.class).newInstance(args[0], premiumId);

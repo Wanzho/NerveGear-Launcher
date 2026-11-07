@@ -60,6 +60,8 @@ final class SaoOathAccounts implements AutoCloseable {
     });
     /// Transport enforcing origin, TLS, bounds, locale and safe failure text.
     private final SaoAccountClient client;
+    /// Live social engine shares only the current memory-only ARGUS session.
+    final SaoFriends friends;
     /// Root enclosing only this launcher's credentials, texture cache and libraries.
     private final Path root;
     /// Explicit protected storage implementation, replaceable in isolated tests.
@@ -133,6 +135,7 @@ final class SaoOathAccounts implements AutoCloseable {
     SaoOathAccounts(Path root, Supplier<URI> endpoint, Supplier<String> language, SaoOathCredentials credentials,
                     PremiumProof premium, URI mojangJoin, Consumer<Account> launch, Consumer<String> errors) {
         this.root = root; this.client = new SaoAccountClient(endpoint, language); this.credentials = credentials;
+        this.friends = new SaoFriends(root, client, errors);
         this.premium = premium; this.mojangJoin = mojangJoin; this.launch = launch; this.errors = errors;
         this.injector = new SaoOathInjector(root);
         this.playTime = new SaoOathPlayTime(root);
@@ -437,6 +440,9 @@ final class SaoOathAccounts implements AutoCloseable {
         if (previous != null && !previous.id().equalsIgnoreCase(id)) { skin = null; profileCache = null; }
         Logger.registerAccessToken(access);
         session = new Session(client.root(), access, clientToken, name, id);
+        @Nullable GameRun running=gameRun;
+        friends.playing(running!=null&&running.id().equalsIgnoreCase(id)&&running.api().equals(client.root()));
+        friends.session(new SaoFriends.Session(client.root(), access, id, name));
     }
 
     /// GET /sao/account is the only source of published verification/lock state, followed by signed profile texture lookup.
@@ -499,6 +505,8 @@ final class SaoOathAccounts implements AutoCloseable {
 
     /// Records the actual created process under its prepared account, independently of later signout or renames.
     synchronized void gameStarted(SaoOathLaunchAccount launched) {
+        @Nullable Session active=session;
+        friends.playing(active!=null&&active.id().equalsIgnoreCase(launched.profileId())&&active.root().equals(launched.apiRoot()));
         try { gameRun = new GameRun(launched.apiRoot(), launched.profileId(), playTime.start(launched.apiRoot(), launched.profileId())); }
         catch (IOException failure) { errors.accept("保存游玩记录失败"); }
         refreshCard();
@@ -506,6 +514,7 @@ final class SaoOathAccounts implements AutoCloseable {
 
     /// Persists monotonic elapsed time once, then refreshes the signed-in card after process exit.
     synchronized void gameExited() {
+        friends.playing(false);
         @Nullable GameRun running = gameRun;
         if (running != null) try { running.time().close(); gameRun = null; }
         catch (IOException failure) { errors.accept("保存游玩记录失败"); }
@@ -560,7 +569,7 @@ final class SaoOathAccounts implements AutoCloseable {
     /// Clears invalid credentials from protected storage, as required by an explicit forget or password change.
     private void forget() throws IOException { synchronized (gate) { credentials.delete(); remembered = null; } }
     /// Drops all ephemeral account/texture state without deleting an explicitly remembered password.
-    private void clear() { session = null; current = null; currentCard = null; skin = null; slim = false; profileCache = null; }
+    private void clear() { friends.session(null); session = null; current = null; currentCard = null; skin = null; slim = false; profileCache = null; }
     /// Invalidates state from a launch-token check and publishes the signout.
     private void invalidSession() { clear(); publish(this::publishState); }
 
@@ -670,7 +679,7 @@ final class SaoOathAccounts implements AutoCloseable {
     /// Cancels all pending account work, wipes queued passwords and completes outstanding futures safely.
     @Override public void close() {
         if (!closed.compareAndSet(false, true)) return;
-        generation.incrementAndGet(); worker.shutdownNow(); clear();
+        generation.incrementAndGet(); friends.close(); worker.shutdownNow(); clear();
         for (char[] password : passwords) Arrays.fill(password, '\0'); passwords.clear();
         publish(() -> {
             publishState();

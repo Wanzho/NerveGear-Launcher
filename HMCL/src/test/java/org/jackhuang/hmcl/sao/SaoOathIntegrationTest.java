@@ -224,7 +224,7 @@ class SaoOathIntegrationTest {
     private static String code(String recipient, @Nullable String previous) {
         AtomicReference<@Nullable String> result = new AtomicReference<>();
         assertTimeoutPreemptively(Duration.ofSeconds(20), () -> {
-            Path mail = Path.of(System.getProperty("sao.account.proof.root"), "server-1", "private-fixtures", "mail-fixture.json");
+            Path mail = Path.of(System.getProperty("sao.account.proof.mail", Path.of(System.getProperty("sao.account.proof.root"), "server-1", "private-fixtures", "mail-fixture.json").toString()));
             while (result.get() == null) {
                 if (Files.isRegularFile(mail)) {
                     JsonArray messages = JsonParser.parseString(Files.readString(mail)).getAsJsonArray();
