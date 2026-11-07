@@ -19,7 +19,9 @@ import javafx.scene.Node;
 import javafx.scene.PerspectiveCamera;
 import javafx.scene.SceneAntialiasing;
 import javafx.scene.SubScene;
+import javafx.application.Platform;
 import javafx.scene.control.Button;
+import javafx.scene.control.PasswordField;
 import javafx.scene.control.TextField;
 import javafx.scene.control.ToggleButton;
 import javafx.scene.control.ToggleGroup;
@@ -44,13 +46,10 @@ import javafx.scene.text.Text;
 import javafx.scene.transform.Rotate;
 import javafx.scene.transform.Scale;
 import javafx.scene.transform.Translate;
-import javafx.stage.FileChooser;
 import javafx.util.Duration;
 import org.jackhuang.hmcl.Metadata;
 import org.jackhuang.hmcl.auth.Account;
 import org.jackhuang.hmcl.auth.microsoft.MicrosoftAccount;
-import org.jackhuang.hmcl.auth.offline.OfflineAccount;
-import org.jackhuang.hmcl.auth.offline.OfflineAccountFactory;
 import org.jackhuang.hmcl.game.TexturesLoader;
 import org.jackhuang.hmcl.sao.SaoData;
 import org.jackhuang.hmcl.sao.SaoLauncherService;
@@ -66,10 +65,8 @@ import org.jackhuang.hmcl.ui.skin.animation.SkinAniWavingArms;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 
-import java.io.File;
 import java.nio.file.Path;
 import java.util.Objects;
-import java.util.regex.Pattern;
 
 import static org.jackhuang.hmcl.ui.sao.SaoUiKit.*;
 
@@ -85,8 +82,6 @@ public final class SaoHelmetPage extends StackPane {
     private static final double EW = 1280, EH = 720;
     /// Half the camera's vertical field of view, radians.
     private static final double HALF_FOV = Math.toRadians(15);
-    /// Minecraft's rule for player names.
-    private static final Pattern NAME = Pattern.compile("[A-Za-z0-9_]{3,16}");
 
     /// The engine.
     private final SaoLauncherService service;
@@ -140,19 +135,23 @@ public final class SaoHelmetPage extends StackPane {
     /// Whether the display is on.
     private boolean poweredOn;
 
-    /// Offline or Microsoft.
+    /// 誓约账号 or Microsoft (正版). The 誓约 account replaced offline play (James, 7 Nov: "这样，你做个账号系统行不").
     private final ToggleGroup kind = new ToggleGroup();
-    private final ToggleButton offline = chip("离线", kind);
+    private final ToggleButton oath = chip("誓约账号", kind);
     private final ToggleButton microsoft = chip("正版", kind);
-    /// The account fields.
-    private final TextField name = field("玩家名");
+    /// Signed out: the name, the password and 记住我; Link Start logs in and starts in one press.
+    private final TextField name = field("角色名");
+    private final PasswordField pw = SaoAccountApp.password("密码");
+    private final ToggleButton remember = toggle(true);
+    private final VBox signedOut = new VBox(6);
+    /// Signed in: the name, the mailbox and the account's buttons.
+    private final VBox signedIn = new VBox(7);
+    /// Microsoft.
+    private final VBox msBox = new VBox(6);
     private final TextField msName = field("");
     private final Button msSignIn = SaoUiKit.button("登录 Microsoft");
     /// The character.
     private final Character skin = new Character();
-    private final ToggleGroup arms = new ToggleGroup();
-    private final ToggleButton classic = chip("Classic", arms);
-    private final ToggleButton slim = chip("Slim", arms);
     /// Link Start and its lines.
     private final Button start = new Button("Link Start");
     private final Text status = ink("", 13);
@@ -319,38 +318,55 @@ public final class SaoHelmetPage extends StackPane {
         return w.home(1022, 156, 40, 24, 0);
     }
 
-    /// The player, in the middle: the account and the character turning in 3D. No server password here (James, 7 Nov:
-    /// "理清一下逻辑，首先人家得进服才能设密码"): a new player sets it on joining, in the game's own log-in, which also
-    /// remembers the device.
+    /// The player, in the middle: the 誓约 account and the character turning in 3D. Signed out it asks for the name and
+    /// password, and Link Start logs in and starts; the skin has its own page (James, 7 Nov: "把classic slim等等塞到一个新的页面").
     private SaoFloatWindow buildPlayer() {
         ImageView logo = new ImageView(SaoAssets.image("logo.png"));
         logo.setPreserveRatio(true);
         logo.setFitHeight(46);
         logo.getStyleClass().add("vr-logo");
-        HBox head = new HBox(8, logo, grow(), offline, microsoft);
+        HBox head = new HBox(8, logo, grow(), oath, microsoft);
         head.setAlignment(Pos.CENTER_LEFT);
         keepOne(kind);
+
+        @Nullable String remembered = service.rememberedOathName();
+        if (remembered != null) {
+            name.setText(remembered);
+            pw.setPromptText("●●●●●●  已记住");
+        }
+        // A remembered password belongs to its name only.
+        name.textProperty().addListener((o, a, b) -> pw.setPromptText(
+                remembered != null && b.strip().equals(remembered) ? "●●●●●●  已记住" : "密码"));
+        Text rememberLabel = dim("记住我", 12);
+        HBox rememberRow = new HBox(6, remember, rememberLabel, grow(),
+                SaoAccountApp.link("注册", () -> openAccount(SaoAccountApp.Page.REGISTER)),
+                SaoAccountApp.link("忘记密码", () -> openAccount(SaoAccountApp.Page.FORGOT)));
+        rememberRow.setAlignment(Pos.CENTER_LEFT);
+        signedOut.getChildren().setAll(key("誓约账号"), name, pw, rememberRow);
 
         msName.setEditable(false);
         msName.setFocusTraversable(false);
         msSignIn.setOnAction(e -> Controllers.dialog(new CreateAccountPane(Accounts.FACTORY_MICROSOFT)));
         msSignIn.setMaxWidth(Double.MAX_VALUE);
-        StackPane accountField = new StackPane(name, msName, msSignIn);
-        accountField.setAlignment(Pos.CENTER_LEFT);
+        Text msWhy = dim("第一次用正版：先登录誓约账号，在「账号」里做正版验证", 11);
+        msWhy.setWrappingWidth(206);
+        msBox.getChildren().setAll(key("Microsoft"), new StackPane(msName, msSignIn), msWhy);
+
+        StackPane area = new StackPane(signedOut, signedIn, msBox);
+        area.setAlignment(Pos.TOP_LEFT);
+        for (VBox v : new VBox[]{signedOut, signedIn, msBox}) StackPane.setAlignment(v, Pos.TOP_LEFT);
         problem.getStyleClass().add("vr-warn");
-        problem.setFont(javafx.scene.text.Font.font(12));
-        problem.setWrappingWidth(200);
-        keepOne(arms);
-        Button change = SaoUiKit.button("更换皮肤");
-        change.setOnAction(e -> pickSkin());
-        VBox fields = new VBox(6,
-                key("账号"), accountField,
-                key("皮肤"), new HBox(6, classic, slim, change),
-                problem);
+        problem.setFont(SaoUiKit.ui(12, false));
+        problem.setWrappingWidth(206);
+        VBox fields = new VBox(6, area, grow(), problem);
         fields.setPrefWidth(212);
         HBox.setHgrow(fields, Priority.ALWAYS);
 
-        StackPane stage = new StackPane(skin);
+        Button editSkin = round(SVG.EDIT, 28, 14);
+        editSkin.setOnAction(e -> openSkin());
+        StackPane.setAlignment(editSkin, Pos.BOTTOM_RIGHT);
+        StackPane.setMargin(editSkin, new Insets(6));
+        StackPane stage = new StackPane(skin, editSkin);
         stage.getStyleClass().add("vr-stage");
         stage.setMinSize(150, 214);
         stage.setPrefSize(150, 214);
@@ -358,11 +374,7 @@ public final class SaoHelmetPage extends StackPane {
         HBox bodyRow = new HBox(16, stage, fields);
 
         kind.selectedToggleProperty().addListener((o, a, b) -> refreshAccount());
-        arms.selectedToggleProperty().addListener((o, a, b) -> {
-            if (b == null) return;
-            if (service.skin() != null) service.setSkin(service.skin(), b == slim);
-            skin.show(service.skin(), b == slim);
-        });
+        service.oathAccount().addListener((o, a, b) -> refreshAccount());
         Accounts.getAccounts().addListener((ListChangeListener<Account>) c -> refreshAccount());
         preselect();
         return new SaoFloatWindow("", 430, 300, null).add(head, bodyRow).home(640, 160, 0, 0, 0);
@@ -429,7 +441,7 @@ public final class SaoHelmetPage extends StackPane {
             dockButtons[i] = b;
             col.getChildren().add(cell);
         }
-        SaoFloatWindow w = new SaoFloatWindow("", 52, 9 * 36 + 8 * 6 + 16, null).add(col);
+        SaoFloatWindow w = new SaoFloatWindow("", 52, SaoApps.APPS.length * 36 + (SaoApps.APPS.length - 1) * 6 + 16, null).add(col);
         w.body.setPadding(new Insets(8));
         w.body.getStyleClass().add("vr-dock");
         return w.home(60, 168, -40, -18, 0);
@@ -457,7 +469,7 @@ public final class SaoHelmetPage extends StackPane {
     // ------------------------------------------------------------------ apps
 
     /// Opens an app's window in front; the home windows move back and dim.
-    private void openApp(SaoApps.App a, Button b) {
+    private void openApp(SaoApps.App a, @Nullable Button b) {
         if (app != null) {
             SaoFloatWindow old = app;
             old.moveBack(380, 0, 200);
@@ -472,9 +484,20 @@ public final class SaoHelmetPage extends StackPane {
         w.flyIn(320);
         app = w;
         appButton = b;
-        b.getStyleClass().add("vr-dock-on");
+        if (b != null) b.getStyleClass().add("vr-dock-on");
         for (SaoFloatWindow home : new SaoFloatWindow[]{news, server, player, link}) home.moveBack(300, 0.22, 320);
         requestFocus();
+    }
+
+    /// Opens the 誓约账号 window on a page.
+    private void openAccount(SaoAccountApp.Page page) {
+        openApp(new SaoApps.App(SVG.PERSON, "誓约账号", (s, c) -> SaoAccountApp.make(s, c, page)), null);
+    }
+
+    /// Opens the skin page, as its dock button does.
+    private void openSkin() {
+        for (int i = 0; i < SaoApps.APPS.length; i++)
+            if (SaoApps.APPS[i].label().equals("皮肤")) openApp(SaoApps.APPS[i], dockButtons[i]);
     }
 
     /// Closes the app in front; the home windows come forward again.
@@ -489,6 +512,8 @@ public final class SaoHelmetPage extends StackPane {
         p.setOnFinished(e -> windows.getChildren().remove(w));
         p.play();
         for (SaoFloatWindow home : new SaoFloatWindow[]{news, server, player, link}) home.moveBack(0, 1, 320);
+        // A skin put on or an account changed in the app shows on the player at once.
+        refreshAccount();
     }
 
     // ------------------------------------------------------------------ frame
@@ -650,30 +675,36 @@ public final class SaoHelmetPage extends StackPane {
 
     /// Starts on the account the launcher used last.
     private void preselect() {
-        @Nullable Account sel = Accounts.getSelectedAccount();
-        if (sel instanceof MicrosoftAccount) {
-            kind.selectToggle(microsoft);
-        } else {
-            kind.selectToggle(offline);
-            if (sel instanceof OfflineAccount) name.setText(sel.getProfileName());
-        }
-        arms.selectToggle(service.skinSlim() ? slim : classic);
-        skin.show(service.skin(), service.skinSlim());
+        kind.selectToggle(Accounts.getSelectedAccount() instanceof MicrosoftAccount ? microsoft : oath);
         refreshAccount();
     }
 
-    /// Shows the account field that fits the kind.
+    /// Shows the account part that fits: signed out, signed in, or Microsoft; and the skin worn now.
     private void refreshAccount() {
         boolean ms = kind.getSelectedToggle() == microsoft;
+        SaoData.@Nullable OathAccount a = service.oathAccount().get();
+        signedOut.setVisible(!ms && a == null);
+        signedIn.setVisible(!ms && a != null);
+        msBox.setVisible(ms);
         @Nullable MicrosoftAccount m = microsoftAccount();
-        name.setVisible(!ms);
-        msName.setVisible(ms && m != null);
-        msSignIn.setVisible(ms && m == null);
+        msName.setVisible(m != null);
+        msSignIn.setVisible(m == null);
         if (m != null) msName.setText(m.getProfileName());
+        if (a != null) {
+            Text n = sao(a.name(), 22, true);
+            Button skinB = SaoUiKit.button("皮肤");
+            skinB.setOnAction(e -> openSkin());
+            Button manage = SaoUiKit.button("账号");
+            manage.setOnAction(e -> openAccount(SaoAccountApp.Page.MANAGE));
+            Button out = SaoUiKit.button("退出");
+            out.setOnAction(e -> service.oathLogout());
+            signedIn.getChildren().setAll(key("誓约账号"), n,
+                    SaoAccountApp.mailRow(a, () -> openAccount(SaoAccountApp.Page.VERIFY)),
+                    new HBox(6, skinB, manage, out));
+        }
         problem.setText("");
-        boolean hasSkin = service.skin() != null;
-        classic.setDisable(!hasSkin);
-        slim.setDisable(!hasSkin);
+        @Nullable Path worn = service.oathSkin() != null ? service.oathSkin() : service.skin();
+        skin.show(worn, service.skinSlim());
     }
 
     /// The Microsoft account to use.
@@ -706,30 +737,68 @@ public final class SaoHelmetPage extends StackPane {
         start.setDisable(s == SaoPackState.CHECKING || s == SaoPackState.WORKING || s == SaoPackState.RUNNING);
     }
 
-    /// Link Start: the account, then the display powers down and the game starts at once.
+    /// Link Start: the account, then the display powers down and the game starts at once. Signed out, it logs in to
+    /// the 誓约 account first, so a returning player presses once.
     private void linkStart() {
-        @Nullable Account account;
         if (kind.getSelectedToggle() == microsoft) {
-            account = microsoftAccount();
-            if (account == null) {
+            @Nullable MicrosoftAccount m = microsoftAccount();
+            if (m == null) {
                 problem.setText("! 请先登录 Microsoft");
                 return;
             }
-        } else {
-            String n = name.getText().strip();
-            if (!NAME.matcher(n).matches()) {
-                problem.setText("! 名称 3-16 位：字母、数字、下划线");
+            problem.setText("");
+            Accounts.setSelectedAccount(m);
+            begin(() -> service.linkStart(m, null));
+            return;
+        }
+        SaoData.@Nullable OathAccount a = service.oathAccount().get();
+        if (a != null) {
+            joinAs(a);
+            return;
+        }
+        String n = name.getText().strip();
+        if (!SaoAccountApp.NAME.matcher(n).matches()) {
+            problem.setText("! 角色名 3-16 位：字母、数字、下划线");
+            return;
+        }
+        @Nullable String remembered = service.rememberedOathName();
+        char @Nullable [] p = pw.getText().isEmpty() && n.equals(remembered) ? null : pw.getText().toCharArray();
+        if (p != null && p.length == 0) {
+            problem.setText("! 请输入密码");
+            return;
+        }
+        pw.clear();
+        start.setDisable(true);
+        problem.setText("");
+        status.setText("正在登录");
+        service.oathLogin(n, p, remember.isSelected()).whenComplete((ok, err) -> Platform.runLater(() -> {
+            if (p != null) java.util.Arrays.fill(p, '\0');
+            refreshState();
+            if (err != null) {
+                problem.setText("! " + SaoSkinApp.message(err));
                 return;
             }
-            account = offlineAccount(n);
+            SaoData.@Nullable OathAccount b = service.oathAccount().get();
+            if (b != null) joinAs(b);
+        }));
+    }
+
+    /// Starts with the signed-in 誓约 account, unless its mailbox check ran out.
+    private void joinAs(SaoData.OathAccount a) {
+        if (a.locked()) {
+            problem.setText("! 邮箱验证已过期，验证后才能进游戏");
+            openAccount(SaoAccountApp.Page.VERIFY);
+            return;
         }
         problem.setText("");
-        Accounts.setSelectedAccount(account);
+        begin(service::linkStartOath);
+    }
+
+    /// Starts the game: at once when ready (the display powers down), or after the first install or an update, which
+    /// keeps the display on with the progress until the engine reports the game running.
+    private void begin(Runnable launch) {
         boolean ready = service.state().get() == SaoPackState.READY;
-        // The password is the game's: it asks for it (or sets it, the first time) on joining.
-        service.linkStart(account, null);
-        // Normal start: the game starts while the display powers down. A first install or an update keeps the
-        // display on with the progress until the engine reports the game running.
+        launch.run();
         if (ready) powerDown();
         else service.state().addListener(new javafx.beans.value.ChangeListener<>() {
             @Override
@@ -744,31 +813,6 @@ public final class SaoHelmetPage extends StackPane {
         });
     }
 
-    /// The offline account with this name, created when new.
-    private static Account offlineAccount(String n) {
-        for (Account a : Accounts.getAccounts())
-            if (a instanceof OfflineAccount o && o.getProfileName().equals(n)) return o;
-        OfflineAccount a = Accounts.FACTORY_OFFLINE.create(n, OfflineAccountFactory.getUUIDFromUserName(n));
-        Accounts.getAccounts().add(a);
-        return a;
-    }
-
-    /// Picks a skin file.
-    private void pickSkin() {
-        FileChooser chooser = new FileChooser();
-        chooser.setTitle("选择皮肤 (64×64 PNG)");
-        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("PNG", "*.png"));
-        @Nullable File f = chooser.showOpenDialog(Controllers.getStage());
-        if (f == null) return;
-        try {
-            service.setSkin(f.toPath(), arms.getSelectedToggle() == slim);
-            skin.show(service.skin(), service.skinSlim());
-            refreshAccount();
-        } catch (IllegalArgumentException ex) {
-            problem.setText("! 皮肤需为 64×64 PNG");
-        }
-    }
-
     /// Lets the window be dragged by the empty glass.
     private void hookWindow() {
         try {
@@ -781,6 +825,11 @@ public final class SaoHelmetPage extends StackPane {
     }
 
     // ------------------------------------------------------------------ tools
+
+    /// Opens the 誓约账号 window on a page (screenshot tools).
+    void forceAccount(SaoAccountApp.Page page) {
+        openAccount(page);
+    }
 
     /// Presses the first danger button in view, for example settings' 一键卸载 (screenshot tools).
     void forceDanger() {
@@ -810,6 +859,8 @@ public final class SaoHelmetPage extends StackPane {
         if (i < 0) {
             if (app != null) windows.getChildren().remove(app);
             app = null;
+            if (appButton != null) appButton.getStyleClass().remove("vr-dock-on");
+            appButton = null;
             for (SaoFloatWindow home : new SaoFloatWindow[]{news, server, player, link}) {
                 home.recede.set(0);
                 home.setOpacity(1);

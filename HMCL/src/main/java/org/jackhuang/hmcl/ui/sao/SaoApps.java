@@ -84,6 +84,7 @@ final class SaoApps {
     /// The dock's apps, top to bottom.
     static final App[] APPS = {
             new App(SVG.SETTINGS, "设置", SaoApps::settings),
+            new App(SVG.CHECKROOM, "皮肤", SaoSkinApp::make),
             new App(SVG.LANDSCAPE, "世界", SaoApps::worlds),
             new App(SVG.HOST, "联机", SaoApps::multiplayer),
             new App(SVG.WB_SUNNY, "光影", SaoApps::packs),
@@ -285,12 +286,20 @@ final class SaoApps {
     /// The uninstall question, in place of the settings: what goes, keep the saves, cancel or uninstall.
     private static VBox uninstallConfirm(SaoLauncherService s) {
         boolean windows = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("win");
-        long bytes = s.installedBytes();
         Text title = ink("卸载刀剑神域·誓约", 20);
         title.setFont(ui(20, true));
-        Text what = ink("游戏、模组、Java、账号和启动器本身" + (bytes > 0 ? "（约 " + size(bytes) + "）" : "")
-                + "都会移到" + (windows ? "回收站" : "废纸篓") + "，启动器随后退出。", 14);
+        Text what = ink("", 14);
         what.setWrappingWidth(560);
+        // The engine measures the size in the background (-1 until known), so read it again while the question shows.
+        Runnable sizeText = () -> {
+            long bytes = s.installedBytes();
+            what.setText("游戏、模组、Java、账号和启动器本身" + (bytes > 0 ? "（约 " + size(bytes) + "）" : "")
+                    + "都会移到" + (windows ? "回收站" : "废纸篓") + "，启动器随后退出。");
+        };
+        sizeText.run();
+        javafx.animation.Timeline poll = new javafx.animation.Timeline(
+                new javafx.animation.KeyFrame(javafx.util.Duration.millis(500), e -> sizeText.run()));
+        poll.setCycleCount(javafx.animation.Animation.INDEFINITE);
         ToggleButton keep = toggle(true);
         Text where = dim("复制到桌面「" + s.keptSavesFolder().getFileName() + "」", 12);
         where.visibleProperty().bind(keep.selectedProperty());
@@ -299,19 +308,44 @@ final class SaoApps {
         Button cancel = button("取消");
         Button go = button("卸载");
         go.getStyleClass().add("vr-danger");
-        boolean busy = s.state().get() == org.jackhuang.hmcl.sao.SaoPackState.RUNNING;
-        go.setDisable(busy);
         Text running = dim("游戏运行中，先退出游戏", 12);
-        running.setVisible(busy);
+        Runnable busyCheck = () -> {
+            boolean busy = s.state().get() == org.jackhuang.hmcl.sao.SaoPackState.RUNNING;
+            go.setDisable(busy);
+            running.setText("游戏运行中，先退出游戏");
+            running.setVisible(busy);
+        };
+        busyCheck.run();
         VBox box = new VBox(14, title, what, keepRow, where, grow(), running, new HBox(10, cancel, go));
         box.setAlignment(Pos.TOP_LEFT);
         box.setPadding(new Insets(6, 4, 4, 4));
+        boolean[] working = {false};
+        box.visibleProperty().addListener((o, a, shown) -> {
+            if (shown) {
+                sizeText.run();
+                busyCheck.run();
+                poll.play();
+            } else {
+                poll.stop();
+            }
+        });
         cancel.setOnAction(e -> ((Runnable) box.getUserData()).run());
         go.setOnAction(e -> {
+            working[0] = true;
             go.setDisable(true);
             cancel.setDisable(true);
             go.setText("正在卸载…");
             s.uninstall(keep.isSelected());
+        });
+        // A refusal or a failure comes back as the engine's error: show it and give the buttons back.
+        s.lastError().addListener((o, a, err) -> {
+            if (!working[0] || err == null) return;
+            working[0] = false;
+            go.setText("卸载");
+            cancel.setDisable(false);
+            busyCheck.run();
+            running.setText(err);
+            running.setVisible(true);
         });
         return box;
     }

@@ -164,6 +164,34 @@ public final class SaoData {
     public record GameWindow(int width, int height, boolean fullscreen) {
     }
 
+    /// The 誓约 account signed in now (API `GET /sao/account` and the login reply).
+    ///
+    /// @param name          the character name, exact spelling
+    /// @param profileId     the character's UUID without hyphens
+    /// @param maskedEmail   the recovery mailbox masked for display (for example "ja***@163.com"), empty when none
+    /// @param emailVerified whether that mailbox is verified
+    /// @param locked        `lockedVerify`: the two-day grace ran out; the account can be managed but cannot join
+    /// @param graceSeconds  seconds left to verify while unverified and not locked, else 0
+    /// @param premiumName   the linked 正版 (Microsoft) name after 正版验证, or null when none is linked
+    @NotNullByDefault
+    public record OathAccount(String name, String profileId, String maskedEmail, boolean emailVerified, boolean locked,
+                              long graceSeconds, @Nullable String premiumName) {
+        /// Whether the account may join the game now.
+        public boolean canJoin() {
+            return !locked;
+        }
+    }
+
+    /// A skin kept in the launcher's own library (the skin page), not on the server.
+    ///
+    /// @param name  the name the player gave it
+    /// @param file  the 64×64 PNG in the launcher's data folder
+    /// @param slim  Slim (Alex) arms
+    /// @param saved when it was saved, epoch milliseconds
+    @NotNullByDefault
+    public record SavedSkin(String name, Path file, boolean slim, long saved) {
+    }
+
     /// A folder the screen can open in the file manager.
     @NotNullByDefault
     public enum Folder {

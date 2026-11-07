@@ -67,7 +67,7 @@ public final class SaoScreenShotTool {
             Thread.sleep(2500);
             String p = w + "x" + h + "-";
             if (big) {
-                String[] apps = {"settings", "worlds", "multiplayer", "packs", "screenshots", "logs", "java", "downloads", "about"};
+                String[] apps = {"settings", "skin", "worlds", "multiplayer", "packs", "screenshots", "logs", "java", "downloads", "about"};
                 shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "00-home.png"));
                 for (int i = 0; i < apps.length; i++) {
                     shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, i, out.resolve(p + String.format("%02d-%s.png", i + 1, apps[i])));
@@ -78,6 +78,21 @@ public final class SaoScreenShotTool {
                 WritableImage[] img = new WritableImage[1];
                 fx(() -> img[0] = scene[0].snapshot(null));
                 write(img[0], out.resolve(p + "20-settings-uninstall.png"));
+                // 誓约账号: signed in (verified, then waiting for the code), and each page of its window.
+                fx(() -> fake.forceOath(true));
+                shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "21-home-signed-in.png"));
+                fx(() -> fake.forceOath(false));
+                shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "22-home-verify-pending.png"));
+                SaoAccountApp.Page[] pages = {SaoAccountApp.Page.REGISTER, SaoAccountApp.Page.VERIFY, SaoAccountApp.Page.FORGOT, SaoAccountApp.Page.MANAGE};
+                for (int i = 0; i < pages.length; i++) {
+                    SaoAccountApp.Page pg = pages[i];
+                    shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "tmp.png"));
+                    fx(() -> page[0].forceAccount(pg));
+                    Thread.sleep(1200);
+                    fx(() -> img[0] = scene[0].snapshot(null));
+                    write(img[0], out.resolve(p + String.format("%02d-account-%s.png", 23 + i, pg.name().toLowerCase(java.util.Locale.ROOT))));
+                }
+                Files.deleteIfExists(out.resolve(p + "tmp.png"));
             } else {
                 shot(scene[0], page[0], fake, SaoPackState.WORKING, 0.42, "安装 NeoForge", 0, 0, -1, out.resolve(p + "01-home-installing.png"));
                 shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, 0, out.resolve(p + "10-app-settings.png"));

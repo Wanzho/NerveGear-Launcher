@@ -31,6 +31,8 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import org.jackhuang.hmcl.sao.SaoAccountException;
 
 /// A stand-in engine for screen work before the real one is installed: Link Start plays a pretend install
 /// and launch, nothing touches the disk or the network.
@@ -318,4 +320,144 @@ public final class SaoFakeService implements SaoLauncherService {
     @Override public void setJvmArgs(String a) { jvm = a; }
     @Override public String preference(String key, String fallback) { return prefs.getOrDefault(key, fallback); }
     @Override public void setPreference(String key, String value) { prefs.put(key, value); }
+
+    // ------------------------------------------------------------------ 誓约账号 (pretend)
+
+    /// The pretend account.
+    final SimpleObjectProperty<SaoData.@Nullable OathAccount> oath = new SimpleObjectProperty<>();
+    /// The pretend remembered name.
+    @Nullable String remembered = "Kirito_07";
+    /// The pretend library.
+    final ObservableList<SaoData.SavedSkin> library = FXCollections.observableArrayList();
+
+    /// Signs the pretend account in, verified or waiting for its code (screenshots).
+    ///
+    /// @param verified whether the mailbox is verified
+    void forceOath(boolean verified) {
+        oath.set(new SaoData.OathAccount("Kirito_07", "0f3b6a1c2d4e4f50a1b2c3d4e5f60718", "ja***@163.com", verified,
+                false, verified ? 0 : 47 * 3600 + 12 * 60, null));
+    }
+
+    @Override
+    public ReadOnlyObjectProperty<SaoData.@Nullable OathAccount> oathAccount() {
+        return oath;
+    }
+
+    @Override
+    public @Nullable String rememberedOathName() {
+        return remembered;
+    }
+
+    @Override
+    public CompletableFuture<Void> oathLogin(String name, char @Nullable [] password, boolean remember) {
+        if (password != null && password.length == 0) return fail("请输入密码");
+        remembered = remember ? name : null;
+        oath.set(new SaoData.OathAccount(name, "0f3b6a1c2d4e4f50a1b2c3d4e5f60718", "ja***@163.com", true, false, 0, null));
+        return CompletableFuture.completedFuture(null);
+    }
+
+    @Override
+    public CompletableFuture<Void> oathRegister(String name, String email, char[] password) {
+        oath.set(new SaoData.OathAccount(name, "0f3b6a1c2d4e4f50a1b2c3d4e5f60718", mask(email), false, false,
+                48 * 3600, null));
+        return CompletableFuture.completedFuture(null);
+    }
+
+    @Override
+    public CompletableFuture<Void> oathVerify(String code) {
+        if (!code.equals("123456")) return fail("验证码不对或已过期");
+        SaoData.@Nullable OathAccount a = oath.get();
+        if (a != null) oath.set(new SaoData.OathAccount(a.name(), a.profileId(), a.maskedEmail(), true, false, 0, a.premiumName()));
+        return CompletableFuture.completedFuture(null);
+    }
+
+    @Override
+    public CompletableFuture<Void> oathResend() {
+        return CompletableFuture.completedFuture(null);
+    }
+
+    @Override
+    public CompletableFuture<Void> oathForgot(String name) {
+        return CompletableFuture.completedFuture(null);
+    }
+
+    @Override
+    public CompletableFuture<Void> oathReset(String name, String code, char[] password) {
+        return code.equals("123456") ? CompletableFuture.completedFuture(null) : fail("验证码不对或已过期");
+    }
+
+    @Override
+    public CompletableFuture<Void> oathChangeEmail(String email) {
+        SaoData.@Nullable OathAccount a = oath.get();
+        if (a != null) oath.set(new SaoData.OathAccount(a.name(), a.profileId(), mask(email), false, false, 48 * 3600, a.premiumName()));
+        return CompletableFuture.completedFuture(null);
+    }
+
+    @Override
+    public CompletableFuture<Void> oathChangePassword(char[] password, char[] newPassword) {
+        return CompletableFuture.completedFuture(null);
+    }
+
+    @Override
+    public CompletableFuture<Void> oathLinkPremium() {
+        SaoData.@Nullable OathAccount a = oath.get();
+        if (a != null) oath.set(new SaoData.OathAccount(a.name(), a.profileId(), a.maskedEmail(), a.emailVerified(), a.locked(), a.graceSeconds(), "Kirito"));
+        return CompletableFuture.completedFuture(null);
+    }
+
+    @Override
+    public void oathLogout() {
+        oath.set(null);
+    }
+
+    @Override
+    public void linkStartOath() {
+        linkStart(null, null);
+    }
+
+    @Override
+    public @Nullable Path oathSkin() {
+        return skin;
+    }
+
+    @Override
+    public CompletableFuture<Void> uploadSkin(@Nullable Path png, boolean slim) {
+        setSkin(png, slim);
+        return CompletableFuture.completedFuture(null);
+    }
+
+    @Override
+    public ObservableList<SaoData.SavedSkin> savedSkins() {
+        return library;
+    }
+
+    @Override
+    public SaoData.SavedSkin saveSkin(String name, byte[] png, boolean slim) {
+        try {
+            Path f = Files.createTempFile("sao-fake-skin-", ".png");
+            Files.write(f, png);
+            f.toFile().deleteOnExit();
+            SaoData.SavedSkin k = new SaoData.SavedSkin(name, f, slim, System.currentTimeMillis());
+            library.add(0, k);
+            return k;
+        } catch (java.io.IOException e) {
+            throw new IllegalArgumentException(e);
+        }
+    }
+
+    @Override
+    public void deleteSavedSkin(SaoData.SavedSkin skin) {
+        library.remove(skin);
+    }
+
+    /// A failed pretend call.
+    private static CompletableFuture<Void> fail(String message) {
+        return CompletableFuture.failedFuture(new SaoAccountException(message));
+    }
+
+    /// Masks a mailbox the way the server does.
+    private static String mask(String email) {
+        int at = email.indexOf('@');
+        return at < 2 ? email : email.substring(0, 2) + "***" + email.substring(at);
+    }
 }

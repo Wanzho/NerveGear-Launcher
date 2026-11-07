@@ -295,3 +295,10 @@
 /* One-click uninstall (7 Nov): the only red in the launcher. */
 .vr-danger, .theme-sao .vr-danger { -fx-background-color: #ffffff; -fx-border-color: #e0605a; -fx-text-fill: #d2443d; }
 .vr-danger:hover, .theme-sao .vr-danger:hover { -fx-background-color: #e0605a; -fx-border-color: #e0605a; -fx-text-fill: #ffffff; }
+
+/* Skin page (7 Nov): colour swatches and the brush colour. */
+.vr-swatch { -fx-background-radius: 4; -fx-border-color: rgba(0,0,0,0.25); -fx-border-radius: 4; -fx-cursor: hand; }
+.vr-swatch:hover { -fx-border-color: #f39c12; -fx-border-width: 2; }
+.vr-chip-small { -fx-padding: 2 6 2 6; -fx-font-size: 10px; }
+.vr-chip-tight { -fx-padding: 4 8 4 8; }
+.vr-button-tight { -fx-padding: 4 10 4 10; }

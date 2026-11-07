@@ -17,6 +17,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 /// The seam between the SAO screen (frontend, Claude) and the pack engine (backend, Codex).
 ///
@@ -314,6 +315,127 @@ public interface SaoLauncherService {
     /// @return the folder, on the desktop
     default Path keptSavesFolder() {
         return Path.of(System.getProperty("user.home"), "Desktop", "刀剑神域·誓约 存档");
+    }
+
+    // ---------------------------------------------------------------- 誓约账号 (7 Nov, Claude's screens)
+    //
+    // James, 7 Nov: "这样，你做个账号系统行不", and on refusing others: "if system recognizes that the player cannot
+    // provide correct credentials from launcher, it refuses it". The account server is sao_auth 1.4.0's Yggdrasil API
+    // (~/Developer/sao-launcher-runs/accountsrv1/API-CONTRACT.md). Every call below returns at once; its future
+    // completes on the JavaFX thread, or fails with a [SaoAccountException] whose message is ready to show in the
+    // launcher's language. Passwords are char arrays the engine wipes after use; never logged, never in arguments.
+
+    /// The 誓约 account signed in now, or null when signed out.
+    default ReadOnlyObjectProperty<SaoData.@Nullable OathAccount> oathAccount() {
+        return new SimpleObjectProperty<>(null);
+    }
+
+    /// The name saved with 记住我, whose password the launcher keeps protected, or null. The screen shows the name
+    /// and stars; logging in still takes one press (sao_auth decision, 5 Nov).
+    default @Nullable String rememberedOathName() {
+        return null;
+    }
+
+    /// Logs in (`POST /sao/login`), then keeps the session for Link Start.
+    ///
+    /// @param name     the character name
+    /// @param password the password, or null to use the remembered one for [#rememberedOathName]
+    /// @param remember keep the name and password for next time (false forgets a remembered one)
+    default CompletableFuture<Void> oathLogin(String name, char @Nullable [] password, boolean remember) {
+        return unsupported();
+    }
+
+    /// Registers a new account (`POST /sao/register`) and logs it in; a six-digit code goes to the mailbox.
+    ///
+    /// @param name     the character name, 3-16 letters, digits or underscores
+    /// @param email    the recovery mailbox
+    /// @param password the password
+    default CompletableFuture<Void> oathRegister(String name, String email, char[] password) {
+        return unsupported();
+    }
+
+    /// Verifies the mailbox of the signed-in account with the six-digit code (`POST /sao/verify`).
+    default CompletableFuture<Void> oathVerify(String code) {
+        return unsupported();
+    }
+
+    /// Sends the code again (`POST /sao/resend`).
+    default CompletableFuture<Void> oathResend() {
+        return unsupported();
+    }
+
+    /// Asks for a password reset code for a name (`POST /sao/forgot`); always reports sent.
+    default CompletableFuture<Void> oathForgot(String name) {
+        return unsupported();
+    }
+
+    /// Resets the password with the mailed code (`POST /sao/reset`); the character keeps its ID and progress.
+    default CompletableFuture<Void> oathReset(String name, String code, char[] password) {
+        return unsupported();
+    }
+
+    /// Changes the signed-in account's mailbox (`POST /sao/email`); a code goes to the new one.
+    default CompletableFuture<Void> oathChangeEmail(String email) {
+        return unsupported();
+    }
+
+    /// Changes the signed-in account's password (`POST /sao/password`).
+    default CompletableFuture<Void> oathChangePassword(char[] password, char[] newPassword) {
+        return unsupported();
+    }
+
+    /// 正版验证: proves the signed-in Microsoft account in the launcher and links it to the signed-in 誓约 account
+    /// (`/sao/premium/challenge`, Mojang join, `/sao/premium/complete`, `/sao/premium/link`).
+    default CompletableFuture<Void> oathLinkPremium() {
+        return unsupported();
+    }
+
+    /// Signs out and revokes the session (`/authserver/invalidate`); keeps a remembered name and password.
+    default void oathLogout() {
+    }
+
+    /// Link Start with the signed-in 誓约 account (authlib-injector pointed at the account server). Ignored when
+    /// signed out or [SaoData.OathAccount#locked].
+    default void linkStartOath() {
+    }
+
+    /// The skin and arms the signed-in account wears on the server now (downloaded from its profile), or null for
+    /// the default.
+    default @Nullable Path oathSkin() {
+        return null;
+    }
+
+    /// Puts a skin on the signed-in account (`PUT /api/user/profile/{uuid}/skin`), so every player sees it.
+    ///
+    /// @param png  a 64×64 PNG, or null to go back to the default (`DELETE`)
+    /// @param slim Slim (Alex) arms
+    default CompletableFuture<Void> uploadSkin(@Nullable Path png, boolean slim) {
+        return unsupported();
+    }
+
+    /// The skins kept in the launcher's library, newest first.
+    default ObservableList<SaoData.SavedSkin> savedSkins() {
+        return FXCollections.observableArrayList();
+    }
+
+    /// Keeps a skin in the library.
+    ///
+    /// @param name the name the player gave it
+    /// @param png  the 64×64 PNG bytes
+    /// @param slim Slim arms
+    /// @return the kept skin
+    /// @throws IllegalArgumentException when the bytes are not a 64×64 PNG
+    default SaoData.SavedSkin saveSkin(String name, byte[] png, boolean slim) {
+        throw new IllegalArgumentException("unsupported");
+    }
+
+    /// Removes a skin from the library.
+    default void deleteSavedSkin(SaoData.SavedSkin skin) {
+    }
+
+    /// A failed future for engines that do not have accounts yet.
+    private static CompletableFuture<Void> unsupported() {
+        return CompletableFuture.failedFuture(new SaoAccountException("账号服务暂不可用"));
     }
 
     /// The service the running launcher uses.
