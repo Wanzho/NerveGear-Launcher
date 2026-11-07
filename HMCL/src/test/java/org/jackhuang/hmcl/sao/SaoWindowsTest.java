@@ -128,6 +128,22 @@ class SaoWindowsTest {
         assertThrows(IllegalArgumentException.class, () -> new SaoPackManifest("0.8", "1.20.1", "47.1.106", "", "http://example.invalid/news.json", archive.manifest().files(), List.of()));
     }
 
+    /// Public node metadata survives JSON round trips and absent fields preserve the seam defaults.
+    @Test void argusServerAddressesUseManifestAndDefaults() throws Exception {
+        SaoPackArchive archive = release(Map.of("config/fixture.txt", "x"), Map.of());
+        SaoPackManifest manifest = new SaoPackManifest("0.8", "1.20.1", "47.1.106", "local.example:25567", "", "",
+                List.of("one.example", "two.example:25568"), archive.manifest().files(), List.of());
+        SaoPackManifest read = SaoPackManifest.read(new StringReader(manifest.toJson()));
+        assertEquals(manifest.serverNodes(), read.serverNodes());
+        assertThrows(UnsupportedOperationException.class, () -> read.serverNodes().add("three.example"));
+        assertThrows(IllegalArgumentException.class, () -> new SaoPackManifest("0.8", "1.20.1", "47.1.106", "", "", "",
+                List.of("https://bad.example/path"), archive.manifest().files(), List.of()));
+        try (SaoPackEngine empty = new SaoPackEngine(temporary.resolve("empty-addresses"), null, false)) {
+            assertEquals("mc.saooath.com", empty.serverAddress());
+            assertEquals(List.of("zz.saooath.com", "tz.saooath.com", "sq.saooath.com"), empty.serverNodes());
+        }
+    }
+
     /// The response subscriber cancels oversized bodies before retaining their bytes.
     @Test void oversizedNewsCancelsAtTheBound() {
         SaoOnlineData.NewsSubscriber subscriber = new SaoOnlineData.NewsSubscriber();

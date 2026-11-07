@@ -32,7 +32,8 @@ final class SaoGameLogs {
         String lower = text.toLowerCase(Locale.ROOT);
         if (lower.contains("sao-auth") || lower.contains("sao_auth") || lower.contains("password")
                 || lower.contains("accesstoken") || lower.contains("access_token") || lower.contains("refresh_token")
-                || lower.contains("authorization:") || lower.contains("clienttoken")) return "[authentication data omitted]";
+                || lower.contains("authorization:") || lower.contains("clienttoken") || lower.contains("launchticket")
+                || lower.contains("launch_ticket") || lower.contains("\"ticket\"") || lower.contains(".sao-launch-ticket")) return "[authentication data omitted]";
         String home = System.getProperty("user.home", "");
         return home.isEmpty() ? text : text.replace(home, "~");
     }

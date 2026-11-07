@@ -21,6 +21,9 @@ import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
+import java.net.URI;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Supplier;
 import java.nio.file.*;
 import java.util.*;
 import java.util.concurrent.ExecutorService;
@@ -48,6 +51,8 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     });
     /// Prevents concurrent requests, including before JavaFX has published WORKING.
     private final AtomicBoolean busy = new AtomicBoolean(true);
+    /// Auto-login waits for accepted/embedded manifest selection before choosing its account API.
+    private final CompletableFuture<Void> packReady = new CompletableFuture<>();
     /// Stops pending work and prevents a late launch after the launcher exits.
     private final AtomicBoolean closed = new AtomicBoolean(false);
     /// Rejects new mutations and settings writes from the moment an uninstall request is accepted.
@@ -78,6 +83,8 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     private final SaoGameBridge game;
     /// Transactional, inventory-driven pack file installer.
     private final SaoPackInstaller installer;
+    /// Production account controller owns protected remembered credentials, ephemeral sessions and profile skins.
+    private final SaoOathAccounts oath;
     /// Skin picker storage inside the fixed game instance.
     private final SaoSkinStore skins;
     /// Active release source: embedded pack, explicit development pack, or last accepted drop.
@@ -188,10 +195,38 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
         this(dataRoot, null, false, false, uninstaller, helper, shutdown, quit);
     }
 
-    /// Centralizes production and explicitly isolated fixture initialization without opening any window.
+    /// Isolates account contracts under a fixture root with explicit API, protected-store and Microsoft/Mojang seams.
+    SaoPackEngine(Path dataRoot, Supplier<URI> endpoint, SaoOathCredentials credentials,
+                  SaoOathAccounts.PremiumProof premium, URI mojangJoin) {
+        this(dataRoot, null, false, false, null, SaoUninstallHelper::prepare, () -> { }, () -> { },
+                new AccountHooks(endpoint, credentials, premium, mojangJoin));
+    }
+
+    /// Combines inert uninstall system hooks with an explicit protected store for full cleanup contracts.
+    SaoPackEngine(Path dataRoot, SaoUninstaller plan, SaoUninstallHelper.Factory helper,
+                  Runnable shutdown, Runnable quit, SaoOathCredentials credentials) {
+        this(dataRoot, null, false, false, plan, helper, shutdown, quit,
+                new AccountHooks(() -> URI.create("http://127.0.0.1:1/"), credentials,
+                        () -> { throw new SaoAccountException("请先登录正版账号"); },
+                        URI.create("http://127.0.0.1:1/session/minecraft/join")));
+    }
+
+    /// Injectable account dependencies, used only by explicit fixture construction.
+    @NotNullByDefault
+    private record AccountHooks(Supplier<URI> endpoint, SaoOathCredentials credentials,
+                                SaoOathAccounts.PremiumProof premium, URI mojangJoin) { }
+
+    /// Preserves the established installation/uninstall constructor while selecting production account dependencies.
     private SaoPackEngine(Path dataRoot, @Nullable SaoPackArchive supplied, boolean loadEmbedded,
                           boolean production, @Nullable SaoUninstaller suppliedUninstaller,
                           SaoUninstallHelper.Factory helper, Runnable shutdown, Runnable quit) {
+        this(dataRoot, supplied, loadEmbedded, production, suppliedUninstaller, helper, shutdown, quit, null);
+    }
+
+    /// Centralizes production and explicitly isolated fixture initialization without opening any window.
+    private SaoPackEngine(Path dataRoot, @Nullable SaoPackArchive supplied, boolean loadEmbedded,
+                          boolean production, @Nullable SaoUninstaller suppliedUninstaller,
+                          SaoUninstallHelper.Factory helper, Runnable shutdown, Runnable quit, @Nullable AccountHooks accountHooks) {
         root = dataRoot.toAbsolutePath().normalize();
         try { settings = new SaoSettings(root); }
         catch (IOException failure) { throw new java.io.UncheckedIOException("Cannot read launcher settings", failure); }
@@ -213,6 +248,16 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
         files = new SaoInstanceFiles(game.instanceDir(), game);
         online = new SaoOnlineData(root);
         logs = new SaoGameLogs(game.instanceDir());
+        Path accountRoot = production ? Metadata.HMCL_USER_HOME : root;
+        try {
+            SaoOathCredentials credentialStore = accountHooks == null ? new SaoOathCredentialStore(accountRoot, production) : accountHooks.credentials();
+            oath = new SaoOathAccounts(accountRoot,
+                    accountHooks == null ? this::accountEndpoint : accountHooks.endpoint(),
+                    () -> production ? org.jackhuang.hmcl.util.i18n.I18n.getLocale().getLocale().toLanguageTag() : Locale.getDefault().toLanguageTag(), credentialStore,
+                    accountHooks == null ? SaoMicrosoftLogin::session : accountHooks.premium(),
+                    accountHooks == null ? SaoAccountClient.originalMojangJoin() : accountHooks.mojangJoin(),
+                    account -> linkStart(account, null), message -> publish(() -> error.set(message)));
+        } catch (IOException failure) { throw new java.io.UncheckedIOException("Cannot initialize protected account storage", failure); }
         remoteNews = online.cached();
         installer = new SaoPackInstaller(game.instanceDir(), game::download, Map.of(), this::reportProgress);
         skins = new SaoSkinStore(game.instanceDir());
@@ -235,7 +280,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
                 publish(() -> { gameLog.setAll(logs.snapshot()); crash.set(previousCrash); });
                 refreshState();
             } catch (Exception failure) { fail("读取整合包失败", failure); }
-            finally { busy.set(false); refreshInstalledBytes(); }
+            finally { packReady.complete(null); busy.set(false); refreshInstalledBytes(); }
         });
     }
 
@@ -286,10 +331,15 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
                 publish(() -> { gameLog.clear(); crash.set(null); });
                 gameRunning.set(true);
                 game.launch(account, pack.manifest(), launchMemoryMiB(), gameWindow(), jvmArgs(), password, closed::get, new ProcessListener() {
+                    /// Starts accounting after the OS process exists and before HMCL starts its exit monitor.
+                    @Override public void setProcess(org.jackhuang.hmcl.util.platform.ManagedProcess process) {
+                        if (account instanceof SaoOathLaunchAccount launched) oath.gameStarted(launched);
+                    }
                     /// Captures sanitized output only; handoff and authentication lines are filtered first.
                     @Override public void onLog(String line, boolean stderr) { appendGameLog(line); }
                     /// Reconciles the fixed instance and analyzes this run after the real process exits.
                     @Override public void onExit(int code, ExitType type) {
+                        if (account instanceof SaoOathLaunchAccount) oath.gameExited();
                         gameRunning.set(false);
                         if (closed.get() || uninstalling.get()) return;
                         worker.execute(() -> {
@@ -316,6 +366,106 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
             }
         });
     }
+
+    /// Resolves deployment overrides before pack metadata and launcher configuration; HTTP is literal-loopback only.
+    private URI accountEndpoint() {
+        @Nullable String property = System.getProperty("sao.account.api");
+        if (property != null && !property.isBlank()) return SaoAccountClient.checkedRoot(property);
+        @Nullable String environment = System.getenv("SAO_ACCOUNT_API");
+        if (environment != null && !environment.isBlank()) return SaoAccountClient.checkedRoot(environment);
+        String configured = settings.text("accountApi", "");
+        if (!configured.isBlank()) return SaoAccountClient.checkedRoot(configured);
+        packReady.join();
+        @Nullable SaoPackArchive pack = source;
+        return SaoAccountClient.checkedRoot(pack != null && !pack.manifest().accountApi().isBlank()
+                ? pack.manifest().accountApi() : SaoAccountClient.DEFAULT_API);
+    }
+
+    /// Gives isolated package tests the same account controller used by every production seam method.
+    SaoOathAccounts accounts() { return oath; }
+
+    /// {@inheritDoc}
+    @Override public ReadOnlyObjectProperty<SaoData.@Nullable OathAccount> oathAccount() { return oath.account(); }
+    /// {@inheritDoc}
+    @Override public @Nullable String rememberedOathName() { return oath.rememberedName(); }
+    /// {@inheritDoc}
+    @Override public CompletableFuture<Void> oathLogin(String name, char @Nullable [] password, boolean remember) { return oath.login(name, password, remember); }
+    /// {@inheritDoc}
+    @Override public CompletableFuture<Void> oathRegister(String name, String email, char[] password) { return oath.register(name, email, password); }
+    /// {@inheritDoc}
+    @Override public CompletableFuture<Void> oathVerify(String code) { return oath.verify(code); }
+    /// {@inheritDoc}
+    @Override public CompletableFuture<Void> oathResend() { return oath.resend(); }
+    /// {@inheritDoc}
+    @Override public CompletableFuture<Void> oathForgot(String name) { return oath.forgot(name); }
+    /// {@inheritDoc}
+    @Override public CompletableFuture<Void> oathReset(String name, String code, char[] password) { return oath.reset(name, code, password); }
+    /// {@inheritDoc}
+    @Override public CompletableFuture<Void> oathChangeEmail(String email) { return oath.changeEmail(email); }
+    /// {@inheritDoc}
+    @Override public CompletableFuture<Void> oathChangePassword(char[] password, char[] newPassword) { return oath.changePassword(password, newPassword); }
+    /// {@inheritDoc}
+    @Override public CompletableFuture<Void> oathLinkPremium() { return oath.linkPremium(); }
+    /// {@inheritDoc}
+    @Override public CompletableFuture<Void> oathPremiumLogin() { return oath.premiumLogin(); }
+    /// {@inheritDoc}
+    @Override public CompletableFuture<Boolean> oathNameAvailable(String name) { return oath.nameAvailable(name); }
+    /// {@inheritDoc}
+    @Override public CompletableFuture<Void> oathRename(String name) { return oath.rename(name); }
+    /// Stable live friends list for the ARGUS friends screen.
+    @Override public @UnmodifiableView ObservableList<SaoData.Friend> friends(){return oath.friends.friends();}
+    /// Both incoming and outgoing friend requests from the account server.
+    @Override public @UnmodifiableView ObservableList<SaoData.FriendRequest> friendRequests(){return oath.friends.requests();}
+    /// Live conversations ordered by most recent message.
+    @Override public @UnmodifiableView ObservableList<SaoData.Chat> chats(){return oath.friends.chats();}
+    /// Stable oldest-first messages; repeated access loads older server history pages.
+    @Override public @UnmodifiableView ObservableList<SaoData.ChatMessage> messages(String id){return oath.friends.messages(id);}
+    /// Requests friendship by the current game nickname.
+    @Override public CompletableFuture<Void> addFriend(String name){return oath.friends.operation("request",SaoFriends.object("name",name)).thenApply(value->null);}
+    /// Accepts or declines only an incoming request.
+    @Override public CompletableFuture<Void> answerFriend(String name,boolean accept){var body=SaoFriends.object("name",name);body.addProperty("accept",accept);return oath.friends.operation("answer",body).thenApply(value->null);}
+    /// Ends the friendship and its direct conversation.
+    @Override public CompletableFuture<Void> removeFriend(String name){return oath.friends.operation("remove",SaoFriends.object("name",name)).thenApply(value->null);}
+    /// Blocks requests and messages from the named player.
+    @Override public CompletableFuture<Void> blockPlayer(String name){return oath.friends.operation("block",SaoFriends.object("name",name)).thenApply(value->null);}
+    /// Resolves the server's unique direct conversation for a current friend.
+    @Override public CompletableFuture<String> directChat(String name){return oath.friends.operation("direct",SaoFriends.object("name",name)).thenApply(value->value.get("id").getAsString());}
+    /// Creates an invitation-only ARGUS group from current friends.
+    @Override public CompletableFuture<String> createGroup(String title,List<String> members){var body=SaoFriends.object("title",title);var names=new com.google.gson.JsonArray();members.forEach(names::add);body.add("members",names);return oath.friends.operation("group",body).thenApply(value->value.get("id").getAsString());}
+    /// Adds the caller's friends to a group without exposing pre-invitation history.
+    @Override public CompletableFuture<Void> inviteToGroup(String id,List<String> members){var body=SaoFriends.object("chat",id);var names=new com.google.gson.JsonArray();members.forEach(names::add);body.add("members",names);return oath.friends.operation("invite",body).thenApply(value->null);}
+    /// Leaves an ARGUS group, deleting it if this was the last member.
+    @Override public CompletableFuture<Void> leaveGroup(String id){return oath.friends.operation("leave",SaoFriends.object("chat",id)).thenApply(value->null);}
+    /// Shows pending immediately and reconciles the server-assigned message ID after delivery.
+    @Override public CompletableFuture<Void> sendMessage(String id,String text){return oath.friends.send(id,text);}
+    /// Advances read status through messages actually applied to this open conversation.
+    @Override public void markRead(String id){oath.friends.markRead(id);}
+    /// Current server card merged with this account's local process history.
+    @Override public ReadOnlyObjectProperty<SaoData.@Nullable PlayerCard> playerCard() { return oath.playerCard(); }
+    /// {@inheritDoc}
+    @Override public String serverAddress() {
+        @Nullable SaoPackArchive pack = source;
+        return pack != null && !pack.manifest().server().isEmpty() ? pack.manifest().server() : SaoLauncherService.super.serverAddress();
+    }
+    /// {@inheritDoc}
+    @Override public @org.jetbrains.annotations.Unmodifiable List<String> serverNodes() {
+        @Nullable SaoPackArchive pack = source;
+        return pack != null && !pack.manifest().serverNodes().isEmpty() ? pack.manifest().serverNodes() : SaoLauncherService.super.serverNodes();
+    }
+    /// {@inheritDoc}
+    @Override public void oathLogout() { oath.logout(); }
+    /// {@inheritDoc}
+    @Override public void linkStartOath() { if (!closed.get() && !uninstalling.get()) oath.linkStart(); }
+    /// {@inheritDoc}
+    @Override public @Nullable Path oathSkin() { return oath.skin(); }
+    /// {@inheritDoc}
+    @Override public CompletableFuture<Void> uploadSkin(@Nullable Path png, boolean slim) { return oath.uploadSkin(png, slim); }
+    /// {@inheritDoc}
+    @Override public @UnmodifiableView ObservableList<SaoData.SavedSkin> savedSkins() { return oath.savedSkins(); }
+    /// {@inheritDoc}
+    @Override public SaoData.SavedSkin saveSkin(String name, byte[] png, boolean slim) { return oath.saveSkin(name, png, slim); }
+    /// {@inheritDoc}
+    @Override public void deleteSavedSkin(SaoData.SavedSkin skin) { oath.deleteSavedSkin(skin); }
 
     /// {@inheritDoc}
     @Override public void repair() {
@@ -359,7 +509,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     /// {@inheritDoc}
     @Override public @Nullable Path skin() { return skins.skin(); }
     /// {@inheritDoc}
-    @Override public boolean skinSlim() { return skins.slim(); }
+    @Override public boolean skinSlim() { return oath.skin() != null ? oath.skinSlim() : skins.slim(); }
     /// {@inheritDoc}
     @Override public int memoryMiB() { return settings.number("memoryMiB", 8192); }
     /// {@inheritDoc}
@@ -387,9 +537,13 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
             }
             boolean taskBusy;
             synchronized (taskRecords) { taskBusy = taskRecords.values().stream().anyMatch(task -> !task.done()); }
-            if (gameRunning.get() || state.get() == SaoPackState.RUNNING || taskBusy
+            if (gameRunning.get() || state.get() == SaoPackState.RUNNING || taskBusy || oath.busy()
                     || org.jackhuang.hmcl.terracotta.TerracottaManager.hasRequestedRoom() || !busy.compareAndSet(false, true)) {
                 windowFailure("卸载被拒绝", new IOException("请先退出游戏、离开联机房间并等待所有任务完成")); return;
+            }
+            if (!oath.tryFreeze()) {
+                busy.set(false);
+                windowFailure("卸载被拒绝", new IOException("请等待账号操作完成")); return;
             }
             uninstalling.set(true);
         }
@@ -406,6 +560,8 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
                 if (productionUninstall && application.isEmpty())
                     org.jackhuang.hmcl.util.logging.Logger.LOG.info("Uninstall: development/IDE or unsupported application source; self-removal skipped");
                 helper = uninstallHelper.prepare(uninstaller.roots(), application);
+                oath.uninstallCredentials();
+                oath.close();
                 // No new backend writes are accepted after this fence. Drain/cancel online work before data removal.
                 closed.set(true);
                 terminal = true;
@@ -434,7 +590,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
                 if (helper != null) helper.cancel();
                 fail(terminal ? "卸载失败，请重启启动器后重试" : "卸载失败，原始数据未删除", failure);
             } finally {
-                if (!terminal) uninstalling.set(false);
+                if (!terminal) { uninstalling.set(false); oath.unfreeze(); }
                 busy.set(false);
             }
         });
@@ -469,6 +625,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     /// {@inheritDoc}
     @Override public void refreshOnline() {
         if (closed.get() || uninstalling.get() || !onlineRefreshing.compareAndSet(false, true)) return;
+        oath.refreshCard();
         onlineWorker.execute(() -> {
             try {
                 @Nullable SaoPackArchive pack = source;
@@ -894,10 +1051,12 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     /// Stops accepting backend work; does not terminate an already running Minecraft process.
     @Override public void close() {
         closed.set(true);
+        packReady.complete(null);
         roomGeneration.incrementAndGet();
         char @Nullable [] password = activePassword;
         if (password != null) Arrays.fill(password, '\0');
         activePassword = null;
+        oath.close();
         game.close();
         org.jackhuang.hmcl.terracotta.TerracottaManager.stopRoom();
         online.close(); onlineWorker.shutdownNow(); publications.shutdownNow();
