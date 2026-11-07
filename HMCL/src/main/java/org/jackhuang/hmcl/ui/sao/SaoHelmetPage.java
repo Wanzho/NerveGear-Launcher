@@ -651,6 +651,15 @@ public final class SaoHelmetPage extends StackPane {
         return new VBox(3, row, note);
     }
 
+    /// Opens 好友 on the conversation with a friend (their name under the player's).
+    private void openFriendChat(String name) {
+        service.directChat(name).whenComplete((id, err) -> Platform.runLater(() -> {
+            if (id != null) SaoFriendsApp.openFirst = id;
+            for (int i = 0; i < SaoApps.APPS.length; i++)
+                if (SaoApps.APPS[i].label().equals("好友")) openApp(SaoApps.APPS[i], dockButtons[i]);
+        }));
+    }
+
     /// Asks before saving a new 游戏昵称.
     private void askName(String name, Runnable yes) {
         Text sure = ink("确定把昵称改成", 16);
@@ -1072,7 +1081,8 @@ public final class SaoHelmetPage extends StackPane {
                     for (String f : card.friendsOnline().subList(0, Math.min(3, card.friendsOnline().size()))) {
                         HBox chip = new HBox(5, light(true), sao(f, 12, false));
                         chip.setAlignment(Pos.CENTER_LEFT);
-                        chip.getStyleClass().add("vr-name");
+                        chip.getStyleClass().addAll("vr-name", "vr-row");
+                        chip.setOnMouseClicked(e -> openFriendChat(f));
                         friends.getChildren().add(chip);
                     }
                     if (card.friendsOnline().size() > 3) friends.getChildren().add(dim("+" + (card.friendsOnline().size() - 3), 12));

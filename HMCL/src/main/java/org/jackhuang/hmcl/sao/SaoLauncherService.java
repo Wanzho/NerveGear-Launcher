@@ -381,6 +381,85 @@ public interface SaoLauncherService {
         return new javafx.beans.property.SimpleObjectProperty<>(null);
     }
 
+    // ------------------------------------------------------------------ friends and chat
+    // James, 7 Nov: "好友，和好友聊天系统，能做吗，游戏外也可以发消息的那种", then "群聊也要，单人游戏也能收消息".
+    // Everything lives on the account server under the ARGUS ID; the launcher shows it live, and the game (on 誓约
+    // or in singleplayer) shows new messages and can answer them. Lists change on the JavaFX thread.
+
+    /// The signed-in player's friends, in the game first, then in the launcher, then offline. Empty while signed out.
+    default ObservableList<SaoData.Friend> friends() {
+        return javafx.collections.FXCollections.observableArrayList();
+    }
+
+    /// Friend requests waiting for an answer, both ways.
+    default ObservableList<SaoData.FriendRequest> friendRequests() {
+        return javafx.collections.FXCollections.observableArrayList();
+    }
+
+    /// Conversations, newest message first.
+    default ObservableList<SaoData.Chat> chats() {
+        return javafx.collections.FXCollections.observableArrayList();
+    }
+
+    /// One conversation's messages, oldest first; the newest are fetched first and older ones as the player scrolls.
+    ///
+    /// @param chatId the conversation
+    default ObservableList<SaoData.ChatMessage> messages(String chatId) {
+        return javafx.collections.FXCollections.observableArrayList();
+    }
+
+    /// Asks a player to be friends, by 游戏昵称.
+    default CompletableFuture<Void> addFriend(String name) {
+        return unsupported();
+    }
+
+    /// Accepts or declines a request.
+    default CompletableFuture<Void> answerFriend(String name, boolean accept) {
+        return unsupported();
+    }
+
+    /// Ends a friendship; the direct conversation goes with it.
+    default CompletableFuture<Void> removeFriend(String name) {
+        return unsupported();
+    }
+
+    /// Blocks a player: no requests, no messages, not shown online to them.
+    default CompletableFuture<Void> blockPlayer(String name) {
+        return unsupported();
+    }
+
+    /// The direct conversation with a friend, made the first time; completes with its ID.
+    default CompletableFuture<String> directChat(String name) {
+        return unsupported();
+    }
+
+    /// Makes a group with friends; completes with its ID.
+    ///
+    /// @param title   the group's name
+    /// @param members friends to put in it (this player is added)
+    default CompletableFuture<String> createGroup(String title, List<String> members) {
+        return unsupported();
+    }
+
+    /// Adds friends to a group.
+    default CompletableFuture<Void> inviteToGroup(String chatId, List<String> members) {
+        return unsupported();
+    }
+
+    /// Leaves a group.
+    default CompletableFuture<Void> leaveGroup(String chatId) {
+        return unsupported();
+    }
+
+    /// Sends a message; it shows at once as pending and turns delivered when the server has it.
+    default CompletableFuture<Void> sendMessage(String chatId, String text) {
+        return unsupported();
+    }
+
+    /// Marks a conversation read (it is open on screen).
+    default void markRead(String chatId) {
+    }
+
     /// The address players join, shown under 服务器 (James, 7 Nov: "服务器下面写mc.saooath.com").
     default String serverAddress() {
         return "mc.saooath.com";
@@ -481,7 +560,7 @@ public interface SaoLauncherService {
     }
 
     /// A failed future for engines that do not have accounts yet.
-    private static CompletableFuture<Void> unsupported() {
+    private static <T> CompletableFuture<T> unsupported() {
         return CompletableFuture.failedFuture(new SaoAccountException("账号服务暂不可用"));
     }
 

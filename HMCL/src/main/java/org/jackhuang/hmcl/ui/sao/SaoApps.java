@@ -84,6 +84,7 @@ final class SaoApps {
     /// The dock's apps, top to bottom.
     static final App[] APPS = {
             new App(SVG.SETTINGS, "设置", SaoApps::settings),
+            new App(SVG.CHAT, "好友", SaoFriendsApp::make),
             new App(SVG.CHECKROOM, "皮肤", SaoSkinApp::make),
             new App(SVG.LANDSCAPE, "世界", SaoApps::worlds),
             new App(SVG.HOST, "联机", SaoApps::multiplayer),

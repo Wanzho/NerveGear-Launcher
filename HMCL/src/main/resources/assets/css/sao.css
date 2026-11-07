@@ -309,3 +309,15 @@
 .vr-check:selected { -fx-background-color: #f2a43a; -fx-border-color: #f2a43a; }
 .vr-check .vr-icon, .vr-check:selected SVGPath { -fx-fill: #ffffff; }
 .vr-link-text { -fx-cursor: hand; }
+
+/* 好友 (7 Nov): list rows, faces, unread badges, message bubbles. */
+.vr-row { -fx-background-radius: 6; -fx-padding: 6 8 6 8; -fx-cursor: hand; }
+.theme-sao .vr-row:hover { -fx-background-color: rgba(255,255,255,0.7); }
+.theme-sao .vr-row-on, .theme-sao .vr-row-on:hover { -fx-background-color: #ffffff; -fx-border-color: #e2e2e2; -fx-border-radius: 6; }
+.vr-avatar { -fx-background-color: #dcdce0; -fx-background-radius: 15; }
+.vr-dot-game { -fx-background-color: #30d158; -fx-background-radius: 5; -fx-border-color: #f4f4f5; -fx-border-radius: 5; -fx-border-width: 1.5; }
+.vr-dot-launcher { -fx-background-color: #0a84ff; -fx-background-radius: 5; -fx-border-color: #f4f4f5; -fx-border-radius: 5; -fx-border-width: 1.5; }
+.vr-badge { -fx-background-color: #f2a43a; -fx-background-radius: 9; -fx-padding: 0 6 0 6; -fx-min-height: 17; }
+.vr-request { -fx-background-color: rgba(242,164,58,0.12); -fx-background-radius: 6; -fx-padding: 6 8 6 8; }
+.theme-sao .vr-bubble { -fx-background-color: #ffffff; -fx-background-radius: 12; -fx-border-color: #e2e2e2; -fx-border-radius: 12; -fx-padding: 6 11 6 11; }
+.theme-sao .vr-bubble-mine { -fx-background-color: #f2a43a; -fx-background-radius: 12; -fx-padding: 6 11 6 11; }
