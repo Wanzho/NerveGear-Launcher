@@ -137,7 +137,7 @@ public final class SaoHelmetPage extends StackPane {
 
     /// 誓约账号 or Microsoft (正版). The 誓约 account replaced offline play (James, 7 Nov: "这样，你做个账号系统行不").
     private final ToggleGroup kind = new ToggleGroup();
-    private final ToggleButton oath = chip("誓约账号", kind);
+    private final ToggleButton oath = chip("ARGUS ID", kind);
     private final ToggleButton microsoft = chip("正版", kind);
     /// Signed out: the name, the password and 记住我; Link Start logs in and starts in one press.
     private final TextField name = field("角色名");
@@ -342,13 +342,13 @@ public final class SaoHelmetPage extends StackPane {
                 SaoAccountApp.link("注册", () -> openAccount(SaoAccountApp.Page.REGISTER)),
                 SaoAccountApp.link("忘记密码", () -> openAccount(SaoAccountApp.Page.FORGOT)));
         rememberRow.setAlignment(Pos.CENTER_LEFT);
-        signedOut.getChildren().setAll(key("誓约账号"), name, pw, rememberRow);
+        signedOut.getChildren().setAll(key("ARGUS ID"), name, pw, rememberRow);
 
         msName.setEditable(false);
         msName.setFocusTraversable(false);
         msSignIn.setOnAction(e -> Controllers.dialog(new CreateAccountPane(Accounts.FACTORY_MICROSOFT)));
         msSignIn.setMaxWidth(Double.MAX_VALUE);
-        Text msWhy = dim("第一次用正版：先登录誓约账号，在「账号」里做正版验证", 11);
+        Text msWhy = dim("第一次用正版：先登录 ARGUS ID，在「账号」里做正版验证", 11);
         msWhy.setWrappingWidth(206);
         msBox.getChildren().setAll(key("Microsoft"), new StackPane(msName, msSignIn), msWhy);
 
@@ -491,7 +491,7 @@ public final class SaoHelmetPage extends StackPane {
 
     /// Opens the 誓约账号 window on a page.
     private void openAccount(SaoAccountApp.Page page) {
-        openApp(new SaoApps.App(SVG.PERSON, "誓约账号", (s, c) -> SaoAccountApp.make(s, c, page)), null);
+        openApp(new SaoApps.App(SVG.PERSON, "ARGUS ID", (s, c) -> SaoAccountApp.make(s, c, page)), null);
     }
 
     /// Opens the skin page, as its dock button does.
@@ -698,7 +698,7 @@ public final class SaoHelmetPage extends StackPane {
             manage.setOnAction(e -> openAccount(SaoAccountApp.Page.MANAGE));
             Button out = SaoUiKit.button("退出");
             out.setOnAction(e -> service.oathLogout());
-            signedIn.getChildren().setAll(key("誓约账号"), n,
+            signedIn.getChildren().setAll(key("ARGUS ID"), n,
                     SaoAccountApp.mailRow(a, () -> openAccount(SaoAccountApp.Page.VERIFY)),
                     new HBox(6, skinB, manage, out));
         }

@@ -57,7 +57,7 @@ final class SaoAccountApp {
     static SaoFloatWindow make(SaoLauncherService s, Runnable close, Page first) {
         StackPane pages = new StackPane();
         VBox.setVgrow(pages, Priority.ALWAYS);
-        SaoFloatWindow w = new SaoFloatWindow("誓约账号", SaoApps.W, SaoApps.H, close).add(pages);
+        SaoFloatWindow w = new SaoFloatWindow("ARGUS ID", SaoApps.W, SaoApps.H, close).add(pages);
         Nav nav = new Nav(s, pages, close);
         nav.go(first);
         return w;
@@ -123,7 +123,7 @@ final class SaoAccountApp {
                     key("密码"), pw,
                     key("再输一次"), again,
                     problem, footer(go));
-            return page(SVG.PERSON, "创建誓约账号", "名字就是游戏里的角色名", form,
+            return page(SVG.PERSON, "创建 ARGUS ID", "名字就是游戏里的角色名", form,
                     link("已有账号？去登录", close));
         }
 
@@ -231,7 +231,7 @@ final class SaoAccountApp {
 
         private Node manage() {
             SaoData.@Nullable OathAccount a = s.oathAccount().get();
-            if (a == null) return page(SVG.PERSON, "誓约账号", "还没有登录", empty(SVG.PERSON, "在主界面登录后再来"), link("注册新账号", () -> go(Page.REGISTER)));
+            if (a == null) return page(SVG.PERSON, "ARGUS ID", "还没有登录", empty(SVG.PERSON, "在主界面登录后再来"), link("注册新账号", () -> go(Page.REGISTER)));
             Text name = sao(a.name(), 26, true);
             Node mail = mailRow(a, () -> go(Page.VERIFY));
 
