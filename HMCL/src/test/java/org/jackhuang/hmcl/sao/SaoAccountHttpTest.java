@@ -94,6 +94,29 @@ class SaoAccountHttpTest {
         } finally { server.stop(0); }
     }
 
+    /// Explicit business codes override HTTP categories, including the rename quota's special 429 wording.
+    @Test void argusErrorsHaveShortCuratedVoice() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        AtomicReference<String> code = new AtomicReference<>("renameLimit");
+        server.createContext("/", exchange -> {
+            JsonObject response = new JsonObject(); response.addProperty("error", code.get());
+            response.addProperty("errorMessage", UUID.randomUUID().toString());
+            byte[] bytes = response.toString().getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(code.get().equals("renameLimit") ? 429 : 409, bytes.length);
+            exchange.getResponseBody().write(bytes); exchange.close();
+        });
+        server.start();
+        try {
+            SaoAccountClient client = new SaoAccountClient(() -> root(server), () -> "zh_cn");
+            for (String item : java.util.List.of("renameLimit", "nameTaken", "reservedName", "invalidName", "accountOnline", "useRename", "invalidPremiumProof", "premiumLinked", "launchRequired", "invalidTicket")) {
+                code.set(item);
+                SaoAccountException error = assertThrows(SaoAccountException.class, () -> client.json("POST", "sao/rename", new JsonObject(), null));
+                assertEquals(item, error.code()); assertTrue(error.getMessage().length() < 40);
+                if (item.equals("renameLimit")) assertEquals("今天已经改了 3 次，明天再来", error.getMessage());
+            }
+        } finally { server.stop(0); }
+    }
+
     /// Resolves only an ephemeral local test socket.
     private static URI root(HttpServer server) { return URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/"); }
 }

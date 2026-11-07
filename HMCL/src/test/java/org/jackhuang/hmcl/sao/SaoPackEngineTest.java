@@ -59,6 +59,8 @@ class SaoPackEngineTest {
             assertEquals("0.9", reopened.installedVersion().get());
             assertEquals("0.9", reopened.requireSource().manifest().version());
             assertEquals("new.example:25565", reopened.requireSource().manifest().server());
+            assertEquals("new.example:25565", reopened.serverAddress());
+            assertEquals(List.of("node.example:25566"), reopened.serverNodes());
             Files.writeString(instance.resolve("config/managed.txt"), "damaged");
             assertEquals(1, installer(instance).apply(reopened.requireSource(), true).written());
             assertEquals("new", Files.readString(instance.resolve("config/managed.txt")));
@@ -93,7 +95,8 @@ class SaoPackEngineTest {
         byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
         SaoPackManifest.PackFile file = new SaoPackManifest.PackFile("config/managed.txt", SaoPackArchive.sha1(new ByteArrayInputStream(bytes)),
                 bytes.length, "overrides/config/managed.txt", List.of());
-        SaoPackManifest manifest = new SaoPackManifest(version, "1.20.1", "47.1.106", server, List.of(file), List.of());
+        SaoPackManifest manifest = new SaoPackManifest(version, "1.20.1", "47.1.106", server, "", "",
+                List.of("node.example:25566"), List.of(file), List.of());
         Path zip = Files.createTempFile(temporary, "release-", ".zip");
         try (ZipOutputStream output = new ZipOutputStream(Files.newOutputStream(zip))) {
             output.putNextEntry(new ZipEntry(SaoPackManifest.NAME)); output.write(manifest.toJson().getBytes(StandardCharsets.UTF_8)); output.closeEntry();

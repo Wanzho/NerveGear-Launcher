@@ -45,6 +45,10 @@ final class SaoLocalPremiumFixture implements AutoCloseable {
     private final AtomicBoolean joined = new AtomicBoolean();
     /// Captures protocol-handler failures without exposing request bodies in logs.
     private volatile @Nullable Throwable handlerFailure;
+    /// Optional one-request barrier used to prove signout fences an already running remembered login.
+    private volatile @Nullable java.util.concurrent.CountDownLatch loginReached;
+    /// Releases the synthetic delayed response without changing the real server's authentication behavior.
+    private volatile @Nullable java.util.concurrent.CountDownLatch loginRelease;
 
     /// Creates the real API and isolated proof endpoints using only synthetic private storage.
     SaoLocalPremiumFixture(Path directory, Path serverJar) throws Exception {
@@ -77,6 +81,7 @@ final class SaoLocalPremiumFixture implements AutoCloseable {
                 if (args == null || !"PremiumFixture".equals(args[0]) || !args[1].equals(joinedChallenge)) return null;
                 return type("PremiumProof$Identity").getConstructor(String.class, UUID.class).newInstance(args[0], premiumId);
             }
+            if (method.isDefault()) return java.lang.reflect.InvocationHandler.invokeDefault(proxy, method, args);
             return null;
         });
         router = type("YggdrasilService").getConstructor(Path.class, type("AccountStore"), type("AccountFlows"),
@@ -109,6 +114,18 @@ final class SaoLocalPremiumFixture implements AutoCloseable {
         if (handlerFailure != null) throw new AssertionError("Local premium fixture handler failed");
     }
 
+    /// Delays the next login response until releaseLogin is called; requests and credentials are never retained.
+    void delayLogin() {
+        loginReached = new java.util.concurrent.CountDownLatch(1); loginRelease = new java.util.concurrent.CountDownLatch(1);
+    }
+    /// Waits only for the real API to have completed authentication, without inspecting its sensitive response.
+    void awaitDelayedLogin() throws InterruptedException {
+        if (!java.util.Objects.requireNonNull(loginReached).await(10, java.util.concurrent.TimeUnit.SECONDS))
+            throw new AssertionError("Delayed login did not arrive");
+    }
+    /// Allows the delayed synthetic HTTP response to complete.
+    void releaseLogin() { java.util.Objects.requireNonNull(loginRelease).countDown(); }
+
     /// Resolves one released server core class without copying or modifying server source.
     private Class<?> type(String name) throws ClassNotFoundException { return loader.loadClass("dev.sao.auth.core." + name); }
 
@@ -121,10 +138,23 @@ final class SaoLocalPremiumFixture implements AutoCloseable {
         Map<String, String> headers = new HashMap<>();
         exchange.getRequestHeaders().forEach((key, value) -> headers.put(key.toLowerCase(java.util.Locale.ROOT), value.get(0)));
         try {
+            Map<String, String> query = new HashMap<>();
+            @Nullable String rawQuery = exchange.getRequestURI().getRawQuery();
+            if (rawQuery != null) for (String pair : rawQuery.split("&")) {
+                String[] parts = pair.split("=", 2);
+                if (parts.length == 2) query.put(java.net.URLDecoder.decode(parts[0], StandardCharsets.UTF_8), java.net.URLDecoder.decode(parts[1], StandardCharsets.UTF_8));
+            }
             Object request = type("YggdrasilService$Request").getConstructor(String.class, String.class, Map.class, Map.class,
                     byte[].class, String.class).newInstance(exchange.getRequestMethod(), exchange.getRequestURI().getPath(),
-                    Map.of(), headers, body, "127.0.0.1");
+                    query, headers, body, "127.0.0.1");
             Object response = router.getClass().getMethod("route", request.getClass()).invoke(router, request);
+            if (exchange.getRequestURI().getPath().equals("/sao/login")) {
+                @Nullable java.util.concurrent.CountDownLatch reached = loginReached, release = loginRelease;
+                if (reached != null && release != null) {
+                    reached.countDown();
+                    if (!release.await(10, java.util.concurrent.TimeUnit.SECONDS)) throw new AssertionError("Delayed response was not released");
+                }
+            }
             int status = (int) response.getClass().getMethod("status").invoke(response);
             byte[] bytes = (byte[]) response.getClass().getMethod("body").invoke(response);
             @SuppressWarnings("unchecked") Map<String, String> outputHeaders = (Map<String, String>) response.getClass().getMethod("headers").invoke(response);
@@ -151,6 +181,8 @@ final class SaoLocalPremiumFixture implements AutoCloseable {
 
     /// Stops both loopback HTTP endpoints, the mail worker, and the isolated class loader.
     @Override public void close() throws Exception {
+        @Nullable java.util.concurrent.CountDownLatch release = loginRelease;
+        if (release != null) release.countDown();
         api.stop(0);
         mojang.stop(0);
         ((AutoCloseable) router).close();

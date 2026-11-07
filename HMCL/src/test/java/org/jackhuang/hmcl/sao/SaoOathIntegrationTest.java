@@ -143,8 +143,9 @@ class SaoOathIntegrationTest {
             assertNull(engine.oathSkin());
             engine.oathLogout();
             awaitSignedOut(engine);
-            assertEquals(name, engine.rememberedOathName(), "Signout preserves explicit remember preference");
-            await(engine.oathLogin(name, null, false));
+            assertNull(engine.rememberedOathName(), "Signout forgets the remembered pair");
+            expectFailure(engine.oathLogin(name, null, true), "请输入密码");
+            await(engine.oathLogin(name, last.toCharArray(), false));
             assertNull(engine.rememberedOathName());
             assertNull(credentials.read());
         }

@@ -244,6 +244,8 @@ val prepareSaoPack = tasks.register("prepareSaoPack") {
     inputs.property("packOffline", providers.gradleProperty("saoPackOffline").getOrElse("false"))
     inputs.property("packVersion", providers.gradleProperty("saoPackVersion").getOrElse("auto"))
     inputs.property("newsUrl", providers.gradleProperty("saoNewsUrl").getOrElse(""))
+    inputs.property("accountApi", providers.gradleProperty("saoAccountApi").getOrElse(""))
+    inputs.property("serverNodes", providers.gradleProperty("saoServerNodes").getOrElse(""))
     inputs.property("server", providers.gradleProperty("saoServer").getOrElse(""))
     providers.gradleProperty("saoPackBaseline").orNull?.let { inputs.file(file(it).let { source -> if (source.isDirectory) source.resolve("oath08-receipt.json") else source }) }
     outputs.dir(saoPackOutput)
@@ -314,6 +316,10 @@ val prepareSaoPack = tasks.register("prepareSaoPack") {
                 manifest.addProperty("neoforge", "47.1.106")
                 manifest.addProperty("newsUrl", providers.gradleProperty("saoNewsUrl").getOrElse(""))
                 manifest.addProperty("server", providers.gradleProperty("saoServer").getOrElse(""))
+                manifest.addProperty("accountApi", providers.gradleProperty("saoAccountApi").getOrElse(""))
+                manifest.add("serverNodes", JsonArray().apply {
+                    providers.gradleProperty("saoServerNodes").getOrElse("").split(',').map { it.trim() }.filter { it.isNotEmpty() }.forEach { add(it) }
+                })
                 manifest.add("files", JsonArray().apply { files.values.forEach { add(it) } })
                 manifest.add("removals", JsonArray())
             }

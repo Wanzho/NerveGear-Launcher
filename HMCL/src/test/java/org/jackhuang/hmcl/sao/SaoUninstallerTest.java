@@ -29,7 +29,8 @@ class SaoUninstallerTest {
         Path evidence = Path.of(System.getProperty("user.home"), "Developer", "sao-launcher-runs");
         Path actual = temporary.toAbsolutePath().normalize();
         assertTrue(actual.startsWith(evidence.resolve("launcherback3/fixtures"))
-                || actual.startsWith(evidence.resolve("launcherback4/fixtures")), "Configure an isolated launcher fixture directory before these tests");
+                || actual.startsWith(evidence.resolve("launcherback4/fixtures"))
+                || actual.startsWith(evidence.resolve("launcherback5/fixtures")), "Configure an isolated launcher fixture directory before these tests");
     }
 
     /// Counts shared/nested roots once and never traverses a link into unrelated data.

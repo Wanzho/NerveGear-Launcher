@@ -76,6 +76,17 @@ final class SaoOathAccounts implements AutoCloseable {
     private final SaoOathInjector injector;
     /// Observable account state, published with future completion on JavaFX.
     private final ReadOnlyObjectWrapper<SaoData.@Nullable OathAccount> account = new ReadOnlyObjectWrapper<>();
+    /// Server statistics merged with local process time, published alongside account state.
+    private final ReadOnlyObjectWrapper<SaoData.@Nullable PlayerCard> card = new ReadOnlyObjectWrapper<>();
+    /// Latest card never escapes without an immutable friends list.
+    private volatile SaoData.@Nullable PlayerCard currentCard;
+    /// Per-user stable-profile process accounting; removed by the existing uninstall root plan.
+    private final SaoOathPlayTime playTime;
+    /// Active process owner; signout never changes which ARGUS ID receives elapsed time.
+    private volatile @Nullable GameRun gameRun;
+    /// One running process's namespace and monotonic recorder.
+    @NotNullByDefault
+    private record GameRun(URI api, String id, SaoOathPlayTime.Run time) { }
     /// Latest immutable library snapshot, populated outside JavaFX callbacks.
     private volatile @org.jetbrains.annotations.Unmodifiable List<SaoData.SavedSkin> libraryEntries = List.of();
     /// Mutable skin library backing the stable read-only view.
@@ -124,6 +135,7 @@ final class SaoOathAccounts implements AutoCloseable {
         this.root = root; this.client = new SaoAccountClient(endpoint, language); this.credentials = credentials;
         this.premium = premium; this.mojangJoin = mojangJoin; this.launch = launch; this.errors = errors;
         this.injector = new SaoOathInjector(root);
+        this.playTime = new SaoOathPlayTime(root);
         this.library = new SaoOathSkins(root);
         try { libraryEntries = library.list(); } catch (IOException ignored) { }
         publish(this::publishState);
@@ -135,6 +147,8 @@ final class SaoOathAccounts implements AutoCloseable {
 
     /// The current account property; only refreshed server values are published.
     ReadOnlyObjectProperty<SaoData.@Nullable OathAccount> account() { return account.getReadOnlyProperty(); }
+    /// Returns the stable card property, cleared on signout.
+    ReadOnlyObjectProperty<SaoData.@Nullable PlayerCard> playerCard() { return card.getReadOnlyProperty(); }
     /// Returns the protected remembered name from memory, or null.
     @Nullable String rememberedName() { return remembered; }
     /// Returns the current account's downloaded texture, or null for the server's default skin.
@@ -155,6 +169,7 @@ final class SaoOathAccounts implements AutoCloseable {
     /// Logs in explicitly, optionally reading a matching protected remembered credential, and refreshes server state.
     CompletableFuture<Void> login(String name, char @Nullable [] supplied, boolean remember) {
         char @Nullable [] password = own(supplied);
+        long expected = generation.get();
         return submit(() -> {
             char @Nullable [] actual = password;
             try {
@@ -172,7 +187,10 @@ final class SaoOathAccounts implements AutoCloseable {
                 finally { body.remove("password"); }
                 accept(reply);
                 refresh();
-                if (remember) { credentials.write(requireSession().name(), actual); remembered = requireSession().name(); }
+                if (remember) synchronized (gate) {
+                    if (expected != generation.get()) throw new SaoAccountException("账号操作已取消", "cancelled");
+                    credentials.write(requireSession().name(), actual); remembered = requireSession().name();
+                }
             } finally {
                 if (actual != null) Arrays.fill(actual, '\0');
                 if (!remember) forget();
@@ -236,13 +254,7 @@ final class SaoOathAccounts implements AutoCloseable {
             Session active = requireSession();
             AuthInfo microsoft = premium.session();
             if (!microsoft.getUsername().equals(active.name())) throw new SaoAccountException("请使用同名正版账号验证", "premiumNameMismatch");
-            JsonObject challenge = client.json("POST", "sao/premium/challenge", object("username", microsoft.getUsername()), null);
-            String challengeToken = required(challenge, "challengeToken");
-            String serverId = required(challenge, "serverId");
-            JsonObject join = object("accessToken", microsoft.getAccessToken(), "selectedProfile", microsoft.getUUID().toString().replace("-", ""), "serverId", serverId);
-            try { client.mojangJoin(mojangJoin, join); }
-            finally { join.remove("accessToken"); }
-            JsonObject complete = client.json("POST", "sao/premium/complete", object("challengeToken", challengeToken), null);
+            JsonObject complete = premiumProof(microsoft);
             JsonObject link = object("premiumToken", required(complete, "premiumToken"));
             try { client.json("POST", "sao/premium/link", link, active.access()); }
             finally { link.remove("premiumToken"); }
@@ -250,11 +262,68 @@ final class SaoOathAccounts implements AutoCloseable {
         });
     }
 
-    /// Immediately signs out locally, then revokes the old token without deleting opted-in remembered credentials.
+    /// Signs in with a fresh Microsoft ownership proof, creating a linked passwordless ARGUS ID on first use.
+    CompletableFuture<Void> premiumLogin() {
+        return submit(() -> {
+            clear();
+            JsonObject proof = premiumProof(premium.session());
+            JsonObject body = object("premiumToken", required(proof, "premiumToken"), "clientToken", UUID.randomUUID().toString());
+            try { accept(client.json("POST", "sao/premium/login", body, null)); }
+            finally { body.remove("premiumToken"); }
+            forget(); refresh();
+        });
+    }
+
+    /// Keeps Microsoft session credentials exclusively on the original Mojang join exchange.
+    private JsonObject premiumProof(AuthInfo microsoft) throws SaoAccountException {
+        JsonObject challenge = client.json("POST", "sao/premium/challenge", object("username", microsoft.getUsername()), null);
+        JsonObject join = object("accessToken", microsoft.getAccessToken(), "selectedProfile", microsoft.getUUID().toString().replace("-", ""),
+                "serverId", required(challenge, "serverId"));
+        try { client.mojangJoin(mojangJoin, join); }
+        finally { join.remove("accessToken"); }
+        JsonObject body = object("challengeToken", required(challenge, "challengeToken"));
+        try { return client.json("POST", "sao/premium/complete", body, null); }
+        finally { body.remove("challengeToken"); }
+    }
+
+    /// Requests advisory availability; the server atomically enforces uniqueness again on every write.
+    CompletableFuture<Boolean> nameAvailable(String name) {
+        if (!name.matches("[A-Za-z0-9_]{3,16}")) return CompletableFuture.completedFuture(false);
+        AtomicBoolean available = new AtomicBoolean();
+        return submit(() -> available.set(client.json("GET", "sao/name/available?name=" + name, null, null).get("available").getAsBoolean()))
+                .thenApply(ignored -> available.get());
+    }
+
+    /// Replaces tokens after the server's atomic stable-ID rename and updates an opted-in protected name.
+    CompletableFuture<Void> rename(String name) {
+        long expected = generation.get();
+        return submit(() -> {
+            Session active = requireSession();
+            if (!name.matches("[A-Za-z0-9_]{3,16}")) throw new SaoAccountException("昵称限 3—16 位字母、数字或下划线", "invalidName");
+            JsonObject reply = client.json("POST", "sao/rename", object("name", name), active.access());
+            accept(reply);
+            if (!active.id().equalsIgnoreCase(requireSession().id())) { clear(); throw new SaoAccountException("角色信息无效", "invalidResponse"); }
+            synchronized (gate) {
+                if (expected != generation.get()) throw new SaoAccountException("账号操作已取消", "cancelled");
+                SaoOathCredentials.@Nullable Credential stored = credentials.read();
+                if (stored != null) try {
+                    if (stored.name().equalsIgnoreCase(active.name())) { credentials.write(requireSession().name(), stored.password()); remembered = requireSession().name(); }
+                } finally { Arrays.fill(stored.password(), '\0'); }
+            }
+            refresh();
+        });
+    }
+
+    /// Forgets the protected pair before returning, fences pending saves, and asynchronously revokes the old session.
     void logout() {
-        generation.incrementAndGet();
-        @Nullable Session previous = session;
-        clear(); publish(this::publishState);
+        @Nullable Session previous;
+        synchronized (gate) {
+            if (closed.get() || frozen) { clear(); publish(this::publishState); return; }
+            generation.incrementAndGet(); previous = session; clear(); remembered = null;
+            try { credentials.delete(); }
+            catch (IOException failure) { errors.accept("清除已保存账号失败，请重试退出"); }
+        }
+        publish(this::publishState);
         if (previous != null && !closed.get()) {
             pending.incrementAndGet();
             try { worker.execute(() -> {
@@ -298,7 +367,16 @@ final class SaoOathAccounts implements AutoCloseable {
             return new SaoOathLaunchAccount(new AuthlibInjectorServer(active.root().toString()), injector, active.name(), yggdrasil,
                     client, encodedMetadata, artifact,
                     () -> !closed.get() && generation.get() == preparedGeneration && session == prepared && current != null && !current.locked(),
-                    () -> { if (session == prepared) invalidSession(); });
+                    () -> { if (session == prepared) invalidSession(); },
+                    (instance, server) -> {
+                        if (session != prepared || preparedGeneration != generation.get()) throw new SaoAccountException("请重新登录 ARGUS ID", "invalidSession");
+                        JsonObject ticket = client.json("POST", "sao/launch", new JsonObject(), prepared.access());
+                        try {
+                            if (session != prepared || preparedGeneration != generation.get()) throw new SaoAccountException("请重新登录 ARGUS ID", "invalidSession");
+                            return new SaoOathLaunchTicket(instance, prepared.root().toString(), prepared.id(), server, ticket);
+                        }
+                        finally { ticket.remove("launchTicket"); }
+                    });
         } catch (Exception failure) {
             if (!(failure instanceof SaoAccountException accountFailure && accountFailure.code().equals("needVerify"))) invalidSession();
             throw failure;
@@ -375,7 +453,63 @@ final class SaoOathAccounts implements AutoCloseable {
                     state.get("emailVerified").getAsBoolean(), accountState.equals("lockedVerify"), Math.max(0, state.get("graceSeconds").getAsLong()), premiumName);
             profileCache = new SaoOathSkins(root, namespace(active.root()), active.id());
             refreshSkin(active);
+            refreshCardNow();
         } catch (Exception failure) { clear(); throw failure; }
+    }
+
+    /// Refreshes the card without turning a statistics outage into a logout or discarding previous known values.
+    private void refreshCardNow() {
+        @Nullable Session active = session;
+        if (active == null) { currentCard = null; return; }
+        SaoData.@Nullable PlayerCard previous = currentCard;
+        int level = previous == null ? -1 : previous.level(), floor = previous == null ? -1 : previous.floor();
+        long col = previous == null ? -1 : previous.col();
+        List<String> friends = previous == null ? List.of() : previous.friendsOnline();
+        try {
+            JsonObject values = client.json("GET", "sao/card", null, active.access());
+            if (!active.id().equalsIgnoreCase(required(values, "id"))) throw new SaoAccountException("角色信息无效", "invalidResponse");
+            level = Math.max(-1, values.get("level").getAsInt()); floor = Math.max(-1, values.get("floor").getAsInt());
+            col = Math.max(-1, values.get("col").getAsLong());
+            List<String> names = new ArrayList<>();
+            if (values.get("friends") instanceof JsonArray list) {
+                if (list.size() > 500) throw new IllegalArgumentException("Friend list too long");
+                for (JsonElement friend : list) {
+                    String name = friend.getAsString();
+                    if (!name.matches("[A-Za-z0-9_]{3,16}")) throw new IllegalArgumentException("Invalid friend name");
+                    names.add(name);
+                }
+            }
+            friends = List.copyOf(names);
+        } catch (Exception unavailable) { /* Statistics are optional; account admission is checked independently. */ }
+        long last = 0, millis = 0;
+        try {
+            @Nullable GameRun running = gameRun;
+            SaoOathPlayTime.Snapshot local = running != null && running.api().equals(active.root()) && running.id().equals(active.id())
+                    ? running.time().snapshot() : playTime.read(active.root(), active.id());
+            last = local.lastPlayed(); millis = local.playMillis();
+        } catch (IOException unavailable) { /* Unknown local history stays zero until storage is readable. */ }
+        if (session == active) currentCard = new SaoData.PlayerCard(level, floor, col, last, millis / 1000, friends);
+    }
+
+    /// Queues the card refresh used by the server-status timer and the process-exit callback.
+    void refreshCard() {
+        if (session == null || closed.get()) return;
+        submit(this::refreshCardNow);
+    }
+
+    /// Records the actual created process under its prepared account, independently of later signout or renames.
+    synchronized void gameStarted(SaoOathLaunchAccount launched) {
+        try { gameRun = new GameRun(launched.apiRoot(), launched.profileId(), playTime.start(launched.apiRoot(), launched.profileId())); }
+        catch (IOException failure) { errors.accept("保存游玩记录失败"); }
+        refreshCard();
+    }
+
+    /// Persists monotonic elapsed time once, then refreshes the signed-in card after process exit.
+    synchronized void gameExited() {
+        @Nullable GameRun running = gameRun;
+        if (running != null) try { running.time().close(); gameRun = null; }
+        catch (IOException failure) { errors.accept("保存游玩记录失败"); }
+        refreshCard();
     }
 
     /// Observes server-side epoch revocation without converting a successfully completed mutation into a failure.
@@ -412,7 +546,7 @@ final class SaoOathAccounts implements AutoCloseable {
     private Session requireSession() throws SaoAccountException {
         @Nullable Session active = session;
         if (closed.get() || active == null || !active.root().equals(client.root())) {
-            clear(); throw new SaoAccountException("请先登录誓约账号", "signedOut");
+            clear(); throw new SaoAccountException("请先登录 ARGUS ID", "signedOut");
         }
         return active;
     }
@@ -424,9 +558,9 @@ final class SaoOathAccounts implements AutoCloseable {
     }
 
     /// Clears invalid credentials from protected storage, as required by an explicit forget or password change.
-    private void forget() throws IOException { credentials.delete(); remembered = null; }
+    private void forget() throws IOException { synchronized (gate) { credentials.delete(); remembered = null; } }
     /// Drops all ephemeral account/texture state without deleting an explicitly remembered password.
-    private void clear() { session = null; current = null; skin = null; slim = false; profileCache = null; }
+    private void clear() { session = null; current = null; currentCard = null; skin = null; slim = false; profileCache = null; }
     /// Invalidates state from a launch-token check and publishes the signout.
     private void invalidSession() { clear(); publish(this::publishState); }
 
@@ -462,6 +596,9 @@ final class SaoOathAccounts implements AutoCloseable {
             catch (IllegalArgumentException failure) { problem = new SaoAccountException("请检查输入内容或皮肤尺寸", "invalidInput"); }
             catch (Exception failure) { problem = new SaoAccountException("账号操作失败，请稍后重试", "operationFailed"); }
             finally {
+                // An operation can fail at its save fence after accepting a late HTTP response.
+                // Clear that response's internal authorization even when its screen publication was cancelled.
+                if (closed.get() || expected != generation.get()) clear();
                 // A failed mutation may have committed and revoked the old epoch before its response was lost.
                 if (problem != null && session != null && !closed.get() && expected == generation.get())
                     try { refresh(); } catch (Exception invalid) { clear(); }
@@ -487,6 +624,7 @@ final class SaoOathAccounts implements AutoCloseable {
     /// Publishes state and the matching library together, before the operation's future completes.
     private void publishState() {
         account.set(current);
+        card.set(currentCard);
         saved.setAll(libraryEntries);
     }
 

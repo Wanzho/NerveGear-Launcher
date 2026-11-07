@@ -156,8 +156,27 @@ final class SaoAccountClient {
     /// Translates only known messages; arbitrary server/provider text and submitted fields never reach the screen.
     private static SaoAccountException mapped(int status, byte[] bytes, String route) {
         String message = "";
-        try { message = JsonParser.parseString(new String(bytes, StandardCharsets.UTF_8)).getAsJsonObject().get("errorMessage").getAsString(); }
+        String code = "";
+        try {
+            JsonObject error = JsonParser.parseString(new String(bytes, StandardCharsets.UTF_8)).getAsJsonObject();
+            message = error.get("errorMessage").getAsString();
+            if (error.has("error")) code = error.get("error").getAsString();
+        }
         catch (RuntimeException ignored) { }
+        @Nullable SaoAccountException known = switch (code) {
+            case "nameTaken" -> new SaoAccountException("这个昵称已被占用", "nameTaken");
+            case "reservedName" -> new SaoAccountException("这个昵称暂不可用", "reservedName");
+            case "renameLimit" -> new SaoAccountException("今天已经改了 3 次，明天再来", "renameLimit");
+            case "invalidName" -> new SaoAccountException("昵称限 3—16 位字母、数字或下划线", "invalidName");
+            case "accountOnline" -> new SaoAccountException("请先退出游戏再改昵称", "accountOnline");
+            case "useRename" -> new SaoAccountException("请更新启动器后修改昵称", "useRename");
+            case "invalidPremiumProof" -> new SaoAccountException("Microsoft 验证已过期，请重试", "invalidPremiumProof");
+            case "premiumLinked" -> new SaoAccountException("这个 Microsoft 已绑定其他 ARGUS ID", "premiumLinked");
+            case "launchRequired" -> new SaoAccountException("请从启动器 Link Start 进入", "launchRequired");
+            case "invalidTicket" -> new SaoAccountException("启动凭证已过期，请重新 Link Start", "invalidTicket");
+            default -> null;
+        };
+        if (known != null) return known;
         if (status == 429) return new SaoAccountException("请求太频繁，稍后再试", "rateLimited");
         if (status >= 500) return new SaoAccountException("账号服务暂不可用，请稍后重试", "unavailable");
         return switch (message) {

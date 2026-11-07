@@ -74,6 +74,19 @@ class SaoOathSecurityTest {
         assertNull(new SaoOathCredentialStore(root, true).read());
     }
 
+    /// A durable signout marker prevents a retained protected copy from causing a later automatic login.
+    @Test void signoutMarkerDisablesRetainedEnvelopeUntilExplicitRemember() throws Exception {
+        Path root = temporary.resolve("signed-out-client");
+        SaoOathCredentialStore store = new SaoOathCredentialStore(root, false);
+        store.write("MarkerFixture", UUID.randomUUID().toString().toCharArray());
+        Path envelope = root.resolve("oath-private/credential.bin"); byte[] retained = Files.readAllBytes(envelope);
+        store.delete(); Files.write(envelope, retained); Arrays.fill(retained, (byte) 0);
+        assertNull(new SaoOathCredentialStore(root, false).read());
+        store.write("MarkerFixture", UUID.randomUUID().toString().toCharArray());
+        SaoOathCredentials.Credential read = java.util.Objects.requireNonNull(new SaoOathCredentialStore(root, false).read());
+        Arrays.fill(read.password(), '\0'); assertFalse(Files.exists(root.resolve("oath-private/signed-out"))); store.delete();
+    }
+
     /// A redirected secret directory cannot cause writes or deletes outside the isolated client root.
     @Test void credentialSymlinkRefusalPreservesTarget() throws Exception {
         Path outside = Files.createDirectories(temporary.resolve("outside"));

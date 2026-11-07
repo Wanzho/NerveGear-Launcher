@@ -51,6 +51,8 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     });
     /// Prevents concurrent requests, including before JavaFX has published WORKING.
     private final AtomicBoolean busy = new AtomicBoolean(true);
+    /// Auto-login waits for accepted/embedded manifest selection before choosing its account API.
+    private final CompletableFuture<Void> packReady = new CompletableFuture<>();
     /// Stops pending work and prevents a late launch after the launcher exits.
     private final AtomicBoolean closed = new AtomicBoolean(false);
     /// Rejects new mutations and settings writes from the moment an uninstall request is accepted.
@@ -252,12 +254,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
             oath = new SaoOathAccounts(accountRoot,
                     accountHooks == null ? this::accountEndpoint : accountHooks.endpoint(),
                     () -> production ? org.jackhuang.hmcl.util.i18n.I18n.getLocale().getLocale().toLanguageTag() : Locale.getDefault().toLanguageTag(), credentialStore,
-                    accountHooks == null ? () -> {
-                        @Nullable Account selected = org.jackhuang.hmcl.setting.Accounts.getSelectedAccount();
-                        if (!(selected instanceof org.jackhuang.hmcl.auth.microsoft.MicrosoftAccount))
-                            throw new SaoAccountException("请先登录正版账号", "noMicrosoftAccount");
-                        return selected.logIn();
-                    } : accountHooks.premium(),
+                    accountHooks == null ? SaoMicrosoftLogin::session : accountHooks.premium(),
                     accountHooks == null ? SaoAccountClient.originalMojangJoin() : accountHooks.mojangJoin(),
                     account -> linkStart(account, null), message -> publish(() -> error.set(message)));
         } catch (IOException failure) { throw new java.io.UncheckedIOException("Cannot initialize protected account storage", failure); }
@@ -283,7 +280,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
                 publish(() -> { gameLog.setAll(logs.snapshot()); crash.set(previousCrash); });
                 refreshState();
             } catch (Exception failure) { fail("读取整合包失败", failure); }
-            finally { busy.set(false); refreshInstalledBytes(); }
+            finally { packReady.complete(null); busy.set(false); refreshInstalledBytes(); }
         });
     }
 
@@ -334,10 +331,15 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
                 publish(() -> { gameLog.clear(); crash.set(null); });
                 gameRunning.set(true);
                 game.launch(account, pack.manifest(), launchMemoryMiB(), gameWindow(), jvmArgs(), password, closed::get, new ProcessListener() {
+                    /// Starts accounting after the OS process exists and before HMCL starts its exit monitor.
+                    @Override public void setProcess(org.jackhuang.hmcl.util.platform.ManagedProcess process) {
+                        if (account instanceof SaoOathLaunchAccount launched) oath.gameStarted(launched);
+                    }
                     /// Captures sanitized output only; handoff and authentication lines are filtered first.
                     @Override public void onLog(String line, boolean stderr) { appendGameLog(line); }
                     /// Reconciles the fixed instance and analyzes this run after the real process exits.
                     @Override public void onExit(int code, ExitType type) {
+                        if (account instanceof SaoOathLaunchAccount) oath.gameExited();
                         gameRunning.set(false);
                         if (closed.get() || uninstalling.get()) return;
                         worker.execute(() -> {
@@ -373,6 +375,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
         if (environment != null && !environment.isBlank()) return SaoAccountClient.checkedRoot(environment);
         String configured = settings.text("accountApi", "");
         if (!configured.isBlank()) return SaoAccountClient.checkedRoot(configured);
+        packReady.join();
         @Nullable SaoPackArchive pack = source;
         return SaoAccountClient.checkedRoot(pack != null && !pack.manifest().accountApi().isBlank()
                 ? pack.manifest().accountApi() : SaoAccountClient.DEFAULT_API);
@@ -403,6 +406,24 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     @Override public CompletableFuture<Void> oathChangePassword(char[] password, char[] newPassword) { return oath.changePassword(password, newPassword); }
     /// {@inheritDoc}
     @Override public CompletableFuture<Void> oathLinkPremium() { return oath.linkPremium(); }
+    /// {@inheritDoc}
+    @Override public CompletableFuture<Void> oathPremiumLogin() { return oath.premiumLogin(); }
+    /// {@inheritDoc}
+    @Override public CompletableFuture<Boolean> oathNameAvailable(String name) { return oath.nameAvailable(name); }
+    /// {@inheritDoc}
+    @Override public CompletableFuture<Void> oathRename(String name) { return oath.rename(name); }
+    /// {@inheritDoc}
+    @Override public ReadOnlyObjectProperty<SaoData.@Nullable PlayerCard> playerCard() { return oath.playerCard(); }
+    /// {@inheritDoc}
+    @Override public String serverAddress() {
+        @Nullable SaoPackArchive pack = source;
+        return pack != null && !pack.manifest().server().isEmpty() ? pack.manifest().server() : SaoLauncherService.super.serverAddress();
+    }
+    /// {@inheritDoc}
+    @Override public @org.jetbrains.annotations.Unmodifiable List<String> serverNodes() {
+        @Nullable SaoPackArchive pack = source;
+        return pack != null && !pack.manifest().serverNodes().isEmpty() ? pack.manifest().serverNodes() : SaoLauncherService.super.serverNodes();
+    }
     /// {@inheritDoc}
     @Override public void oathLogout() { oath.logout(); }
     /// {@inheritDoc}
@@ -576,6 +597,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     /// {@inheritDoc}
     @Override public void refreshOnline() {
         if (closed.get() || uninstalling.get() || !onlineRefreshing.compareAndSet(false, true)) return;
+        oath.refreshCard();
         onlineWorker.execute(() -> {
             try {
                 @Nullable SaoPackArchive pack = source;
@@ -1001,6 +1023,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     /// Stops accepting backend work; does not terminate an already running Minecraft process.
     @Override public void close() {
         closed.set(true);
+        packReady.complete(null);
         roomGeneration.incrementAndGet();
         char @Nullable [] password = activePassword;
         if (password != null) Arrays.fill(password, '\0');

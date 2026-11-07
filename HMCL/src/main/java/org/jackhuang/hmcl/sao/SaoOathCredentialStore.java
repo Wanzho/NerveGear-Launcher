@@ -85,6 +85,8 @@ final class SaoOathCredentialStore implements SaoOathCredentials {
 
     /// Decrypts the native item or fallback envelope; corrupt payloads fail closed without deletion.
     @Override public synchronized @Nullable Credential read() throws IOException {
+        SaoUninstaller.rejectSymlinkAncestors(directory);
+        if (Files.exists(directory.resolve("signed-out"), LinkOption.NOFOLLOW_LINKS)) return null;
         byte @Nullable [] bytes = null;
         try {
             if (Files.exists(directory.resolve("credential.bin"), LinkOption.NOFOLLOW_LINKS)) {
@@ -124,18 +126,20 @@ final class SaoOathCredentialStore implements SaoOathCredentials {
                     writeNative(bytes);
                     checkedDirectory();
                     Files.deleteIfExists(directory.resolve("credential.bin"));
+                    Files.deleteIfExists(directory.resolve("signed-out"));
                     backend = keychain != null ? "macos-keychain" : windows != null ? "windows-credential-manager" : "linux-secret-service";
                     return;
                 } catch (IOException unavailable) { backend = "hmcl-account-private"; }
             }
             byte[] envelope = SaoAccountProtection.protect(bytes);
-            try { writePrivate("credential.bin", envelope); }
+            try { writePrivate("credential.bin", envelope); Files.deleteIfExists(directory.resolve("signed-out")); }
             finally { Arrays.fill(envelope, (byte) 0); }
         } finally { Arrays.fill(bytes, (byte) 0); Arrays.fill(encodedName, (byte) 0); }
     }
 
-    /// Removes native and encrypted copies; native failures are reported so uninstall never claims full cleanup.
+    /// Disables remembered login durably before deleting copies; native cleanup failures still prevent uninstall completion.
     @Override public synchronized void delete() throws IOException {
+        writePrivate("signed-out", new byte[0]);
         @Nullable IOException nativeFailure = null;
         if (hasNative()) {
             try { deleteNative(); }
@@ -152,7 +156,7 @@ final class SaoOathCredentialStore implements SaoOathCredentials {
         Files.createDirectories(directory);
         try { Files.setPosixFilePermissions(directory, PosixFilePermissions.fromString("rwx------")); }
         catch (UnsupportedOperationException windows) { }
-        for (String name : new String[]{"credential.bin"})
+        for (String name : new String[]{"credential.bin", "signed-out"})
             if (Files.isSymbolicLink(directory.resolve(name))) throw new IOException("账号存储路径包含链接");
     }
 

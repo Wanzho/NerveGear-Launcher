@@ -115,6 +115,8 @@ final class SaoGameBridge {
     /// Password ownership transfers to this method; it is wiped even when authentication or process creation fails.
     void launch(Account account, SaoPackManifest manifest, int memoryMiB, SaoData.GameWindow window, String jvmArgs, char @Nullable [] password,
                 java.util.function.BooleanSupplier cancelled, ProcessListener listener) throws Exception {
+        @Nullable SaoOathLaunchTicket launchTicket = null;
+        boolean started = false;
         try {
             if (!(account instanceof OfflineAccount) && !(account instanceof MicrosoftAccount) && !(account instanceof SaoOathLaunchAccount))
                 throw new IOException("Unsupported launcher account");
@@ -133,9 +135,15 @@ final class SaoGameBridge {
                     .setProfileName(account.getProfileName()).setDisableAutoGameOptions(true)
                     .setWidth(window.width()).setHeight(window.height()).setFullscreen(window.fullscreen())
                     .setJavaArguments(org.jackhuang.hmcl.util.StringUtils.tokenize(jvmArgs));
-            if (!manifest.server().isEmpty()) options.setQuickPlayOption(new QuickPlayOption.MultiPlayer(manifest.server()));
+            String server = manifest.server().isEmpty() && account instanceof SaoOathLaunchAccount ? "mc.saooath.com" : manifest.server();
+            if (!server.isEmpty()) options.setQuickPlayOption(new QuickPlayOption.MultiPlayer(server));
+            if (cancelled.getAsBoolean()) throw new IOException("Launcher has closed");
+            if (account instanceof SaoOathLaunchAccount oath) launchTicket = oath.ticket(instanceDir(), server);
             if (cancelled.getAsBoolean()) throw new IOException("Launcher has closed");
             ManagedProcess process = new HMCLGameLauncher(instance, instance.getResolvedManifest(), auth, options.create(), listener).launch();
+            started = true;
+            @Nullable SaoOathLaunchTicket cleanup = launchTicket;
+            if (cleanup != null) process.getProcess().onExit().thenRun(() -> { try { cleanup.close(); } catch (IOException ignored) { } });
             try {
                 SaoAuthHandoff.writeAndClose(process.getProcess().getOutputStream(), handoff ? password : null);
             } catch (IOException failure) {
@@ -143,6 +151,7 @@ final class SaoGameBridge {
                 throw failure;
             }
         } finally {
+            if (!started && launchTicket != null) launchTicket.close();
             if (password != null) Arrays.fill(password, '\0');
         }
     }
