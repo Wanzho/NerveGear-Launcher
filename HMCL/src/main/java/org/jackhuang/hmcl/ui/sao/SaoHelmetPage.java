@@ -1071,9 +1071,9 @@ public final class SaoHelmetPage extends StackPane {
             // play time; friends in the game now; and a red line while the mailbox waits for its code.
             SaoData.@Nullable PlayerCard card = service.playerCard().get();
             if (card != null) {
+                // No floor (James, 7 Nov: "那就不显示floor").
                 HBox tiles = new HBox(12,
                         stat("LV", card.level() < 0 ? "-" : Integer.toString(card.level()), ""), statRule(),
-                        stat("第", card.floor() < 0 ? "-" : Integer.toString(card.floor()), "层"), statRule(),
                         stat("", card.col() < 0 ? "-" : String.format(java.util.Locale.ROOT, "%,d", card.col()), "Col"));
                 tiles.setAlignment(Pos.CENTER_LEFT);
                 // James, 7 Nov: "上次进入：昨天22:18", "累计游玩时长：_._小时 （不到一小时，_分钟）".

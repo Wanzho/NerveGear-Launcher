@@ -351,7 +351,7 @@ public final class SaoFakeService implements SaoLauncherService {
     }
 
     private final ObservableList<SaoData.Friend> friends = FXCollections.observableArrayList(
-            new SaoData.Friend("Asuna", SaoData.Presence.GAME, "第 1 层", null),
+            new SaoData.Friend("Asuna", SaoData.Presence.GAME, "誓约", null),
             new SaoData.Friend("Klein", SaoData.Presence.GAME, "单人游戏", null),
             new SaoData.Friend("Agil", SaoData.Presence.LAUNCHER, "", null),
             new SaoData.Friend("Silica", SaoData.Presence.OFFLINE, "", null),
