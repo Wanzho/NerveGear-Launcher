@@ -20,7 +20,13 @@ import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.scene.text.Text;
 import javafx.util.Duration;
+import javafx.collections.ListChangeListener;
+import org.jackhuang.hmcl.auth.Account;
+import org.jackhuang.hmcl.auth.microsoft.MicrosoftAccount;
 import org.jackhuang.hmcl.sao.SaoData;
+import org.jackhuang.hmcl.setting.Accounts;
+import org.jackhuang.hmcl.ui.Controllers;
+import org.jackhuang.hmcl.ui.account.CreateAccountPane;
 import org.jackhuang.hmcl.sao.SaoLauncherService;
 import org.jackhuang.hmcl.ui.SVG;
 import org.jetbrains.annotations.NotNullByDefault;
@@ -123,8 +129,13 @@ final class SaoAccountApp {
                     key("密码"), pw,
                     key("再输一次"), again,
                     problem, footer(go));
-            return page(SVG.PERSON, "创建 ARGUS ID", "名字就是游戏里的角色名", form,
-                    link("已有账号？去登录", close));
+            // James, 7 Nov: "在这里也来个绑定正版账号，这样直接登录微软也可以等于登录sao".
+            Button premium = button("绑定正版账号");
+            premium.setOnAction(e -> withMicrosoft(() -> call(premium, problem, s::oathPremiumLogin, close)));
+            Text premiumWhy = dim("用微软正版直接登录，等于有了 ARGUS ID", 11);
+            premiumWhy.setWrappingWidth(230);
+            VBox below = new VBox(8, link("已有账号？去登录", close), rule(), premium, premiumWhy);
+            return page(SVG.PERSON, "创建 ARGUS ID", "名字就是游戏里的角色名", form, below);
         }
 
         // -------------------------------------------------------------- verify
@@ -344,6 +355,29 @@ final class SaoAccountApp {
         HBox r = new HBox(8, light(false), words, grow(), v);
         r.setAlignment(Pos.CENTER_LEFT);
         return r;
+    }
+
+    /// The Microsoft account signed in to the launcher, or null.
+    static @Nullable MicrosoftAccount microsoftAccount() {
+        if (Accounts.getSelectedAccount() instanceof MicrosoftAccount m) return m;
+        for (Account a : Accounts.getAccounts()) if (a instanceof MicrosoftAccount m) return m;
+        return null;
+    }
+
+    /// Runs a step that needs Microsoft: at once when signed in, else after the Microsoft sign-in dialog succeeds.
+    static void withMicrosoft(Runnable then) {
+        if (microsoftAccount() != null) {
+            then.run();
+            return;
+        }
+        @SuppressWarnings("unchecked") ListChangeListener<Account>[] once = new ListChangeListener[1];
+        once[0] = c -> {
+            if (microsoftAccount() == null) return;
+            Accounts.getAccounts().removeListener(once[0]);
+            then.run();
+        };
+        Accounts.getAccounts().addListener(once[0]);
+        Controllers.dialog(new CreateAccountPane(Accounts.FACTORY_MICROSOFT));
     }
 
     /// "47 小时" or "12 分钟".

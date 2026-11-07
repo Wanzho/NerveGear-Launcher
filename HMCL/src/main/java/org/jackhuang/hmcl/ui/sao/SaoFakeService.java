@@ -406,6 +406,12 @@ public final class SaoFakeService implements SaoLauncherService {
     }
 
     @Override
+    public CompletableFuture<Void> oathPremiumLogin() {
+        oath.set(new SaoData.OathAccount("Kirito", "0f3b6a1c2d4e4f50a1b2c3d4e5f60718", "", false, false, 48 * 3600, "Kirito"));
+        return CompletableFuture.completedFuture(null);
+    }
+
+    @Override
     public void oathLogout() {
         oath.set(null);
         remembered = null;

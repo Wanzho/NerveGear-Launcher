@@ -151,6 +151,11 @@ public final class SaoHelmetPage extends StackPane {
     /// Logging in with the remembered password on opening: the player sees the account, not a password form
     /// (James, 7 Nov: "登录进去就直接显示已登录，别再显示一整个密码界面").
     private boolean autoLogging;
+    /// Signed in, the top of the player window: the name and 退出登录 on the left, 绑定正版账号 on the right (James,
+    /// 7 Nov: "登录进去后就是左上角的'[ID] [退出登录]' (确定退出吗？）然后正版就是[绑定正版账号]").
+    private final HBox headOut = new HBox(8), headIn = new HBox(8);
+    /// 确定退出吗？ over the player's body.
+    private final VBox confirmOut = new VBox(10);
     /// Microsoft.
     private final VBox msBox = new VBox(6);
     private final TextField msName = field("");
@@ -331,8 +336,11 @@ public final class SaoHelmetPage extends StackPane {
         logo.setPreserveRatio(true);
         logo.setFitHeight(46);
         logo.getStyleClass().add("vr-logo");
-        HBox head = new HBox(8, logo, grow(), oath, microsoft);
-        head.setAlignment(Pos.CENTER_LEFT);
+        headOut.getChildren().setAll(logo, grow(), oath, microsoft);
+        headOut.setAlignment(Pos.CENTER_LEFT);
+        headIn.setAlignment(Pos.CENTER_LEFT);
+        headIn.setMinHeight(46);
+        StackPane head = new StackPane(headOut, headIn);
         keepOne(kind);
 
         @Nullable String remembered = service.rememberedOathName();
@@ -341,8 +349,7 @@ public final class SaoHelmetPage extends StackPane {
             pw.setPromptText("●●●●●●  已记住");
         }
         // A remembered password belongs to its name only.
-        name.textProperty().addListener((o, a, b) -> pw.setPromptText(
-                remembered != null && b.strip().equals(remembered) ? "●●●●●●  已记住" : "密码"));
+        name.textProperty().addListener((o, a, b) -> refreshPrompt());
         Text rememberLabel = dim("记住我", 12);
         HBox rememberRow = new HBox(6, remember, rememberLabel, grow(),
                 SaoAccountApp.link("注册", () -> openAccount(SaoAccountApp.Page.REGISTER)),
@@ -350,13 +357,13 @@ public final class SaoHelmetPage extends StackPane {
         rememberRow.setAlignment(Pos.CENTER_LEFT);
         signedOut.getChildren().setAll(key("ARGUS ID"), name, pw, rememberRow);
 
-        msName.setEditable(false);
-        msName.setFocusTraversable(false);
-        msSignIn.setOnAction(e -> Controllers.dialog(new CreateAccountPane(Accounts.FACTORY_MICROSOFT)));
+        // 正版: signing in with Microsoft is signing in to ARGUS ID ("这样直接登录微软也可以等于登录sao").
+        msName.setVisible(false);
+        msSignIn.setOnAction(e -> premiumLogin());
         msSignIn.setMaxWidth(Double.MAX_VALUE);
-        Text msWhy = dim("第一次用正版：先登录 ARGUS ID，在「账号」里做正版验证", 11);
+        Text msWhy = dim("用正版直接登录，第一次会建一个同名的 ARGUS ID", 11);
         msWhy.setWrappingWidth(206);
-        msBox.getChildren().setAll(key("Microsoft"), new StackPane(msName, msSignIn), msWhy);
+        msBox.getChildren().setAll(key("Microsoft"), msSignIn, msWhy);
 
         StackPane area = new StackPane(signedOut, signedIn, msBox);
         area.setAlignment(Pos.TOP_LEFT);
@@ -379,12 +386,51 @@ public final class SaoHelmetPage extends StackPane {
         stage.setMaxSize(150, 214);
         HBox bodyRow = new HBox(16, stage, fields);
 
+        // 确定退出吗？ in place of the body until answered.
+        Text sure = ink("确定退出吗？", 18);
+        sure.setFont(SaoUiKit.ui(18, true));
+        Text after = dim("下次打开要重新输入密码", 12);
+        Button no = SaoUiKit.button("取消"), yes = SaoUiKit.button("退出登录");
+        yes.getStyleClass().add("vr-danger");
+        HBox answers = new HBox(10, no, yes);
+        answers.setAlignment(Pos.CENTER);
+        confirmOut.getChildren().setAll(sure, after, answers);
+        confirmOut.setAlignment(Pos.CENTER);
+        confirmOut.setVisible(false);
+        confirmOut.visibleProperty().addListener((o, a, shown) -> bodyRow.setVisible(!shown));
+        no.setOnAction(e -> confirmOut.setVisible(false));
+        yes.setOnAction(e -> {
+            confirmOut.setVisible(false);
+            service.oathLogout();
+        });
+        StackPane body = new StackPane(bodyRow, confirmOut);
+        VBox.setVgrow(body, Priority.ALWAYS);
+
         kind.selectedToggleProperty().addListener((o, a, b) -> refreshAccount());
         service.oathAccount().addListener((o, a, b) -> refreshAccount());
         Accounts.getAccounts().addListener((ListChangeListener<Account>) c -> refreshAccount());
         preselect();
         autoLogin();
-        return new SaoFloatWindow("", 430, 300, null).add(head, bodyRow).home(640, 190, 0, 0, 0);
+        return new SaoFloatWindow("", 430, 300, null).add(head, body).home(640, 190, 0, 0, 0);
+    }
+
+    /// 正版 login: Microsoft first when not signed in yet, then ARGUS ID with it.
+    private void premiumLogin() {
+        SaoAccountApp.withMicrosoft(() -> {
+            problem.setText("");
+            status.setText("正在用正版登录");
+            service.oathPremiumLogin().whenComplete((ok, err) -> Platform.runLater(() -> {
+                refreshState();
+                if (err != null) problem.setText("! " + SaoSkinApp.message(err));
+            }));
+        });
+    }
+
+    /// 绑定正版账号 from the signed-in ARGUS ID.
+    private void linkPremium() {
+        SaoAccountApp.withMicrosoft(() -> service.oathLinkPremium().whenComplete((ok, err) -> Platform.runLater(() -> {
+            if (err != null) problem.setText("! " + SaoSkinApp.message(err));
+        })));
     }
 
     /// Link Start under the player: what the pack is doing on the left, the button on the right.
@@ -468,7 +514,8 @@ public final class SaoHelmetPage extends StackPane {
         Button close = round(SVG.CLOSE, 30, 15);
         close.setOnAction(e -> Controllers.getDecorator().closeWindow());
         HBox row = new HBox(6, sound, minimize, close);
-        row.relocate(EW - 64 - 102, 662);
+        // At the top of the helmet, in the middle (James, 7 Nov: "音量，最小化，X放头盔最上面，中间").
+        row.relocate(EW / 2 - 51, 14);
         pad.getChildren().setAll(version, row);
         refreshSoundIcon();
     }
@@ -684,7 +731,7 @@ public final class SaoHelmetPage extends StackPane {
 
     /// Starts on the account the launcher used last.
     private void preselect() {
-        kind.selectToggle(Accounts.getSelectedAccount() instanceof MicrosoftAccount ? microsoft : oath);
+        kind.selectToggle(oath);
         refreshAccount();
     }
 
@@ -705,44 +752,59 @@ public final class SaoHelmetPage extends StackPane {
         }));
     }
 
-    /// Shows the account part that fits: signed out, signed in, or Microsoft; and the skin worn now.
+    /// Stars in the password box only while the name typed is the one whose password is remembered (signing out
+    /// forgets it).
+    private void refreshPrompt() {
+        @Nullable String r = service.rememberedOathName();
+        pw.setPromptText(r != null && name.getText().strip().equals(r) ? "●●●●●●  已记住" : "密码");
+    }
+
+    /// Shows the account part that fits: signed out (ARGUS ID or 正版), signed in, or logging in; and the skin worn now.
     private void refreshAccount() {
-        boolean ms = kind.getSelectedToggle() == microsoft;
         SaoData.@Nullable OathAccount a = service.oathAccount().get();
         boolean waiting = a == null && autoLogging;
-        signedOut.setVisible(!ms && a == null && !waiting);
-        signedIn.setVisible(!ms && (a != null || waiting));
+        boolean in = a != null || waiting;
+        boolean ms = !in && kind.getSelectedToggle() == microsoft;
+        headOut.setVisible(!in);
+        headIn.setVisible(in);
+        signedOut.setVisible(!in && !ms);
+        msBox.setVisible(ms);
+        signedIn.setVisible(in);
+        if (!in) {
+            confirmOut.setVisible(false);
+            refreshPrompt();
+        }
+        @Nullable MicrosoftAccount m = SaoAccountApp.microsoftAccount();
+        msSignIn.setText(m == null ? "登录 Microsoft" : "用 " + m.getProfileName() + " 登录");
         if (waiting) {
             @Nullable String r = service.rememberedOathName();
-            signedIn.getChildren().setAll(key("ARGUS ID"), sao(r == null ? "" : r, 22, true), dim("正在登录…", 12));
-        }
-        msBox.setVisible(ms);
-        @Nullable MicrosoftAccount m = microsoftAccount();
-        msName.setVisible(m != null);
-        msSignIn.setVisible(m == null);
-        if (m != null) msName.setText(m.getProfileName());
-        if (a != null) {
-            Text n = sao(a.name(), 22, true);
+            headIn.getChildren().setAll(sao(r == null ? "" : r, 22, true));
+            signedIn.getChildren().setAll(dim("正在登录…", 12));
+        } else if (a != null) {
+            Button out = SaoUiKit.button("退出登录");
+            out.setOnAction(e -> confirmOut.setVisible(true));
+            Node premium;
+            if (a.premiumName() == null) {
+                Button bind = SaoUiKit.button("绑定正版账号");
+                bind.setOnAction(e -> linkPremium());
+                premium = bind;
+            } else {
+                HBox linked = new HBox(6, light(true), dim("正版 · " + a.premiumName(), 12));
+                linked.setAlignment(Pos.CENTER_LEFT);
+                premium = linked;
+            }
+            headIn.getChildren().setAll(sao(a.name(), 22, true), out, grow(), premium);
             Button skinB = SaoUiKit.button("皮肤");
             skinB.setOnAction(e -> openSkin());
-            Button manage = SaoUiKit.button("账号");
+            Button manage = SaoUiKit.button("账号设置");
             manage.setOnAction(e -> openAccount(SaoAccountApp.Page.MANAGE));
-            Button out = SaoUiKit.button("退出");
-            out.setOnAction(e -> service.oathLogout());
-            signedIn.getChildren().setAll(key("ARGUS ID"), n,
+            signedIn.getChildren().setAll(key("邮箱"),
                     SaoAccountApp.mailRow(a, () -> openAccount(SaoAccountApp.Page.VERIFY)),
-                    new HBox(6, skinB, manage, out));
+                    new HBox(6, skinB, manage));
         }
         problem.setText("");
         @Nullable Path worn = service.oathSkin() != null ? service.oathSkin() : service.skin();
         skin.show(worn, service.skinSlim());
-    }
-
-    /// The Microsoft account to use.
-    private static @Nullable MicrosoftAccount microsoftAccount() {
-        if (Accounts.getSelectedAccount() instanceof MicrosoftAccount m) return m;
-        for (Account a : Accounts.getAccounts()) if (a instanceof MicrosoftAccount m) return m;
-        return null;
     }
 
     /// The status line and Link Start from the engine.
@@ -768,20 +830,9 @@ public final class SaoHelmetPage extends StackPane {
         start.setDisable(s == SaoPackState.CHECKING || s == SaoPackState.WORKING || s == SaoPackState.RUNNING);
     }
 
-    /// Link Start: the account, then the display powers down and the game starts at once. Signed out, it logs in to
-    /// the 誓约 account first, so a returning player presses once.
+    /// Link Start: always as the ARGUS ID. Signed out, it logs in first (with the password, or with 正版 on that tab),
+    /// so a returning player presses once.
     private void linkStart() {
-        if (kind.getSelectedToggle() == microsoft) {
-            @Nullable MicrosoftAccount m = microsoftAccount();
-            if (m == null) {
-                problem.setText("! 请先登录 Microsoft");
-                return;
-            }
-            problem.setText("");
-            Accounts.setSelectedAccount(m);
-            begin(() -> service.linkStart(m, null));
-            return;
-        }
         SaoData.@Nullable OathAccount a = service.oathAccount().get();
         if (a != null) {
             joinAs(a);
@@ -789,6 +840,10 @@ public final class SaoHelmetPage extends StackPane {
         }
         if (autoLogging) {
             problem.setText("! 正在登录，稍等");
+            return;
+        }
+        if (kind.getSelectedToggle() == microsoft) {
+            premiumLogin();
             return;
         }
         String n = name.getText().strip();
@@ -860,6 +915,16 @@ public final class SaoHelmetPage extends StackPane {
     }
 
     // ------------------------------------------------------------------ tools
+
+    /// Shows 确定退出吗？ (screenshot tools).
+    void forceConfirmOut() {
+        confirmOut.setVisible(true);
+    }
+
+    /// Picks the ARGUS ID or the 正版 tab while signed out (screenshot tools).
+    void forceTab(boolean premium) {
+        kind.selectToggle(premium ? microsoft : oath);
+    }
 
     /// Opens the 誓约账号 window on a page (screenshot tools).
     void forceAccount(SaoAccountApp.Page page) {

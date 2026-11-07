@@ -86,6 +86,24 @@ public final class SaoScreenShotTool {
                     shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1,
                             out.resolve(p + "30-battery-" + b[0] + (b[1] == 1 ? "-charging" : "") + ".png"));
                 }
+                SaoBattery.now = new SaoBattery.State(100, true);
+                SaoBattery.version++;
+                // Signed in: 确定退出吗？; then signed out, the ARGUS ID form and the 正版 tab.
+                fx(() -> fake.forceOath(true));
+                shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "tmp.png"));
+                fx(() -> page[0].forceConfirmOut());
+                Thread.sleep(400);
+                fx(() -> img[0] = scene[0].snapshot(null));
+                write(img[0], out.resolve(p + "31-confirm-logout.png"));
+                fx(() -> {
+                    fake.remembered = null;
+                    fake.oathLogout();
+                    page[0].forceTab(false);
+                });
+                shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "32-signed-out.png"));
+                fx(() -> page[0].forceTab(true));
+                shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "33-signed-out-premium.png"));
+                fx(() -> page[0].forceTab(false));
                 // 誓约账号: signed in (verified, then waiting for the code), and each page of its window.
                 fx(() -> fake.forceOath(true));
                 shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "21-home-signed-in.png"));

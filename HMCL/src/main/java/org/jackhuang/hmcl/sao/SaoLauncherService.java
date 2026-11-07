@@ -390,6 +390,14 @@ public interface SaoLauncherService {
         return unsupported();
     }
 
+    /// Logs in to ARGUS ID with the signed-in Microsoft (正版) account, so signing in with Microsoft is signing in to
+    /// ARGUS ID (James, 7 Nov: "这样直接登录微软也可以等于登录sao"): the ARGUS ID linked to it, or, the first time, a new
+    /// ARGUS ID with the Microsoft name, linked to it. Fails with a message when that name belongs to another ARGUS ID
+    /// (then the player logs in to that one and links Microsoft from it).
+    default CompletableFuture<Void> oathPremiumLogin() {
+        return unsupported();
+    }
+
     /// Signs out and revokes the session (`/authserver/invalidate`), and forgets the remembered password, so the next
     /// opening does not log in again by itself. The launcher logs in with a remembered password on opening (James,
     /// 7 Nov: "登录进去就直接显示已登录，别再显示一整个密码界面"), so signing out has to stop that.
