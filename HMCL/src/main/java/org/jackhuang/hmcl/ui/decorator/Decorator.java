@@ -1173,6 +1173,12 @@ public final class Decorator {
                     return;
                 }
             }
+            // The SAO page keeps its windows in a SubScene, whose root has no parent: the walk above never reaches
+            // the page, and every key (Backspace, arrows) was taken from the focused field and sent to the page
+            // (James, 8 Nov: "我只能打字不能删字"). Keys stay where they are unless a dialog is open.
+            if (org.jackhuang.hmcl.ui.sao.SaoUi.enabled() && newTarget == navigator.getCurrentPage()) {
+                return;
+            }
 
             event.consume();
             newTarget.fireEvent(event.copyFor(event.getSource(), newTarget));

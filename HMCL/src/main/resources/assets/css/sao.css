@@ -321,3 +321,8 @@
 .vr-request { -fx-background-color: rgba(242,164,58,0.12); -fx-background-radius: 6; -fx-padding: 6 8 6 8; }
 .theme-sao .vr-bubble { -fx-background-color: #ffffff; -fx-background-radius: 12; -fx-border-color: #e2e2e2; -fx-border-radius: 12; -fx-padding: 6 11 6 11; }
 .theme-sao .vr-bubble-mine { -fx-background-color: #f2a43a; -fx-background-radius: 12; -fx-padding: 6 11 6 11; }
+
+/* The skin editor's little figure: each part pressed to hide or show it. */
+.vr-part { -fx-background-color: #d9d9dc; -fx-background-radius: 2; -fx-border-color: #c4c4c8; -fx-border-radius: 2; -fx-padding: 0; -fx-cursor: hand; }
+.vr-part:selected { -fx-background-color: #f2a43a; -fx-border-color: #e0912a; }
+.vr-part:hover { -fx-border-color: #f2a43a; -fx-border-width: 2; }

@@ -17,6 +17,7 @@ import javafx.scene.SubScene;
 import javafx.scene.canvas.Canvas;
 import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.control.Button;
+import javafx.scene.control.ScrollPane;
 import javafx.scene.control.TextField;
 import javafx.scene.control.ToggleButton;
 import javafx.scene.control.ToggleGroup;
@@ -28,6 +29,9 @@ import javafx.scene.input.KeyCode;
 import javafx.scene.input.MouseButton;
 import javafx.scene.input.MouseEvent;
 import javafx.scene.input.PickResult;
+import javafx.scene.input.ScrollEvent;
+import javafx.scene.input.ZoomEvent;
+import javafx.scene.Cursor;
 import javafx.scene.layout.FlowPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
@@ -80,178 +84,50 @@ final class SaoSkinApp {
             "#1c1c24", "#2c3e64", "#b0242c", "#e9e9ef", "#f39c12", "#2ecc71", "#3498db", "#9b59b6",
     };
 
-    /// Builds the window.
+    /// Builds the window: the character in 3D on the left, the skin library on the right. Painting opens only on
+    /// 编辑, in a large editor over the whole helmet (James, 8 Nov: "只有编辑的时候才呼出编辑皮肤的界面吧，打开库的话只是左边3d面板
+    /// 右边皮肤库，然后编辑页面大点（可以覆盖头盔）").
     static SaoFloatWindow make(SaoLauncherService s, Runnable close) {
-        Editor ed = new Editor();
+        Editor view = new Editor(330, 318, false);
         @Nullable Path start = s.oathSkin() != null ? s.oathSkin() : s.skin();
-        ed.load(start == null ? TexturesLoader.getDefaultSkinImage() : new Image(start.toUri().toString()), s.skinSlim());
+        view.load(start == null ? TexturesLoader.getDefaultSkinImage() : new Image(start.toUri().toString()), s.skinSlim());
 
-        // ---- tools
-        ToggleGroup tools = new ToggleGroup();
-        ToggleButton pen = chip("画笔", tools), erase = chip("橡皮", tools), pick = chip("吸管", tools), fill = chip("填充", tools);
-        // Shade the colour already there, as the web skin editors do (James: "you can refer to minecraftskins.com").
-        ToggleButton darker = chip("加深", tools), lighter = chip("提亮", tools);
-        // Paint one side and the other side gets the same (right arm to left arm, the head and body across).
-        ToggleButton mirror = chip("镜像", null);
-        keepOne(tools);
-        tools.selectToggle(pen);
-        ToggleGroup layers = new ToggleGroup();
-        ToggleButton inner = chip("内层", layers), outer = chip("外层", layers);
-        keepOne(layers);
-        layers.selectToggle(inner);
-        // Shows or hides the outer layer while painting the base.
-        ToggleButton showOuter = chip("", null);
-        showOuter.setGraphic(icon(SVG.VISIBILITY, 14));
-        showOuter.setSelected(true);
         ToggleGroup arms = new ToggleGroup();
         ToggleButton classic = chip("Classic", arms), slim = chip("Slim", arms);
         keepOne(arms);
-        arms.selectToggle(ed.slim ? slim : classic);
-        // The base layer has no see-through in the game: the eraser works on the outer layer only.
-        erase.disableProperty().bind(inner.selectedProperty());
-        inner.selectedProperty().addListener((o, a, on) -> {
-            if (on && erase.isSelected()) tools.selectToggle(pen);
-        });
-
-        // ---- colour
-        ColourBox colour = new ColourBox(Color.web("#2c3e64"));
-        FlowPane swatches = new FlowPane(4, 4);
-        swatches.setPrefWrapLength(8 * 18 + 7 * 4);
-        for (String hex : SWATCHES) {
-            Color c = Color.web(hex);
-            Region sw = new Region();
-            sw.getStyleClass().add("vr-swatch");
-            sw.setStyle("-fx-background-color: " + hex + ";");
-            sw.setMinSize(18, 18);
-            sw.setMaxSize(18, 18);
-            sw.setOnMouseClicked(e -> colour.set(c));
-            swatches.getChildren().add(sw);
-        }
-
-        for (ToggleButton t : new ToggleButton[]{pen, erase, pick, fill, darker, lighter, mirror, inner, outer, showOuter})
-            t.getStyleClass().add("vr-chip-tight");
-
-        // ---- the editor's wiring
-        ed.tool = () -> pen.isSelected() ? Tool.PEN : erase.isSelected() ? Tool.ERASE : pick.isSelected() ? Tool.PICK
-                : darker.isSelected() ? Tool.DARKER : lighter.isSelected() ? Tool.LIGHTER : Tool.FILL;
-        ed.mirror = mirror::isSelected;
-        ed.colour = colour::get;
-        ed.onPicked = c -> {
-            colour.set(c);
-            tools.selectToggle(pen);
-        };
-        layers.selectedToggleProperty().addListener((o, a, b) -> ed.setLayer(b == outer, showOuter.isSelected()));
-        showOuter.selectedProperty().addListener((o, a, b) -> ed.setLayer(outer.isSelected(), b));
+        arms.selectToggle(view.slim ? slim : classic);
         arms.selectedToggleProperty().addListener((o, a, b) -> {
-            if (b != null) ed.setSlim(b == slim);
+            if (b != null) view.setSlim(b == slim);
         });
-
-        Button undo = round(SVG.UNDO, 28, 15), redo = round(SVG.REDO, 28, 15), front = round(SVG.RESTORE, 28, 15);
-        undo.setOnAction(e -> ed.undo());
-        redo.setOnAction(e -> ed.redo());
-        front.setOnAction(e -> ed.faceFront());
-        HBox viewBar = new HBox(6, undo, redo, grow(), classic, slim, grow(), front);
+        Button front = round(SVG.RESTORE, 28, 15);
+        front.setOnAction(e -> view.faceFront());
+        HBox viewBar = new HBox(6, classic, slim, grow(), front);
         viewBar.setAlignment(Pos.CENTER_LEFT);
-        viewBar.setMaxWidth(Editor.W);
-        Text hint = dim("在人物上拖动画画，旁边拖动转身", 11);
-        // Hide a part to reach what it covers (the sides of the body behind the arms), as the web editors do.
-        HBox parts = new HBox(3);
-        String[] partNames = {"头", "身", "右臂", "左臂", "右腿", "左腿"};
-        for (int i = 0; i < partNames.length; i++) {
-            int k = i;
-            ToggleButton c = chip(partNames[i], null);
-            c.getStyleClass().add("vr-chip-small");
-            c.setSelected(true);
-            c.selectedProperty().addListener((o, a, on) -> ed.showPart(k, on));
-            parts.getChildren().add(c);
-        }
-        parts.setAlignment(Pos.TOP_CENTER);
-        parts.setMaxHeight(Region.USE_PREF_SIZE);
-        parts.setPickOnBounds(false);
-        StackPane.setAlignment(parts, Pos.TOP_CENTER);
-        StackPane.setMargin(parts, new Insets(6, 0, 0, 0));
-        ed.getChildren().add(parts);
-        VBox left = new VBox(6, ed, viewBar, hint);
-        left.setMinWidth(Editor.W);
-        left.setMaxWidth(Editor.W);
 
         Text status = dim("", 12);
-        status.setWrappingWidth(170);
-        VBox tools1 = new VBox(7,
-                key("工具"), new HBox(5, pen, erase, pick, fill), new HBox(5, darker, lighter, grow(), mirror),
-                key("图层"), new HBox(5, inner, outer, showOuter),
-                key("颜色"), colour, swatches);
-        tools1.setMinWidth(184);
-        tools1.setMaxWidth(184);
-
-        // ---- the library
-        TextField name = field("起个名字");
-        name.setPrefWidth(110);
-        Button keep = button("存入");
-        keep.setOnAction(e -> {
-            String n = name.getText().strip();
-            if (n.isEmpty()) n = "皮肤 " + (s.savedSkins().size() + 1);
-            try {
-                s.saveSkin(n, ed.png(), ed.slim);
-                name.clear();
-                status.setText("已存入皮肤库");
-            } catch (IllegalArgumentException | IOException ex) {
-                status.setText("! 存不进去");
-            }
+        Button edit = accent("编辑");
+        edit.setMaxWidth(Double.MAX_VALUE);
+        HBox.setHgrow(edit, Priority.ALWAYS);
+        Runnable openEdit = () -> openEditor(view, () -> {
+            arms.selectToggle(view.slim ? slim : classic);
+            status.setText("改好了，记得存入或穿上");
         });
-        VBox library = SaoApps.live(s.savedSkins(), k -> libraryRow(s, ed, k, arms, slim, classic, status),
-                empty(SVG.CHECKROOM, "还没有存过皮肤"));
-        Button importPng = button("导入");
-        importPng.setOnAction(e -> {
-            FileChooser c = new FileChooser();
-            c.setTitle("导入皮肤 (64×64 PNG)");
-            c.getExtensionFilters().add(new FileChooser.ExtensionFilter("PNG", "*.png"));
-            @Nullable File f = c.showOpenDialog(Controllers.getStage());
-            if (f == null) return;
-            Image img = new Image(f.toURI().toString());
-            if (img.isError() || !SkinHelper.isSkin(img)) {
-                status.setText("! 皮肤需为 64×64 PNG");
-                return;
-            }
-            ed.snapshot();
-            ed.load(img, ed.slim);
-            status.setText("已导入，可以接着画");
-        });
-        Button exportPng = button("导出");
-        exportPng.setOnAction(e -> {
-            FileChooser c = new FileChooser();
-            c.setTitle("导出皮肤");
-            c.setInitialFileName("skin.png");
-            c.getExtensionFilters().add(new FileChooser.ExtensionFilter("PNG", "*.png"));
-            @Nullable File f = c.showSaveDialog(Controllers.getStage());
-            if (f == null) return;
-            try {
-                Files.write(f.toPath(), ed.png());
-                status.setText("已导出");
-            } catch (IOException ex) {
-                status.setText("! 导出失败");
-            }
-        });
-        Button reset = button("默认");
-        reset.setOnAction(e -> {
-            ed.snapshot();
-            ed.load(TexturesLoader.getDefaultSkinImage(), ed.slim);
-        });
-        Button apply = accent("穿上");
-        apply.setMaxWidth(Double.MAX_VALUE);
+        edit.setOnAction(e -> openEdit.run());
+        forceEdit = openEdit;
+        Button apply = button("穿上");
         apply.setOnAction(e -> {
             if (s.oathAccount().get() == null) {
-                status.setText("! 先登录 ARGUS ID，别人才看得到");
+                status.setText("! 先登录 ARGUS ID");
                 return;
             }
             try {
                 Path tmp = Files.createTempFile("sao-skin-", ".png");
-                Files.write(tmp, ed.png());
+                Files.write(tmp, view.png());
                 apply.setDisable(true);
-                status.setText("正在上传…");
-                s.uploadSkin(tmp, ed.slim).whenComplete((ok, err) -> javafx.application.Platform.runLater(() -> {
+                status.setText("上传中…");
+                s.uploadSkin(tmp, view.slim).whenComplete((ok, err) -> javafx.application.Platform.runLater(() -> {
                     apply.setDisable(false);
-                    status.setText(err == null ? "已穿上，所有人都看得到" : "! " + message(err));
+                    status.setText(err == null ? "已穿上" : "! " + message(err));
                     try {
                         Files.deleteIfExists(tmp);
                     } catch (IOException ignored) {
@@ -262,29 +138,238 @@ final class SaoSkinApp {
                 status.setText("! 上传失败");
             }
         });
+        HBox actions = new HBox(8, edit, apply);
+        VBox left = new VBox(8, view, viewBar, actions, status);
+        left.setMinWidth(Editor.wOf(view));
+        left.setMaxWidth(Editor.wOf(view));
+
+        // ---- the library
+        TextField name = field("起个名字");
+        HBox.setHgrow(name, Priority.ALWAYS);
+        Button keep = button("存入");
+        keep.setOnAction(e -> {
+            String n = name.getText().strip();
+            if (n.isEmpty()) n = "皮肤 " + (s.savedSkins().size() + 1);
+            try {
+                s.saveSkin(n, view.png(), view.slim);
+                name.clear();
+                status.setText("已存入");
+            } catch (IllegalArgumentException | IOException ex) {
+                status.setText("! 存不进去");
+            }
+        });
+        VBox library = SaoApps.live(s.savedSkins(), k -> libraryRow(s, view, k, arms, slim, classic, status),
+                empty(SVG.CHECKROOM, "还没有皮肤"));
+        Button importPng = button("导入");
+        importPng.setOnAction(e -> {
+            FileChooser c = new FileChooser();
+            c.setTitle("导入皮肤 (64×64 PNG)");
+            c.getExtensionFilters().add(new FileChooser.ExtensionFilter("PNG", "*.png"));
+            @Nullable File f = c.showOpenDialog(Controllers.getStage());
+            if (f == null) return;
+            Image img = new Image(f.toURI().toString());
+            if (img.isError() || !SkinHelper.isSkin(img)) {
+                status.setText("! 要 64×64 的 PNG");
+                return;
+            }
+            view.snapshot();
+            view.load(img, view.slim);
+            status.setText("已导入");
+        });
+        Button exportPng = button("导出");
+        exportPng.setOnAction(e -> {
+            FileChooser c = new FileChooser();
+            c.setTitle("导出皮肤");
+            c.setInitialFileName("skin.png");
+            c.getExtensionFilters().add(new FileChooser.ExtensionFilter("PNG", "*.png"));
+            @Nullable File f = c.showSaveDialog(Controllers.getStage());
+            if (f == null) return;
+            try {
+                Files.write(f.toPath(), view.png());
+                status.setText("已导出");
+            } catch (IOException ex) {
+                status.setText("! 导出失败");
+            }
+        });
+        Button reset = button("默认");
+        reset.setOnAction(e -> {
+            view.snapshot();
+            view.load(TexturesLoader.getDefaultSkinImage(), view.slim);
+        });
         for (Button b : new Button[]{importPng, exportPng, reset}) b.getStyleClass().add("vr-button-tight");
         HBox keepRow = new HBox(6, name, keep);
         keepRow.setAlignment(Pos.CENTER_LEFT);
-        VBox right = new VBox(8,
-                key("皮肤库"), keepRow, scroll(library),
-                new HBox(6, importPng, exportPng, reset),
-                status, apply);
-        VBox.setVgrow(right.getChildren().get(2), Priority.ALWAYS);
-        right.setMinWidth(170);
-        right.setMaxWidth(170);
+        ScrollPane list = scroll(library);
+        VBox.setVgrow(list, Priority.ALWAYS);
+        VBox right = new VBox(8, key("皮肤库"), keepRow, list, new HBox(6, importPng, exportPng, reset));
+        HBox.setHgrow(right, Priority.ALWAYS);
 
-        Region l1 = line(), l2 = line();
-        HBox body = new HBox(16, left, l1, tools1, l2, right);
+        HBox body = new HBox(16, left, line(), right);
         VBox.setVgrow(body, Priority.ALWAYS);
-        SaoFloatWindow w = new SaoFloatWindow("皮肤", SaoApps.W, SaoApps.H, close).add(body);
-        w.body.setOnKeyPressed(e -> {
+        return new SaoFloatWindow("皮肤", SaoApps.W, SaoApps.H, close).add(body);
+    }
+
+    /// Opens the editor of the last skin window (screenshot tools).
+    static Runnable forceEdit = () -> {
+    };
+    /// The last editor opened (screenshot tools).
+    static @Nullable Editor lastEditor;
+
+    /// Turns the last editor as a sideways drag of `dx` pixels would (screenshot tools).
+    static void forceTurn(double dx) {
+        Editor e = lastEditor;
+        if (e != null) e.yaw.setAngle(-24 + Editor.TURN * dx);
+    }
+
+    /// Opens the editor over the whole helmet with a copy of the skin; 完成 hands the painting back to `view`.
+    private static void openEditor(Editor view, Runnable done) {
+        Editor ed = new Editor(640, 520, true);
+        ed.copyFrom(view);
+        lastEditor = ed;
+
+        // ---- tools, down the left (keys as the web editors have them)
+        ToggleGroup tools = new ToggleGroup();
+        Object[][] toolRows = {
+                {Tool.PEN, "画笔", KeyCode.P}, {Tool.ERASE, "橡皮", KeyCode.E}, {Tool.PICK, "吸管", KeyCode.C},
+                {Tool.FILL, "填充", KeyCode.B}, {Tool.DARKER, "加深", KeyCode.Z}, {Tool.LIGHTER, "提亮", KeyCode.X},
+        };
+        VBox toolColumn = new VBox(6);
+        java.util.Map<KeyCode, ToggleButton> keys = new java.util.HashMap<>();
+        for (Object[] r : toolRows) {
+            ToggleButton t = chip((String) r[1], tools);
+            t.setUserData(r[0]);
+            t.setMaxWidth(Double.MAX_VALUE);
+            t.setTooltip(new javafx.scene.control.Tooltip(r[1] + " (" + r[2] + ")"));
+            keys.put((KeyCode) r[2], t);
+            toolColumn.getChildren().add(t);
+        }
+        keepOne(tools);
+        tools.selectToggle(keys.get(KeyCode.P));
+        ToggleButton mirror = chip("镜像", null);
+        mirror.setMaxWidth(Double.MAX_VALUE);
+        mirror.setTooltip(new javafx.scene.control.Tooltip("镜像 (M)"));
+        keys.put(KeyCode.M, mirror);
+        toolColumn.getChildren().addAll(new Region(), mirror);
+        toolColumn.setMinWidth(84);
+        toolColumn.setMaxWidth(84);
+
+        // ---- colour, layers, parts, arms, down the right
+        ColourBox colour = new ColourBox(Color.web("#2c3e64"));
+        FlowPane swatches = new FlowPane(4, 4);
+        swatches.setPrefWrapLength(8 * 19 + 7 * 4);
+        for (String hex : SWATCHES) {
+            Color c = Color.web(hex);
+            Region sw = new Region();
+            sw.getStyleClass().add("vr-swatch");
+            sw.setStyle("-fx-background-color: " + hex + ";");
+            sw.setMinSize(19, 19);
+            sw.setMaxSize(19, 19);
+            sw.setOnMouseClicked(e -> colour.set(c));
+            swatches.getChildren().add(sw);
+        }
+        // As on minecraftskins.com: show or hide the body and the outer layer; the brush paints whatever it touches
+        // first, so hiding the outer layer reaches the body under it.
+        ToggleButton body = chip("身体", null), outer = chip("外层", null);
+        body.setSelected(true);
+        outer.setSelected(true);
+        body.selectedProperty().addListener((o, a, on) -> ed.showLayers(on, outer.isSelected()));
+        outer.selectedProperty().addListener((o, a, on) -> ed.showLayers(body.isSelected(), on));
+        ToggleGroup arms = new ToggleGroup();
+        ToggleButton classic = chip("Classic", arms), slim = chip("Slim", arms);
+        keepOne(arms);
+        arms.selectToggle(ed.slim ? slim : classic);
+        arms.selectedToggleProperty().addListener((o, a, b) -> {
+            if (b != null) ed.setSlim(b == slim);
+        });
+        Button front = button("正面");
+        front.setOnAction(e -> ed.faceFront());
+        VBox side = new VBox(8,
+                key("颜色"), colour, swatches,
+                key("图层"), new HBox(6, body, outer),
+                key("部位"), mannequin(ed),
+                key("手臂"), new HBox(6, classic, slim),
+                grow(), front);
+        side.setMinWidth(196);
+        side.setMaxWidth(196);
+
+        // ---- wiring
+        ed.tool = () -> (Tool) tools.getSelectedToggle().getUserData();
+        ed.mirror = mirror::isSelected;
+        ed.colour = colour::get;
+        ed.onPicked = c -> {
+            colour.set(c);
+            tools.selectToggle(keys.get(KeyCode.P));
+        };
+
+        StackPane stage = new StackPane(ed);
+        stage.getStyleClass().add("vr-stage");
+        HBox.setHgrow(stage, Priority.ALWAYS);
+        ed.fitTo(stage);
+        Text hint = dim("左键画 · 右键或空白处拖动转身 · 中键或 Shift 拖动平移 · 滚轮缩放 · 双击空白回正面", 11);
+        VBox centre = new VBox(6, stage, hint);
+        VBox.setVgrow(stage, Priority.ALWAYS);
+        HBox.setHgrow(centre, Priority.ALWAYS);
+
+        Button undo = round(SVG.UNDO, 30, 15), redo = round(SVG.REDO, 30, 15);
+        undo.setOnAction(e -> ed.undo());
+        redo.setOnAction(e -> ed.redo());
+        Button cancel = button("取消"), finish = accent("完成");
+        Text title = ink("编辑皮肤", 18);
+        HBox head = new HBox(8, title, grow(), undo, redo, new Region(), cancel, finish);
+        head.setAlignment(Pos.CENTER_LEFT);
+        HBox main = new HBox(16, toolColumn, centre, side);
+        VBox.setVgrow(main, Priority.ALWAYS);
+        VBox panel = new VBox(12, head, main);
+        panel.getStyleClass().add("vr-window");
+        panel.setPadding(new Insets(16, 20, 16, 20));
+
+        cancel.setOnAction(e -> SaoHelmetPage.uncover());
+        finish.setOnAction(e -> {
+            view.snapshot();
+            view.copyFrom(ed);
+            SaoHelmetPage.uncover();
+            done.run();
+        });
+        panel.addEventHandler(javafx.scene.input.KeyEvent.KEY_PRESSED, e -> {
+            if (e.getTarget() instanceof TextField) return;
             if (e.isShortcutDown() && e.getCode() == KeyCode.Z) {
                 if (e.isShiftDown()) ed.redo();
                 else ed.undo();
                 e.consume();
+            } else if (e.getCode() == KeyCode.ESCAPE) {
+                SaoHelmetPage.uncover();
+                e.consume();
+            } else if (!e.isShortcutDown() && keys.containsKey(e.getCode())) {
+                ToggleButton t = keys.get(e.getCode());
+                if (t == mirror) mirror.setSelected(!mirror.isSelected());
+                else tools.selectToggle(t);
+                e.consume();
             }
         });
-        return w;
+        SaoHelmetPage.cover(panel);
+        panel.requestFocus();
+    }
+
+    /// The six parts as a little figure, each pressed to hide or show it (as the web editors have it).
+    private static Node mannequin(Editor ed) {
+        javafx.scene.layout.Pane fig = new javafx.scene.layout.Pane();
+        // head, body, right arm, left arm, right leg, left leg; the player's right is on the left facing them.
+        double[][] r = {{30, 0, 32, 32}, {30, 34, 32, 44}, {12, 34, 16, 44}, {64, 34, 16, 44}, {30, 80, 15, 44}, {47, 80, 15, 44}};
+        String[] names = {"头", "身体", "右臂", "左臂", "右腿", "左腿"};
+        for (int i = 0; i < r.length; i++) {
+            int k = i;
+            ToggleButton part = new ToggleButton();
+            part.getStyleClass().add("vr-part");
+            part.setSelected(true);
+            part.setTooltip(new javafx.scene.control.Tooltip(names[i]));
+            part.resizeRelocate(r[i][0], r[i][1], r[i][2], r[i][3]);
+            part.setManaged(false);
+            part.selectedProperty().addListener((o, a, on) -> ed.showPart(k, on));
+            fig.getChildren().add(part);
+        }
+        fig.setMinSize(92, 124);
+        fig.setMaxSize(92, 124);
+        return fig;
     }
 
     /// One saved skin in the library: its face, its name, wear it in the editor, or remove it.
@@ -305,7 +390,7 @@ final class SaoSkinApp {
             ed.snapshot();
             ed.load(img, k.slim());
             arms.selectToggle(k.slim() ? slim : classic);
-            status.setText("已载入「" + k.name() + "」");
+            status.setText("「" + k.name() + "」");
         });
         return row;
     }
@@ -453,7 +538,6 @@ final class SaoSkinApp {
     /// The character to paint on: both layers as boxes whose faces carry the skin's pixels, so a press on a face
     /// is a press on a pixel of the 64×64 skin.
     private static final class Editor extends StackPane {
-        static final double W = 236, H = 270;
         /// The texture is drawn this many times larger, pixel for pixel, so the boxes show hard pixels.
         private static final int UP = 8;
         /// The skin, 64×64 ARGB.
@@ -461,11 +545,18 @@ final class SaoSkinApp {
         private final WritableImage tex = new WritableImage(64 * UP, 64 * UP);
         private final PhongMaterial innerMat = new PhongMaterial(), outerMat = new PhongMaterial();
         private final Group model = new Group();
+        /// The view turns like a turntable in 3D software: about the upright axis without end, tipped up and down
+        /// within limits, never rolled; the camera pans in the picture plane and moves in and out to zoom
+        /// (James, 8 Nov: "鼠标更人性化的方案是直接去找3d软件是怎么做鼠标拖动和拉伸的").
         private final Rotate yaw = new Rotate(-24, Rotate.Y_AXIS), tilt = new Rotate(-8, Rotate.X_AXIS);
+        private final Translate pan = new Translate(), dolly = new Translate(0, 0, -78);
         private final Group innerParts = new Group(), outerParts = new Group();
         private final Deque<int[]> undo = new ArrayDeque<>(), redo = new ArrayDeque<>();
+        private final SubScene view;
+        /// Whether presses on the character paint (the editor) or only turn it (the library's preview).
+        private final boolean paints;
         boolean slim;
-        private boolean outerLayer, outerShown = true;
+        private boolean bodyShown = true, outerShown = true;
         java.util.function.Supplier<Tool> tool = () -> Tool.PEN;
         java.util.function.Supplier<Color> colour = () -> Color.BLACK;
         java.util.function.BooleanSupplier mirror = () -> false;
@@ -476,30 +567,77 @@ final class SaoSkinApp {
         private final java.util.BitSet shaded = new java.util.BitSet(64 * 64);
         java.util.function.Consumer<Color> onPicked = c -> {
         };
-        /// The drag in progress: turning the character, or painting (with the last pixel painted).
-        private boolean turning;
+        /// What the drag in progress does.
+        private enum Drag { NONE, PAINT, TURN, PAN }
+        private Drag drag = Drag.NONE;
         private int lastX = -1, lastY = -1;
-        private double pressX, pressY, pressYaw, pressTilt;
+        private double pressX, pressY, pressYaw, pressTilt, pressPanX, pressPanY;
 
-        Editor() {
+        /// Which way a sideways drag turns the character (checked on the real picture: the side under the pointer
+        /// follows the pointer).
+        static double TURN = -0.5;
+
+        Editor(double w, double h, boolean paints) {
+            this.paints = paints;
             getStyleClass().add("vr-stage");
-            setMinSize(W, H);
-            setMaxSize(W, H);
             innerMat.setDiffuseMap(tex);
             outerMat.setDiffuseMap(tex);
             build();
             model.getTransforms().addAll(new Translate(0, 2, 0), yaw, tilt);
             Group root = new Group(new AmbientLight(Color.WHITE), model);
-            SubScene view = new SubScene(root, W, H, true, SceneAntialiasing.BALANCED);
+            view = new SubScene(root, w, h, true, SceneAntialiasing.BALANCED);
             view.setFill(Color.TRANSPARENT);
             PerspectiveCamera cam = new PerspectiveCamera(true);
             cam.setFarClip(1000);
-            cam.getTransforms().addAll(new Rotate(180, Rotate.Y_AXIS), new Translate(0, 0, -78));
+            cam.getTransforms().addAll(new Rotate(180, Rotate.Y_AXIS), pan, dolly);
             view.setCamera(cam);
+            setMinSize(w, h);
+            setPrefSize(w, h);
+            if (!paints) setMaxSize(w, h);
             getChildren().add(view);
             view.addEventHandler(MouseEvent.MOUSE_PRESSED, this::press);
             view.addEventHandler(MouseEvent.MOUSE_DRAGGED, this::drag);
-            view.addEventHandler(MouseEvent.MOUSE_RELEASED, e -> lastX = lastY = -1);
+            view.addEventHandler(MouseEvent.MOUSE_RELEASED, e -> {
+                drag = Drag.NONE;
+                lastX = lastY = -1;
+                hover(e);
+            });
+            view.addEventHandler(MouseEvent.MOUSE_MOVED, this::hover);
+            view.addEventHandler(MouseEvent.MOUSE_CLICKED, e -> {
+                if (e.getClickCount() == 2 && pixel(e.getPickResult()) == null) faceFront();
+            });
+            // The wheel and the trackpad's pinch move in and out.
+            view.addEventHandler(ScrollEvent.SCROLL, e -> {
+                if (e.getDeltaY() != 0) zoom(Math.pow(1.0015, -e.getDeltaY()));
+                e.consume();
+            });
+            view.addEventHandler(ZoomEvent.ZOOM, e -> {
+                zoom(1 / e.getZoomFactor());
+                e.consume();
+            });
+        }
+
+        /// The width the preview was built at.
+        static double wOf(Editor e) {
+            return e.view.getWidth();
+        }
+
+        /// Lets the picture fill a pane that grows with the editor.
+        void fitTo(Region host) {
+            setMinSize(10, 10);
+            view.widthProperty().bind(host.widthProperty());
+            view.heightProperty().bind(host.heightProperty());
+        }
+
+        private void zoom(double k) {
+            dolly.setZ(Math.max(-220, Math.min(-28, dolly.getZ() * k)));
+        }
+
+        /// The cursor says what a press would do.
+        private void hover(MouseEvent e) {
+            if (drag == Drag.TURN || drag == Drag.PAN) return;
+            boolean onModel = pixel(e.getPickResult()) != null;
+            view.setCursor(paints && onModel && !e.isShiftDown() ? Cursor.CROSSHAIR : Cursor.OPEN_HAND);
         }
 
         /// Builds the six parts, base then outer, the outer ones a little larger as in the game.
@@ -516,7 +654,7 @@ final class SaoSkinApp {
             part(4, 12, 4, 16 / 64F, 16 / 64F, 0, 16 / 64F, 0, 32 / 64F, 0.5F, +2, 12);
             part(4, 12, 4, 16 / 64F, 16 / 64F, 16 / 64F, 48 / 64F, 0, 48 / 64F, 0.5F, -2, 12);
             model.getChildren().setAll(innerParts, outerParts);
-            setLayer(outerLayer, outerShown);
+            showLayers(bodyShown, outerShown);
         }
 
         /// One body part: the base box and the outer box over it.
@@ -539,13 +677,12 @@ final class SaoSkinApp {
             outerParts.getChildren().add(out);
         }
 
-        /// Paints on the base or the outer layer, and whether the outer one shows.
-        void setLayer(boolean outer, boolean shown) {
-            outerLayer = outer;
-            outerShown = shown;
-            outerParts.setVisible(outer || shown);
-            outerParts.setMouseTransparent(!outer);
-            innerParts.setMouseTransparent(outer);
+        /// Shows or hides the body and the outer layer; a press paints whichever it touches first.
+        void showLayers(boolean body, boolean outer) {
+            bodyShown = body;
+            outerShown = outer;
+            innerParts.setVisible(body);
+            outerParts.setVisible(outer);
         }
 
         /// Shows or hides one part, both layers.
@@ -563,6 +700,18 @@ final class SaoSkinApp {
         void faceFront() {
             yaw.setAngle(-24);
             tilt.setAngle(-8);
+            pan.setX(0);
+            pan.setY(0);
+            dolly.setZ(-78);
+        }
+
+        /// Takes another editor's skin, arms and view.
+        void copyFrom(Editor o) {
+            System.arraycopy(o.px, 0, px, 0, px.length);
+            if (o.slim != slim) setSlim(o.slim);
+            yaw.setAngle(o.yaw.getAngle());
+            tilt.setAngle(o.tilt.getAngle());
+            redraw();
         }
 
         /// Loads a skin (64×64, or 64×32 widened the game's way).
@@ -597,38 +746,73 @@ final class SaoSkinApp {
         }
 
         private void press(MouseEvent e) {
-            pressX = e.getX();
-            pressY = e.getY();
+            pressX = e.getScreenX();
+            pressY = e.getScreenY();
             pressYaw = yaw.getAngle();
             pressTilt = tilt.getAngle();
+            pressPanX = pan.getX();
+            pressPanY = pan.getY();
             @Nullable Point2D p = pixel(e.getPickResult());
-            turning = e.getButton() != MouseButton.PRIMARY || p == null;
-            if (turning) return;
+            // As in Blockbench and the web skin editors: the left button paints on the character and turns it
+            // beside it; the right button turns; the middle button, or Shift with either, pans.
+            if (e.getButton() == MouseButton.MIDDLE || e.isShiftDown() && e.getButton() != MouseButton.NONE) drag = Drag.PAN;
+            else if (e.getButton() == MouseButton.PRIMARY && paints && p != null) drag = Drag.PAINT;
+            else drag = Drag.TURN;
+            e.consume();
+            if (drag != Drag.PAINT) {
+                view.setCursor(Cursor.CLOSED_HAND);
+                return;
+            }
             Tool t = tool.get();
+            boolean onBody = e.getPickResult().getIntersectedNode() instanceof SkinCube c && isBody(c);
             if (t == Tool.PICK) {
                 int v = px[(int) p.getY() * 64 + (int) p.getX()];
                 onPicked.accept(argb(v | 0xff000000));
-                turning = true;
+                drag = Drag.NONE;
+                return;
+            }
+            // The body has no see-through in the game: the eraser only clears the outer layer.
+            if (t == Tool.ERASE && onBody) {
+                drag = Drag.NONE;
                 return;
             }
             snapshot();
             shaded.clear();
             if (t == Tool.FILL) {
                 fill((int) p.getX(), (int) p.getY());
-                turning = true;
+                drag = Drag.NONE;
                 return;
             }
             paint((int) p.getX(), (int) p.getY());
         }
 
+        private boolean isBody(SkinCube c) {
+            for (SkinCube b : ins) if (b == c) return true;
+            return false;
+        }
+
         private void drag(MouseEvent e) {
-            if (turning) {
-                yaw.setAngle(pressYaw - (e.getX() - pressX) * 0.6);
-                tilt.setAngle(Math.max(-60, Math.min(60, pressTilt + (e.getY() - pressY) * 0.4)));
-                return;
+            double dx = e.getScreenX() - pressX, dy = e.getScreenY() - pressY;
+            switch (drag) {
+                case TURN -> {
+                    yaw.setAngle(pressYaw + TURN * dx);
+                    tilt.setAngle(Math.max(-85, Math.min(85, pressTilt - 0.4 * dy)));
+                }
+                case PAN -> {
+                    double k = -dolly.getZ() / 520;
+                    pan.setX(pressPanX + dx * k);
+                    pan.setY(pressPanY - dy * k);
+                }
+                case PAINT -> {
+                    @Nullable Point2D p = pixel(e.getPickResult());
+                    if (p == null) return;
+                    if (tool.get() == Tool.ERASE && e.getPickResult().getIntersectedNode() instanceof SkinCube c && isBody(c)) return;
+                    paint((int) p.getX(), (int) p.getY());
+                }
+                default -> {
+                }
             }
-            @Nullable Point2D p = pixel(e.getPickResult());
-            if (p != null) paint((int) p.getX(), (int) p.getY());
+            e.consume();
         }
 
         /// The skin pixel under a press, or null when the press missed the character.

@@ -97,8 +97,9 @@ final class SaoFloatWindow extends Group {
         }
         body.setOnMousePressed(e -> toFront());
         body.opacityProperty().bind(glass);
-        // Unlit glass takes no clicks, as when the whole window faded.
-        mouseTransparentProperty().bind(glass.lessThan(0.05));
+        // Only fully lit glass takes clicks: a window pushed back behind an open one cannot be picked through the
+        // gaps and pulled to the front (James, 8 Nov: "打开这个了后不应该选择不了别的界面了吗？").
+        mouseTransparentProperty().bind(glass.lessThan(0.99));
         getChildren().add(0, body);
         // The glass and its shadow are kept as a picture between changes: the shadow is not blurred again every
         // frame, and the text keeps its full resolution inside the turned space.

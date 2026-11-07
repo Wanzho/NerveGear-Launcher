@@ -6,6 +6,7 @@
 package org.jackhuang.hmcl.ui.sao;
 
 import javafx.animation.AnimationTimer;
+import javafx.animation.Interpolator;
 import javafx.animation.KeyFrame;
 import javafx.animation.KeyValue;
 import javafx.animation.PauseTransition;
@@ -236,7 +237,17 @@ public final class SaoHelmetPage extends StackPane {
         // when the window or the screen is another shape.
         screen.setManaged(false);
         screen.setClip(screenClip);
-        screen.getChildren().setAll(glass, world, frame, pad, glint, black);
+        current = this;
+        cover.setManaged(false);
+        cover.setVisible(false);
+        cover.setStyle("-fx-background-color: rgba(0,0,0,0.55);");
+        cover.getStyleClass().add("theme-sao");
+        cover.getStylesheets().add(css);
+        coverDesign.getTransforms().addAll(coverShift, coverFit);
+        coverDesign.setPickOnBounds(false);
+        cover.getChildren().add(new Group(coverDesign));
+        StackPane.setAlignment(cover.getChildren().get(0), Pos.TOP_LEFT);
+        screen.getChildren().setAll(glass, world, frame, pad, cover, glint, black);
         getChildren().setAll(screen);
 
         setOnKeyPressed(e -> {
@@ -880,6 +891,11 @@ public final class SaoHelmetPage extends StackPane {
         padFit.setY(s);
         padShift.setX(w / 2.0 - EW / 2 * s);
         padShift.setY(h / 2.0 - EH / 2 * s);
+        cover.resizeRelocate(0, 0, w, h);
+        coverFit.setX(s);
+        coverFit.setY(s);
+        coverShift.setX(w / 2.0 - EW / 2 * s);
+        coverShift.setY(h / 2.0 - EH / 2 * s);
 
         // The head turns about the eye: the space moves the other way, near windows more than far ones.
         double eye = -(h / 2.0) / Math.tan(HALF_FOV) / s;
@@ -1141,15 +1157,69 @@ public final class SaoHelmetPage extends StackPane {
 
     /// Lets the window be dragged by the empty glass.
     private void hookWindow() {
-        try {
-            Controllers.getDecorator().capableDraggingWindow(this);
-            // James, 8 Nov: "为什么没有任何一个可以拖动整个窗口的地方？": the empty space around the windows moves it.
-            Controllers.getDecorator().forbidDraggingWindow(windows);
-            Controllers.getDecorator().forbidDraggingWindow(pad);
-        } catch (NullPointerException | IllegalStateException noWindow) {
-            // Screenshot tools: no launcher window.
-        }
+        // James, 8 Nov: "为什么没有任何一个可以拖动整个窗口的地方？": a press on the empty space around the windows moves the
+        // launcher; a press on a window, the character or a button never does ("现在steve焊上面了": the decorator's
+        // hover test let a drag on the character move the whole window). The page does this itself, by where the
+        // press went, instead of through the decorator's hover flag.
+        windows.addEventFilter(MouseEvent.MOUSE_PRESSED, e -> pressOnWindow = true);
+        pad.addEventFilter(MouseEvent.MOUSE_PRESSED, e -> pressOnWindow = true);
+        cover.addEventFilter(MouseEvent.MOUSE_PRESSED, e -> pressOnWindow = true);
+        addEventFilter(MouseEvent.MOUSE_PRESSED, e -> pressOnWindow = false);
+        addEventHandler(MouseEvent.MOUSE_PRESSED, e -> {
+            moving = !pressOnWindow && e.isPrimaryButtonDown() && getCursor() == null && getScene() != null
+                    && getScene().getWindow() instanceof javafx.stage.Stage st && !st.isFullScreen() && !st.isMaximized();
+            if (!moving) return;
+            javafx.stage.Window win = getScene().getWindow();
+            moveFromX = win.getX() - e.getScreenX();
+            moveFromY = win.getY() - e.getScreenY();
+        });
+        addEventHandler(MouseEvent.MOUSE_DRAGGED, e -> {
+            if (!moving || getScene() == null) return;
+            javafx.stage.Window win = getScene().getWindow();
+            win.setX(e.getScreenX() + moveFromX);
+            win.setY(e.getScreenY() + moveFromY);
+            e.consume();
+        });
+        addEventHandler(MouseEvent.MOUSE_RELEASED, e -> moving = false);
     }
+
+    /// The page on screen, for the skin editor's cover.
+    private static @Nullable SaoHelmetPage current;
+    /// A large flat panel over the whole helmet (the skin editor), with the helmet dimmed behind it.
+    private final StackPane cover = new StackPane();
+    /// The cover's panel in design pixels (1280 × 720), fitted like the pad.
+    private final javafx.scene.layout.Pane coverDesign = new javafx.scene.layout.Pane();
+    private final Translate coverShift = new Translate();
+    private final Scale coverFit = new Scale(1, 1);
+
+    /// Shows a panel over the whole helmet (James, 8 Nov: "编辑页面大点（可以覆盖头盔）").
+    static void cover(Region panel) {
+        SaoHelmetPage p = current;
+        if (p == null) return;
+        panel.setManaged(false);
+        panel.resizeRelocate(36, 34, EW - 72, EH - 68);
+        p.coverDesign.getChildren().setAll(panel);
+        p.cover.setVisible(true);
+        p.cover.setOpacity(0);
+        new Timeline(new KeyFrame(Duration.millis(160), new KeyValue(p.cover.opacityProperty(), 1, Interpolator.EASE_OUT))).play();
+    }
+
+    /// Takes the cover away.
+    static void uncover() {
+        SaoHelmetPage p = current;
+        if (p == null || !p.cover.isVisible()) return;
+        Timeline t = new Timeline(new KeyFrame(Duration.millis(140), new KeyValue(p.cover.opacityProperty(), 0, Interpolator.EASE_IN)));
+        t.setOnFinished(e -> {
+            p.cover.setVisible(false);
+            p.coverDesign.getChildren().clear();
+        });
+        t.play();
+    }
+
+    /// Whether the last press landed on a window or the pad, and whether it is moving the launcher window.
+    private boolean pressOnWindow, moving;
+    /// The window's corner relative to the pointer when a move began.
+    private double moveFromX, moveFromY;
 
     // ------------------------------------------------------------------ tools
 

@@ -113,6 +113,19 @@ public final class SaoScreenShotTool {
                 for (int i = 0; i < apps.length; i++) {
                     shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, i, out.resolve(p + String.format("%02d-%s.png", i + 1, apps[i])));
                 }
+                // The skin editor over the helmet, then turned as a drag 80 px to the right would turn it.
+                shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, 2, out.resolve(p + "60-skin-library.png"));
+                fx(() -> SaoSkinApp.forceEdit.run());
+                Thread.sleep(700);
+                WritableImage[] ed = new WritableImage[1];
+                fx(() -> ed[0] = scene[0].snapshot(null));
+                write(ed[0], out.resolve(p + "61-skin-editor.png"));
+                fx(() -> SaoSkinApp.forceTurn(80));
+                Thread.sleep(300);
+                fx(() -> ed[0] = scene[0].snapshot(null));
+                write(ed[0], out.resolve(p + "62-skin-editor-dragged-right.png"));
+                fx(SaoHelmetPage::uncover);
+                Thread.sleep(300);
                 shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, 0, out.resolve(p + "20-settings-uninstall.png"));
                 fx(() -> page[0].forceDanger());
                 Thread.sleep(500);
