@@ -20,7 +20,6 @@ import javafx.scene.PerspectiveCamera;
 import javafx.scene.SceneAntialiasing;
 import javafx.scene.SubScene;
 import javafx.scene.control.Button;
-import javafx.scene.control.PasswordField;
 import javafx.scene.control.TextField;
 import javafx.scene.control.ToggleButton;
 import javafx.scene.control.ToggleGroup;
@@ -69,7 +68,6 @@ import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
 import java.nio.file.Path;
-import java.util.Arrays;
 import java.util.Objects;
 import java.util.regex.Pattern;
 
@@ -150,7 +148,6 @@ public final class SaoHelmetPage extends StackPane {
     private final TextField name = field("玩家名");
     private final TextField msName = field("");
     private final Button msSignIn = SaoUiKit.button("登录 Microsoft");
-    private final PasswordField password = new PasswordField();
     /// The character.
     private final Character skin = new Character();
     private final ToggleGroup arms = new ToggleGroup();
@@ -322,7 +319,9 @@ public final class SaoHelmetPage extends StackPane {
         return w.home(1022, 156, 40, 24, 0);
     }
 
-    /// The player, in the middle: the account, the sao_auth password and the character turning in 3D.
+    /// The player, in the middle: the account and the character turning in 3D. No server password here (James, 7 Nov:
+    /// "理清一下逻辑，首先人家得进服才能设密码"): a new player sets it on joining, in the game's own log-in, which also
+    /// remembers the device.
     private SaoFloatWindow buildPlayer() {
         ImageView logo = new ImageView(SaoAssets.image("logo.png"));
         logo.setPreserveRatio(true);
@@ -336,9 +335,6 @@ public final class SaoHelmetPage extends StackPane {
         msName.setFocusTraversable(false);
         msSignIn.setOnAction(e -> Controllers.dialog(new CreateAccountPane(Accounts.FACTORY_MICROSOFT)));
         msSignIn.setMaxWidth(Double.MAX_VALUE);
-        password.getStyleClass().add("vr-field");
-        password.setFont(ui(14, false));
-        password.setPromptText("sao_auth 密码");
         StackPane accountField = new StackPane(name, msName, msSignIn);
         accountField.setAlignment(Pos.CENTER_LEFT);
         problem.getStyleClass().add("vr-warn");
@@ -349,7 +345,6 @@ public final class SaoHelmetPage extends StackPane {
         change.setOnAction(e -> pickSkin());
         VBox fields = new VBox(6,
                 key("账号"), accountField,
-                key("服务器密码"), password,
                 key("皮肤"), new HBox(6, classic, slim, change),
                 problem);
         fields.setPrefWidth(212);
@@ -730,11 +725,9 @@ public final class SaoHelmetPage extends StackPane {
         }
         problem.setText("");
         Accounts.setSelectedAccount(account);
-        char @Nullable [] pw = password.getText().isEmpty() ? null : password.getText().toCharArray();
-        password.clear();
         boolean ready = service.state().get() == SaoPackState.READY;
-        service.linkStart(account, pw);
-        if (pw != null) Arrays.fill(pw, '\0');
+        // The password is the game's: it asks for it (or sets it, the first time) on joining.
+        service.linkStart(account, null);
         // Normal start: the game starts while the display powers down. A first install or an update keeps the
         // display on with the progress until the engine reports the game running.
         if (ready) powerDown();
