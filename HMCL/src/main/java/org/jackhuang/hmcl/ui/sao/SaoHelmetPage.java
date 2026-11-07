@@ -696,15 +696,21 @@ public final class SaoHelmetPage extends StackPane {
         return r;
     }
 
-    /// When the game last ran, in a few words: 今天 21:40, 昨天 21:40, 3 天前.
+    /// When the game last ran, in a few words: 今天21:40, 昨天21:40, 3天前.
     private static String whenText(long epochMs) {
         java.time.ZoneId z = java.time.ZoneId.systemDefault();
         java.time.LocalDateTime t = java.time.Instant.ofEpochMilli(epochMs).atZone(z).toLocalDateTime();
         long days = java.time.temporal.ChronoUnit.DAYS.between(t.toLocalDate(), java.time.LocalDate.now(z));
         String hm = String.format(java.util.Locale.ROOT, "%02d:%02d", t.getHour(), t.getMinute());
-        if (days <= 0) return "今天 " + hm;
-        if (days == 1) return "昨天 " + hm;
-        return days + " 天前";
+        if (days <= 0) return "今天" + hm;
+        if (days == 1) return "昨天" + hm;
+        return days + "天前";
+    }
+
+    /// Play time: 12.7小时, under an hour 40分钟.
+    private static String playText(long seconds) {
+        if (seconds < 3600) return Math.max(seconds > 0 ? 1 : 0, seconds / 60) + "分钟";
+        return String.format(java.util.Locale.ROOT, "%.1f小时", seconds / 3600.0);
     }
 
     /// A download speed in a few characters: 820 KB/s, 3.2 MB/s.
@@ -1054,8 +1060,9 @@ public final class SaoHelmetPage extends StackPane {
                         stat("第", card.floor() < 0 ? "-" : Integer.toString(card.floor()), "层"), statRule(),
                         stat("", card.col() < 0 ? "-" : String.format(java.util.Locale.ROOT, "%,d", card.col()), "Col"));
                 tiles.setAlignment(Pos.CENTER_LEFT);
-                Text last = dim(card.lastPlayed() <= 0 ? "还没进过游戏"
-                        : "上次进入 " + whenText(card.lastPlayed()) + " · 共 " + SaoAccountApp.hours(card.playSeconds()), 12);
+                // James, 7 Nov: "上次进入：昨天22:18", "累计游玩时长：_._小时 （不到一小时，_分钟）".
+                Text last = dim(card.lastPlayed() <= 0 ? "上次进入：还没进过游戏" : "上次进入：" + whenText(card.lastPlayed()), 12);
+                Text total = dim("累计游玩时长：" + playText(card.playSeconds()), 12);
                 HBox friends = new HBox(6);
                 friends.setAlignment(Pos.CENTER_LEFT);
                 if (card.friendsOnline().isEmpty()) {
@@ -1070,7 +1077,7 @@ public final class SaoHelmetPage extends StackPane {
                     }
                     if (card.friendsOnline().size() > 3) friends.getChildren().add(dim("+" + (card.friendsOnline().size() - 3), 12));
                 }
-                signedIn.getChildren().addAll(tiles, last, friends);
+                signedIn.getChildren().addAll(tiles, new VBox(2, last, total), friends);
             }
             if (!a.emailVerified()) {
                 Text w = new Text(a.maskedEmail().isEmpty() ? "还没有邮箱，绑定后才能找回密码"
