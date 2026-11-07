@@ -116,9 +116,9 @@ final class SaoGameBridge {
     void launch(Account account, SaoPackManifest manifest, int memoryMiB, SaoData.GameWindow window, String jvmArgs, char @Nullable [] password,
                 java.util.function.BooleanSupplier cancelled, ProcessListener listener) throws Exception {
         try {
-            if (!(account instanceof OfflineAccount) && !(account instanceof MicrosoftAccount))
-                throw new IOException("Only existing offline and Microsoft accounts are supported");
-            boolean handoff = !manifest.server().isEmpty();
+            if (!(account instanceof OfflineAccount) && !(account instanceof MicrosoftAccount) && !(account instanceof SaoOathLaunchAccount))
+                throw new IOException("Unsupported launcher account");
+            boolean handoff = !(account instanceof SaoOathLaunchAccount) && !manifest.server().isEmpty();
             if (!handoff && password != null) Arrays.fill(password, '\0');
             if (handoff && password != null && password.length > SaoAuthHandoff.MAX_PASSWORD_CHARS)
                 throw new IOException("sao_auth password is too long");

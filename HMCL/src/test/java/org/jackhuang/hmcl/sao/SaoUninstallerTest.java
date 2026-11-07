@@ -21,12 +21,15 @@ import static org.junit.jupiter.api.Assertions.*;
 /// No test launches a native removal helper, desktop application, game or download.
 @NotNullByDefault
 class SaoUninstallerTest {
-    /// JUnit's base directory is configured to the isolated launcherback3 evidence fixtures.
+    /// JUnit's base directory is configured to an explicitly isolated launcher evidence fixture tree.
     @TempDir Path temporary;
 
     /// Prevents accidental execution with real/default launcher roots or an unconfigured temporary base.
     @BeforeEach void requireIsolatedFixtureBase() {
-        assertTrue(temporary.toAbsolutePath().toString().contains("launcherback3"), "Configure the launcherback3 fixture directory before these tests");
+        Path evidence = Path.of(System.getProperty("user.home"), "Developer", "sao-launcher-runs");
+        Path actual = temporary.toAbsolutePath().normalize();
+        assertTrue(actual.startsWith(evidence.resolve("launcherback3/fixtures"))
+                || actual.startsWith(evidence.resolve("launcherback4/fixtures")), "Configure an isolated launcher fixture directory before these tests");
     }
 
     /// Counts shared/nested roots once and never traverses a link into unrelated data.
