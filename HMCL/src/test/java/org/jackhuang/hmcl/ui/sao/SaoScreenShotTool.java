@@ -47,7 +47,7 @@ public final class SaoScreenShotTool {
     /// @throws Exception on any failure
     private static void run(String[] args) throws Exception {
         Path out = Path.of(args.length > 0 ? args[0] : "sao-shots");
-        int[][] sizes = {{1000, 620}, {1920, 1080}};
+        int[][] sizes = {{1000, 620, 0}, {1920, 1080, 0}, {1920, 1080, 1}};
         Files.createDirectories(out);
         Platform.setImplicitExit(false);
         CountDownLatch up = new CountDownLatch(1);
@@ -56,8 +56,9 @@ public final class SaoScreenShotTool {
         System.out.println("SCENE3D supported: " + Platform.isSupported(javafx.application.ConditionalFeature.SCENE3D));
         for (int[] size : sizes) {
             int w = size[0], h = size[1];
-            boolean big = w > 1500;
-            // The small size shows the Windows/Linux layout of the window buttons (top right), the big one the Mac's.
+            boolean win = size[2] == 1, big = w > 1500 && !win;
+            // The small size and the second big one show the Windows/Linux layout of the window buttons (top right),
+            // the first big one the Mac's.
             System.setProperty("sao.windowButtons", big ? "left" : "right");
             SaoFakeService fake = new SaoFakeService();
             SaoHelmetPage[] page = new SaoHelmetPage[1];
@@ -67,8 +68,12 @@ public final class SaoScreenShotTool {
                 scene[0] = new Scene(page[0], w, h);
             });
             Thread.sleep(2500);
-            String p = w + "x" + h + "-";
-            if (big) {
+            String p = w + "x" + h + (win ? "-win-" : "-");
+            if (win) {
+                // Signed in, as on the Mac, with the buttons on the right.
+                fx(() -> fake.forceOath(true));
+                shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "21-home-signed-in.png"));
+            } else if (big) {
                 String[] apps = {"settings", "skin", "worlds", "multiplayer", "packs", "screenshots", "logs", "java", "downloads", "about"};
                 shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "00-home.png"));
                 for (int i = 0; i < apps.length; i++) {

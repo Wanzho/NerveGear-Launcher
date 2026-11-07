@@ -143,7 +143,7 @@ public final class SaoHelmetPage extends StackPane {
     private final PasswordField pw = SaoAccountApp.password("");
     private final ToggleButton remember = new ToggleButton();
     private final Button login = SaoUiKit.accent("登录");
-    private final Button useMicrosoft = SaoUiKit.button("使用 Microsoft");
+    private final Button useMicrosoft = SaoUiKit.button("使用 Microsoft 登录");
     private final VBox signedOut = new VBox(6);
     private final VBox signedIn = new VBox(8);
     /// Logging in with the remembered password on opening: the player sees the account, not a password form
@@ -357,7 +357,7 @@ public final class SaoHelmetPage extends StackPane {
         login.setMaxWidth(Double.MAX_VALUE);
         login.setOnAction(e -> login());
         login.defaultButtonProperty().bind(signedOut.visibleProperty());
-        useMicrosoft.setGraphic(icon(SVG.MICROSOFT, 14));
+        useMicrosoft.setGraphic(microsoftLogo(14));
         useMicrosoft.setMaxWidth(Double.MAX_VALUE);
         useMicrosoft.setOnAction(e -> premiumLogin());
         HBox outHead = new HBox(8, sao("ARGUS ID", 15, true), grow(), dim("未登录", 12));
@@ -407,6 +407,19 @@ public final class SaoHelmetPage extends StackPane {
         SaoFloatWindow w = new SaoFloatWindow("", 448, 330, null).add(body);
         w.body.setPadding(new Insets(16, 18, 16, 18));
         return w.home(640, 186, 0, 0, 0);
+    }
+
+    /// The Microsoft logo, its four squares in their colours, as Microsoft's own sign-in buttons show it.
+    private static Node microsoftLogo(double size) {
+        double gap = size / 12, cell = (size - gap) / 2;
+        Group g = new Group();
+        String[] colours = {"#f25022", "#7fba00", "#00a4ef", "#ffb900"};
+        for (int i = 0; i < 4; i++) {
+            Rectangle r = new Rectangle((i % 2) * (cell + gap), (i / 2) * (cell + gap), cell, cell);
+            r.setFill(Color.web(colours[i]));
+            g.getChildren().add(r);
+        }
+        return g;
     }
 
     /// 正版 login: Microsoft first when not signed in yet, then ARGUS ID with it.
