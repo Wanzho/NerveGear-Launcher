@@ -170,7 +170,8 @@ final class SaoOathAccounts implements AutoCloseable {
     /// Identifies the storage provider without exposing credentials.
     String credentialBackend() { return credentials.backend(); }
 
-    /// Logs in explicitly, optionally reading a matching protected remembered credential, and refreshes server state.
+    /// Sends the entered nickname or mailbox unchanged, then refreshes authoritative account state.
+    /// Remembering stores the returned current nickname, including after mailbox or displaced-alias sign-in.
     CompletableFuture<Void> login(String name, char @Nullable [] supplied, boolean remember) {
         char @Nullable [] password = own(supplied);
         long expected = generation.get();

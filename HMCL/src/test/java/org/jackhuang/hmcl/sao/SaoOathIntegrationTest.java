@@ -93,7 +93,11 @@ class SaoOathIntegrationTest {
             assertWiped(oldBuffer);
             assertWiped(newBuffer);
             assertNull(engine.oathAccount().get());
-            await(engine.oathLogin(name, last.toCharArray(), true));
+            await(engine.oathLogin(nextEmail.toUpperCase(java.util.Locale.ROOT), last.toCharArray(), true));
+            assertEquals(id, requireAccount(engine).profileId());
+            SaoOathCredentials.Credential remembered = java.util.Objects.requireNonNull(credentials.read());
+            try { assertTrue(remembered.name().equals(name), "Mailbox login must save the canonical nickname"); }
+            finally { Arrays.fill(remembered.password(), '\0'); }
             assertEquals(name, engine.rememberedOathName());
             assertPrivateFiles(root, List.of(name, original, replacement, last));
         }
