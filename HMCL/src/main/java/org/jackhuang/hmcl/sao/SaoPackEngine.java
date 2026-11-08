@@ -299,6 +299,24 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
 
     /// {@inheritDoc}
     @Override public void linkStart(Account account, char @Nullable [] authPassword) {
+        startGame(account, authPassword, false);
+    }
+
+    /// Validates the exact ephemeral name without persisting it or consulting ARGUS ID.
+    @Override public void linkStartOffline(String name) {
+        if (closed.get() || uninstalling.get()) return;
+        SaoPackState current = state.get();
+        if (current != SaoPackState.NOT_INSTALLED && current != SaoPackState.UPDATE_READY && current != SaoPackState.READY
+                || busy.get()) return;
+        if (!name.matches("[A-Za-z0-9_]{3,16}")) {
+            publish(() -> error.set("名字须为 3–16 位英文字母、数字或下划线"));
+            return;
+        }
+        startGame(SaoGameBridge.offlineAccount(name), null, true);
+    }
+
+    /// Runs the shared install/update/launch lifecycle; offline mode suppresses server authentication and joining.
+    private void startGame(Account account, char @Nullable [] authPassword, boolean offline) {
         if (closed.get() || uninstalling.get()) {
             if (authPassword != null) Arrays.fill(authPassword, '\0');
             return;
@@ -316,6 +334,8 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
         worker.execute(() -> {
             try {
                 if (closed.get()) throw new IOException("Launcher has closed");
+                // A prior ARGUS launch must not leak a handoff into dependency preparation or this run.
+                if (offline) game.clearOfflineTicket();
                 SaoPackArchive pack = requireSource();
                 game.ensureInstalled(false);
                 @Nullable SaoPackManifest previous = installer.installed();
@@ -330,7 +350,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
                 logs.clear();
                 publish(() -> { gameLog.clear(); crash.set(null); });
                 gameRunning.set(true);
-                game.launch(account, pack.manifest(), launchMemoryMiB(), gameWindow(), jvmArgs(), password, closed::get, new ProcessListener() {
+                game.launch(account, pack.manifest(), launchMemoryMiB(), gameWindow(), jvmArgs(), password, offline, closed::get, new ProcessListener() {
                     /// Starts accounting after the OS process exists and before HMCL starts its exit monitor.
                     @Override public void setProcess(org.jackhuang.hmcl.util.platform.ManagedProcess process) {
                         if (account instanceof SaoOathLaunchAccount launched) oath.gameStarted(launched);
@@ -357,7 +377,9 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
             } catch (Exception failure) {
                 gameRunning.set(false);
                 busy.set(false);
-                if (source == null) fail("Link Start 失败", failure);
+                if (offline) publish(() -> { error.set("离线启动失败，请检查整合包和 Java 17 设置");
+                    state.set(SaoPackState.FAILED); step.set(""); progress.set(-1); });
+                else if (source == null) fail("Link Start 失败", failure);
                 else publish(() -> { error.set("Link Start 失败（" + failure.getClass().getSimpleName() + "）。请检查账户、网络和 Java 17 设置。");
                     state.set(SaoPackState.FAILED); step.set(""); progress.set(-1); });
             } finally {

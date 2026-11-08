@@ -54,7 +54,7 @@ public interface SaoLauncherService {
     ///        or null to type it in game; never written to disk in plain text, never in process arguments
     void linkStart(Account account, char @Nullable [] authPassword);
 
-    /// 离线游玩 (James, 8 Nov: "可以选择不登录任何东西，顶着个名字，但是提醒窗口写这样就登录不了咱服务器"): installs or
+    /// 离线游玩: installs or
     /// updates when needed, then starts the game with an offline account of this name, without ARGUS ID, without a
     /// launch ticket and without joining the 誓约 server. Ignored unless the state is NOT_INSTALLED, UPDATE_READY or
     /// READY.

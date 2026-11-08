@@ -9,6 +9,9 @@ import org.jackhuang.hmcl.auth.Account;
 import org.jackhuang.hmcl.auth.AuthInfo;
 import org.jackhuang.hmcl.auth.microsoft.MicrosoftAccount;
 import org.jackhuang.hmcl.auth.offline.OfflineAccount;
+import org.jackhuang.hmcl.auth.offline.OfflineAccountFactory;
+import org.jackhuang.hmcl.auth.authlibinjector.AuthlibInjectorArtifactInfo;
+import org.jackhuang.hmcl.auth.authlibinjector.AuthlibInjectorArtifactProvider;
 import org.jackhuang.hmcl.download.DefaultCacheRepository;
 import org.jackhuang.hmcl.download.DefaultDependencyManager;
 import org.jackhuang.hmcl.download.HMCLDownloadProvider;
@@ -76,6 +79,32 @@ final class SaoGameBridge {
     /// Returns the fixed run directory, matching GameBuilder.enableIsolation().
     Path instanceDir() { return repository.getLayout().getInstanceRoot(INSTANCE_ID); }
 
+    /// Creates HMCL's standard deterministic offline identity, with no skin agent or account-server lookup.
+    static OfflineAccount offlineAccount(String name) {
+        if (!name.matches("[A-Za-z0-9_]{3,16}")) throw new IllegalArgumentException("Invalid offline name");
+        return new OfflineAccountFactory(NoOfflineInjector.INSTANCE).create(name, OfflineAccountFactory.getUUIDFromUserName(name));
+    }
+
+    /// An offline default skin never needs an injector; fail locally if HMCL unexpectedly requests one.
+    @NotNullByDefault
+    private enum NoOfflineInjector implements AuthlibInjectorArtifactProvider {
+        /// Shared stateless provider with no network or filesystem access.
+        INSTANCE;
+        /// Refuses an agent download rather than silently introducing authentication into offline play.
+        @Override public AuthlibInjectorArtifactInfo getArtifactInfo() throws IOException {
+            throw new IOException("Offline play does not use authlib-injector");
+        }
+        /// Reports that no authentication agent is configured for this offline account.
+        @Override public Optional<AuthlibInjectorArtifactInfo> getArtifactInfoImmediately() { return Optional.empty(); }
+    }
+
+    /// Removes only the fixed ticket entry, never following a ticket symlink or accepting aliased parent folders.
+    /// Any deletion failure aborts offline preparation before installation or process creation.
+    void clearOfflineTicket() throws IOException {
+        SaoUninstaller.rejectSymlinkAncestors(instanceDir());
+        Files.deleteIfExists(instanceDir().resolve(SaoOathLaunchTicket.FILE_NAME));
+    }
+
     /// Ensures Java 17, Minecraft 1.20.1, exact NeoForge 47.1.106 and launch dependencies through HMCL.
     void ensureInstalled(boolean repair) throws Exception {
         selectJava();
@@ -113,34 +142,26 @@ final class SaoGameBridge {
 
     /// Authenticates an existing supported HMCL account, starts the fixed instance and hands off stdin once.
     /// Password ownership transfers to this method; it is wiped even when authentication or process creation fails.
-    void launch(Account account, SaoPackManifest manifest, int memoryMiB, SaoData.GameWindow window, String jvmArgs, char @Nullable [] password,
+    void launch(Account account, SaoPackManifest manifest, int memoryMiB, SaoData.GameWindow window, String jvmArgs, char @Nullable [] password, boolean offline,
                 java.util.function.BooleanSupplier cancelled, ProcessListener listener) throws Exception {
         @Nullable SaoOathLaunchTicket launchTicket = null;
         boolean started = false;
         try {
             if (!(account instanceof OfflineAccount) && !(account instanceof MicrosoftAccount) && !(account instanceof SaoOathLaunchAccount))
                 throw new IOException("Unsupported launcher account");
-            boolean handoff = !(account instanceof SaoOathLaunchAccount) && !manifest.server().isEmpty();
+            boolean handoff = !offline && !(account instanceof SaoOathLaunchAccount) && !manifest.server().isEmpty();
             if (!handoff && password != null) Arrays.fill(password, '\0');
             if (handoff && password != null && password.length > SaoAuthHandoff.MAX_PASSWORD_CHARS)
                 throw new IOException("sao_auth password is too long");
             repository.refresh();
             DefaultGameInstance instance = repository.getInstance(INSTANCE_ID);
             validateInstance(instance);
-            AuthInfo auth = account.logIn();
+            if (offline) clearOfflineTicket();
+            LaunchPlan plan = launchPlan(account, manifest, memoryMiB, window, jvmArgs, selectJava(), instanceDir(), offline);
             if (cancelled.getAsBoolean()) throw new IOException("Launcher has closed");
-            LaunchOptions.Builder options = new LaunchOptions.Builder().setInstanceId(INSTANCE_ID)
-                    .setGameDir(instanceDir()).setJava(selectJava()).setMaxMemory(memoryMiB)
-                    .setVersionName("SAO Oath " + manifest.version()).setVersionType("SAO Oath")
-                    .setProfileName(account.getProfileName()).setDisableAutoGameOptions(true)
-                    .setWidth(window.width()).setHeight(window.height()).setFullscreen(window.fullscreen())
-                    .setJavaArguments(org.jackhuang.hmcl.util.StringUtils.tokenize(jvmArgs));
-            String server = manifest.server().isEmpty() && account instanceof SaoOathLaunchAccount ? "mc.saooath.com" : manifest.server();
-            if (!server.isEmpty()) options.setQuickPlayOption(new QuickPlayOption.MultiPlayer(server));
+            if (!offline && account instanceof SaoOathLaunchAccount oath) launchTicket = oath.ticket(instanceDir(), plan.server());
             if (cancelled.getAsBoolean()) throw new IOException("Launcher has closed");
-            if (account instanceof SaoOathLaunchAccount oath) launchTicket = oath.ticket(instanceDir(), server);
-            if (cancelled.getAsBoolean()) throw new IOException("Launcher has closed");
-            ManagedProcess process = new HMCLGameLauncher(instance, instance.getResolvedManifest(), auth, options.create(), listener).launch();
+            ManagedProcess process = new HMCLGameLauncher(instance, instance.getResolvedManifest(), plan.auth(), plan.options(), listener).launch();
             started = true;
             @Nullable SaoOathLaunchTicket cleanup = launchTicket;
             if (cleanup != null) process.getProcess().onExit().thenRun(() -> { try { cleanup.close(); } catch (IOException ignored) { } });
@@ -154,6 +175,32 @@ final class SaoGameBridge {
             if (!started && launchTicket != null) launchTicket.close();
             if (password != null) Arrays.fill(password, '\0');
         }
+    }
+
+    /// The exact authentication/options consumed by HMCL, available to headless tests without creating a process.
+    /// @param auth local offline authentication or the selected account's authenticated session
+    /// @param options fixed-instance settings; offline plans have no Quick Play target
+    /// @param server empty for offline play, otherwise the selected multiplayer destination
+    @NotNullByDefault
+    record LaunchPlan(AuthInfo auth, LaunchOptions options, String server) { }
+
+    /// Builds the production launch plan using the same memory, runtime, window and JVM settings in both modes.
+    /// Offline identities must be plain HMCL accounts without a custom skin, preventing injector/API side effects.
+    static LaunchPlan launchPlan(Account account, SaoPackManifest manifest, int memoryMiB, SaoData.GameWindow window,
+                                 String jvmArgs, JavaRuntime runtime, Path instance, boolean offline) throws Exception {
+        if (offline && (account.getClass() != OfflineAccount.class || ((OfflineAccount) account).getSkin() != null))
+            throw new IOException("Offline play requires a plain offline account");
+        AuthInfo auth = account.logIn();
+        LaunchOptions.Builder options = new LaunchOptions.Builder().setInstanceId(INSTANCE_ID)
+                .setGameDir(instance).setJava(runtime).setMaxMemory(memoryMiB)
+                .setVersionName("SAO Oath " + manifest.version()).setVersionType("SAO Oath")
+                .setProfileName(account.getProfileName()).setDisableAutoGameOptions(true)
+                .setWidth(window.width()).setHeight(window.height()).setFullscreen(window.fullscreen())
+                .setJavaArguments(org.jackhuang.hmcl.util.StringUtils.tokenize(jvmArgs));
+        String server = offline ? "" : manifest.server().isEmpty() && account instanceof SaoOathLaunchAccount
+                ? "mc.saooath.com" : manifest.server();
+        if (!server.isEmpty()) options.setQuickPlayOption(new QuickPlayOption.MultiPlayer(server));
+        return new LaunchPlan(auth, options.create(), server);
     }
 
     /// Rejects an existing instance with an unexpected game/loader identity before checking files or launching.
