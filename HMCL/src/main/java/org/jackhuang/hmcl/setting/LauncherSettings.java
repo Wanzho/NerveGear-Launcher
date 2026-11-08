@@ -459,7 +459,16 @@ public final class LauncherSettings extends ObservableSetting implements JsonSch
         return logFontFamily;
     }
 
-    /// The launcher log font size.
+    /// 字体大小 in the SAO screens: 0.9 小, 1 标准, 1.15 大, 1.3 特大.
+    @SerializedName("saoTextScale")
+    private final DoubleProperty saoTextScale = new SimpleDoubleProperty(1);
+
+    /// Returns the SAO screens' text size factor.
+    public DoubleProperty saoTextScaleProperty() {
+        return saoTextScale;
+    }
+
+        /// The launcher log font size.
     @SerializedName("logFontSize")
     private final DoubleProperty logFontSize = new SimpleDoubleProperty(12);
 

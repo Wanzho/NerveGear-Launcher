@@ -403,7 +403,7 @@ final class SaoAccountApp {
     /// A page: on the left its icon, title and one line; on the right the form.
     private static Node page(SVG icon, String title, String sub, Node form, Node below) {
         Text t = ink(title, 22);
-        t.setFont(ui(22, true));
+        SaoUiKit.font(t, 22, true);
         Text line = dim(sub, 13);
         line.setWrappingWidth(230);
         StackPane badge = new StackPane(icon(icon, 30));
@@ -456,7 +456,7 @@ final class SaoAccountApp {
     static Button link(String text, Runnable r) {
         Button b = new Button(text);
         b.getStyleClass().add("vr-link");
-        b.setFont(ui(12, false));
+        SaoUiKit.font(b, 12, false);
         b.setFocusTraversable(false);
         b.setOnAction(e -> r.run());
         return b;
@@ -466,7 +466,7 @@ final class SaoAccountApp {
     static PasswordField password(String prompt) {
         PasswordField f = new PasswordField();
         f.getStyleClass().add("vr-field");
-        f.setFont(ui(14, false));
+        SaoUiKit.font(f, 14, false);
         f.setPromptText(prompt);
         return f;
     }
@@ -475,7 +475,7 @@ final class SaoAccountApp {
     private static Text warn() {
         Text t = new Text();
         t.getStyleClass().add("vr-warn");
-        t.setFont(ui(12, false));
+        SaoUiKit.font(t, 12, false);
         t.setWrappingWidth(310);
         return t;
     }

@@ -221,10 +221,28 @@ final class SaoApps {
         size.setAlignment(Pos.CENTER_LEFT);
         HBox windowRow = row(size, dim("全屏", 12), full);
 
+        // James, 8 Nov: "加几个字体大小控制吧，我眼睛要瞎了".
+        ToggleGroup sizes = new ToggleGroup();
+        javafx.beans.property.DoubleProperty scale = org.jackhuang.hmcl.setting.SettingsManager.settings().saoTextScaleProperty();
+        HBox sizeRow = new HBox(6);
+        String[] names = {"小", "标准", "大", "特大"};
+        double[] factors = {0.9, 1, 1.15, 1.3};
+        for (int i = 0; i < names.length; i++) {
+            ToggleButton c = chip(names[i], sizes);
+            double k = factors[i];
+            if (Math.abs(scale.get() - k) < 0.01) c.setSelected(true);
+            c.setOnAction(e -> scale.set(k));
+            sizeRow.getChildren().add(c);
+        }
+        if (sizes.getSelectedToggle() == null) sizes.selectToggle(sizes.getToggles().get(1));
+        keepOne(sizes);
+
         VBox left = column(318,
                 memHead, memory, memAuto,
                 rule(),
-                key("游戏窗口"), windowRow);
+                key("游戏窗口"), windowRow,
+                rule(),
+                key("字体大小"), sizeRow);
 
         TextField jvm = field("例如 -XX:+UseZGC");
         jvm.setText(s.jvmArgs());
@@ -266,7 +284,7 @@ final class SaoApps {
     private static VBox uninstallConfirm(SaoLauncherService s) {
         boolean windows = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("win");
         Text title = ink("卸载刀剑神域·誓约", 20);
-        title.setFont(ui(20, true));
+        SaoUiKit.font(title, 20, true);
         Text what = ink("", 14);
         what.setWrappingWidth(560);
         // The engine measures the size in the background (-1 until known), so read it again while the question shows.

@@ -36,7 +36,43 @@ final class SaoUiKit {
     /// @param bold the bold cut
     /// @return the font
     static Font ui(double size, boolean bold) {
-        return SaoAssets.sao(readable(size), bold);
+        return SaoAssets.sao(readable(size) * textScale(), bold);
+    }
+
+    /// The nodes whose font follows 字体大小, with the size and cut they asked for.
+    private static final java.util.Map<javafx.scene.Node, double[]> SIZED = new java.util.WeakHashMap<>();
+
+    static {
+        // James, 8 Nov: "加几个字体大小控制吧，我眼睛要瞎了": 设置 → 字体大小 sets this, and every text follows at once.
+        org.jackhuang.hmcl.setting.SettingsManager.settings().saoTextScaleProperty().addListener((o, a, b) -> {
+            for (var e : new java.util.ArrayList<>(SIZED.entrySet())) apply(e.getKey(), e.getValue()[0], e.getValue()[1] != 0);
+        });
+    }
+
+    /// The 字体大小 factor.
+    ///
+    /// @return 0.9 to 1.3
+    static double textScale() {
+        double k = org.jackhuang.hmcl.setting.SettingsManager.settings().saoTextScaleProperty().get();
+        return k >= 0.8 && k <= 1.5 ? k : 1;
+    }
+
+    /// Gives a text, a button or a field the UI face and keeps it in step with 字体大小.
+    ///
+    /// @param node the node
+    /// @param size pixels at 标准
+    /// @param bold the bold cut
+    static void font(javafx.scene.Node node, double size, boolean bold) {
+        SIZED.put(node, new double[]{size, bold ? 1 : 0});
+        apply(node, size, bold);
+    }
+
+    /// Sets one node's font.
+    private static void apply(javafx.scene.Node node, double size, boolean bold) {
+        Font f = ui(size, bold);
+        if (node instanceof Text t) t.setFont(f);
+        else if (node instanceof javafx.scene.control.Labeled l) l.setFont(f);
+        else if (node instanceof javafx.scene.control.TextInputControl c) c.setFont(f);
     }
 
     /// Small text one pixel larger (James, 8 Nov: "部分字体可以适当大一点，看着头疼，部分不要改"): the hint, label, link and
@@ -106,7 +142,7 @@ final class SaoUiKit {
     static Button button(String text) {
         Button b = new Button(text);
         b.getStyleClass().add("vr-button");
-        b.setFont(ui(13, false));
+        font(b, 13, false);
         b.setFocusTraversable(false);
         b.setMinWidth(Region.USE_PREF_SIZE);
         return b;
@@ -130,7 +166,7 @@ final class SaoUiKit {
     static ToggleButton chip(String text, @org.jetbrains.annotations.Nullable ToggleGroup group) {
         ToggleButton b = new ToggleButton(text);
         b.getStyleClass().add("vr-chip");
-        b.setFont(ui(12, false));
+        font(b, 12, false);
         b.setFocusTraversable(false);
         b.setMinWidth(Region.USE_PREF_SIZE);
         if (group != null) b.setToggleGroup(group);
@@ -173,7 +209,7 @@ final class SaoUiKit {
     static TextField field(String prompt) {
         TextField f = new TextField();
         f.getStyleClass().add("vr-field");
-        f.setFont(ui(14, false));
+        font(f, 14, false);
         f.setPromptText(prompt);
         return f;
     }
@@ -186,7 +222,7 @@ final class SaoUiKit {
     static Text ink(String s, double size) {
         Text t = new Text(s);
         t.getStyleClass().add("vr-ink");
-        t.setFont(ui(size, false));
+        font(t, size, false);
         return t;
     }
 
@@ -221,7 +257,7 @@ final class SaoUiKit {
     static HBox key(String label) {
         Text a = new Text(label);
         a.getStyleClass().add("vr-key");
-        a.setFont(ui(12.5, true));
+        font(a, 12.5, true);
         HBox h = new HBox(a);
         h.setAlignment(Pos.BASELINE_LEFT);
         return h;

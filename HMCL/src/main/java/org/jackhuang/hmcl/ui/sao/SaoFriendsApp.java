@@ -394,7 +394,7 @@ final class SaoFriendsApp {
     /// One message: this player's on the right in the accent colour, others' on the left; in a group, who wrote it.
     private static Node bubble(SaoData.ChatMessage m, boolean group) {
         Text t = new Text(m.text());
-        t.setFont(SaoUiKit.ui(13, false));
+        SaoUiKit.font(t, 13, false);
         double natural = t.getLayoutBounds().getWidth();
         if (natural > 250) t.setWrappingWidth(250);
         if (m.mine()) t.setFill(Color.WHITE);
