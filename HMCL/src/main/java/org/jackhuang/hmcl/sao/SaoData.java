@@ -145,7 +145,7 @@ public final class SaoData {
         OFFICIAL
     }
 
-    /// What the player window shows under the signed-in name (James, 7 Nov): the character's level, floor and Col
+    /// What the player window shows under the signed-in name: the character's level, floor and Col
     /// from the server, the last time in the game and the play time, and the friends in the game now.
     ///
     /// @param level         the character's level, -1 while unknown
@@ -171,11 +171,11 @@ public final class SaoData {
         OFFLINE
     }
 
-    /// One ARGUS ID friend (James, 7 Nov: "好友，和好友聊天系统…游戏外也可以发消息的那种").
+    /// One ARGUS ID friend, available to chat both in game and from the launcher.
     ///
     /// @param name     their 游戏昵称
     /// @param presence where they are
-    /// @param where    a few words on where in the game ("誓约", "单人游戏"; no floor: James, 7 Nov), empty when not in it
+    /// @param where    a few words on where in the game ("誓约", "单人游戏"; no floor), empty when not in it
     /// @param head     a picture of their skin's face, or null while not downloaded
     @NotNullByDefault
     public record Friend(String name, Presence presence, String where, @Nullable Path head) {
@@ -244,8 +244,7 @@ public final class SaoData {
     /// @param locked        `lockedVerify`: the two-day grace ran out; the account can be managed but cannot join
     /// @param graceSeconds  seconds left to verify while unverified and not locked, else 0
     /// @param premiumName   the linked 正版 (Microsoft) name after 正版验证, or null when none is linked
-    /// @param mustRename    a 正版 player with this name took it (James, 8 Nov: "如果名字被正版玩家顶了，直接在launcher内提醒
-    ///                      请更换昵称", and "正版玩家拿走名字"); the account keeps its UUID and progress but cannot join
+    /// @param mustRename    a 正版 player proved ownership and took this name; the account keeps its UUID and progress but cannot join
     ///                      until it has a new name
     @NotNullByDefault
     public record OathAccount(String name, String profileId, String maskedEmail, boolean emailVerified, boolean locked,
