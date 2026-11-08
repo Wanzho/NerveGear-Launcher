@@ -126,6 +126,11 @@ public final class SaoHelmetPage extends StackPane {
     private static final double BREATH_PX = 2.6;
     /// One breath, in seconds (about 13 a minute at rest).
     private static final double BREATH_S = 4.6;
+    /// Switches for measuring what each moving part costs (-Dsao.glint=over|add|off, -Dsao.breathe=false,
+    /// -Dsao.sway=false); the defaults are the look James approved.
+    private static final String GLINT_MODE = System.getProperty("sao.glint", "over");
+    private static final boolean BREATHE = !"false".equals(System.getProperty("sao.breathe"));
+    static final boolean SWAY = !"false".equals(System.getProperty("sao.sway"));
     /// The glint's light, made once.
     private static final javafx.scene.layout.Background GLINT = new javafx.scene.layout.Background(new javafx.scene.layout.BackgroundFill(
             new RadialGradient(0, 0, 0.5, 0.5, 0.5, true, CycleMethod.NO_CYCLE,
@@ -232,7 +237,11 @@ public final class SaoHelmetPage extends StackPane {
         }
         glint.setManaged(false);
         glint.setMouseTransparent(true);
-        glint.setBlendMode(BlendMode.ADD);
+        // James, 8 Nov: "请优化". Added light (BlendMode.ADD) made JavaFX read the screen back from the graphics card
+        // under the glint every frame; drawn over (the same colour and strength, so the same light on the dark glass)
+        // it is one cached picture moved each frame.
+        if ("add".equals(GLINT_MODE)) glint.setBlendMode(BlendMode.ADD);
+        glint.setCache(true);
         black.setStyle("-fx-background-color: black;");
         black.setMouseTransparent(true);
 
@@ -297,6 +306,7 @@ public final class SaoHelmetPage extends StackPane {
             watchWindow(b.getWindow());
             hookWindow();
             powerOn();
+            measuringHooks();
         });
     }
 
@@ -1031,7 +1041,7 @@ public final class SaoHelmetPage extends StackPane {
         // on two axes. It only breathes: a slow vertical rise and fall, inhale quicker than exhale, then a short rest.
         // Only the finished picture moves (James, 8 Nov: "请优化"): the space stays still, so JavaFX keeps its 3D
         // render and only shifts it, in whole screen pixels so the text stays sharp.
-        world.setTranslateY(Math.round(s * BREATH_PX * breath(t) * k) / k);
+        world.setTranslateY(BREATHE ? Math.round(s * BREATH_PX * breath(t) * k) / k : 0);
         turnY.setPivotX(EW / 2);
         turnY.setPivotY(EH / 2);
         turnY.setPivotZ(eye);
@@ -1046,7 +1056,9 @@ public final class SaoHelmetPage extends StackPane {
         glass.relocate(0, 0);
         frame.relocate(0, 0);
         double r = 420 * s, gx = (((t * 0.045) % 1.6) - 0.3) * w, gy = h * 0.42;
-        glint.resizeRelocate(gx - r, gy - r, 2 * r, 2 * r);
+        // In whole screen pixels: the cached picture of the light is then only moved.
+        if (!"off".equals(GLINT_MODE)) glint.resizeRelocate(Math.round((gx - r) * k) / k, Math.round((gy - r) * k) / k, 2 * r, 2 * r);
+        else glint.setVisible(false);
         placeCharacter();
     }
 
@@ -1481,6 +1493,30 @@ public final class SaoHelmetPage extends StackPane {
 
     // ------------------------------------------------------------------ tools
 
+    /// For measuring the real window's CPU without touching it (James, 8 Nov: "请优化"): -Dsao.debugApp=N opens dock
+    /// app N and -Dsao.debugIconify=S minimises the window S seconds after start. Off unless set; runs once.
+    private void measuringHooks() {
+        if (hooked) return;
+        hooked = true;
+        int n = Integer.getInteger("sao.debugApp", -1);
+        if (n >= 0 && n < SaoApps.APPS.length) {
+            PauseTransition p = new PauseTransition(Duration.seconds(4));
+            p.setOnFinished(e -> forceApp(n));
+            p.play();
+        }
+        @Nullable String after = System.getProperty("sao.debugIconify");
+        if (after != null) {
+            PauseTransition p = new PauseTransition(Duration.seconds(Double.parseDouble(after)));
+            p.setOnFinished(e -> {
+                if (getScene() != null && getScene().getWindow() instanceof javafx.stage.Stage st) st.setIconified(true);
+            });
+            p.play();
+        }
+    }
+
+    /// Whether [#measuringHooks()] ran.
+    private boolean hooked;
+
     /// Stills or wakes the page as if minimised (idle probe).
     void forceAwake(boolean on) {
         setAwake(on);
@@ -1613,7 +1649,7 @@ public final class SaoHelmetPage extends StackPane {
         /// Builds it with the default skin.
         Character() {
             // James, 8 Nov: "史蒂夫神秘跑步": HMCL's preview broke into a run at random; only the slight arm sway is left.
-            canvas.getAnimationPlayer().addSkinAnimation(new SkinAniWavingArms(100, 2000, 7.5, canvas));
+            if (SWAY) canvas.getAnimationPlayer().addSkinAnimation(new SkinAniWavingArms(100, 2000, 7.5, canvas));
             // The front follows the hand: dragging right turns the side under the pointer to the right.
             canvas.addEventHandler(MouseEvent.MOUSE_PRESSED, e -> {
                 pressX = e.getScreenX();

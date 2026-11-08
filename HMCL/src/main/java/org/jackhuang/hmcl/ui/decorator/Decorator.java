@@ -125,7 +125,13 @@ public final class Decorator {
     /// The stable content host to which the optional window-shadow effect is applied.
     private final StackPane shadowContainer = new StackPane();
 
-    /// The drop-shadow effect installed on [#shadowContainer] while the window shadow is enabled.
+    /// The window's shape, drawn under the content only to cast the shadow. SAO launcher, James 8 Nov: "请优化". With
+    /// the shadow effect on the content itself, any small change anywhere in the window (the helmet's glint, the
+    /// breath, the character's sway) made JavaFX draw the whole window off screen and blur it again, every frame.
+    /// This shape never changes, so its shadow is blurred once and kept as a picture.
+    private final Region shadowShape = new Region();
+
+    /// The drop-shadow effect installed on [#shadowShape] while the window shadow is enabled.
     private final DropShadow windowShadow = new DropShadow(
             BlurType.ONE_PASS_BOX,
             Color.rgb(0, 0, 0, 0.4),
@@ -256,7 +262,11 @@ public final class Decorator {
         shadowContainer.getChildren().setAll(mainWindowPane);
         root.setPickOnBounds(true);
         root.setBackground(new Background(new BackgroundFill(Color.TRANSPARENT, null, null)));
-        root.getChildren().setAll(shadowContainer);
+        shadowShape.setMouseTransparent(true);
+        shadowShape.setBackground(new Background(new BackgroundFill(Color.BLACK,
+                new javafx.scene.layout.CornerRadii(MainWindowPane.ARC / 2), null)));
+        shadowShape.setCache(true);
+        root.getChildren().setAll(shadowShape, shadowContainer);
         updateWindowDecoration(false);
         root.addEventFilter(MouseEvent.MOUSE_RELEASED, this::onMouseReleased);
         root.addEventFilter(MouseEvent.MOUSE_DRAGGED, this::onMouseDragged);
@@ -316,7 +326,8 @@ public final class Decorator {
     private void updateWindowDecoration(boolean edgeToEdge) {
         boolean customDecoration = !nativeDecorationEnabled && !edgeToEdge;
         root.setPadding(customDecoration ? SHADOW_INSETS : Insets.EMPTY);
-        shadowContainer.setEffect(customDecoration ? windowShadow : null);
+        shadowShape.setEffect(customDecoration ? windowShadow : null);
+        shadowShape.setVisible(customDecoration);
         mainWindowPane.setWindowCornersRounded(customDecoration);
     }
 
