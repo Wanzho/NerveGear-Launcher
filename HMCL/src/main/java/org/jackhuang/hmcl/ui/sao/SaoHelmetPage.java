@@ -439,7 +439,7 @@ public final class SaoHelmetPage extends StackPane {
         // James, 8 Nov: "可以选择不登录任何东西，顶着个名字，但是提醒窗口写这样就登录不了咱服务器".
         HBox offlineRow = new HBox(SaoAccountApp.link("不登录，离线游玩", this::askOffline));
         offlineRow.setAlignment(Pos.CENTER);
-        signedOut.getChildren().setAll(outHead, key("用户名"), name, key("密码"), pw, rememberRow, login, rule(), useMicrosoft, offlineRow);
+        signedOut.getChildren().setAll(outHead, key("用户名/邮箱"), name, key("密码"), pw, rememberRow, login, rule(), useMicrosoft, offlineRow);
 
         // ---- signed in: filled by refreshAccount; Link Start at its bottom right
         HBox linkRow = buildLinkRow();
@@ -1178,8 +1178,10 @@ public final class SaoHelmetPage extends StackPane {
             return;
         }
         String n = name.getText().strip();
-        if (!SaoAccountApp.NAME.matcher(n).matches()) {
-            problem.setText("! 用户名 3-16 位：字母、数字、下划线");
+        // James, 8 Nov: "登录的时候可以Username/邮箱 登录".
+        boolean mail = n.indexOf('@') > 0 && n.length() <= 254;
+        if (!mail && !SaoAccountApp.NAME.matcher(n).matches()) {
+            problem.setText("! 填用户名或邮箱");
             return;
         }
         @Nullable String remembered = service.rememberedOathName();

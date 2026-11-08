@@ -347,7 +347,8 @@ public interface SaoLauncherService {
 
     /// Logs in (`POST /sao/login`), then keeps the session for Link Start.
     ///
-    /// @param name     the character name
+    /// @param name     the character name or the account's mailbox (James, 8 Nov: "登录的时候可以Username/邮箱 登录");
+    ///                 记住我 keeps the character name either way
     /// @param password the password, or null to use the remembered one for [#rememberedOathName]
     /// @param remember keep the name and password for next time (false forgets a remembered one)
     default CompletableFuture<Void> oathLogin(String name, char @Nullable [] password, boolean remember) {
