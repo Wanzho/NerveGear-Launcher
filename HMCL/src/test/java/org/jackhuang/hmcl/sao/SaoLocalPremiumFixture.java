@@ -92,6 +92,25 @@ final class SaoLocalPremiumFixture implements AutoCloseable {
                 type("AccountFlows").getMethod("reload").invoke(flows);
                 return type("AccountStore").getMethod("find", String.class).invoke(target, args[2]);
             }
+            if (method.getName().equals("premiumClaim")) {
+                // Use the real journaled account snapshot; only the dedicated fixture may prove game coordination.
+                Object[] claim = java.util.Objects.requireNonNull(args);
+                Object target = claim[0], expected = claim[1], premiumAccount = claim[2];
+                String previous = (String) type("AccountStore$Account").getMethod("name").invoke(expected);
+                String temporary = "R_" + UUID.randomUUID().toString().replace("-", "").substring(0, 14);
+                Object files = type("FileTransaction").getConstructor(Path.class).newInstance(directory);
+                Object plan = type("MigrationPlan").getConstructor(type("FileTransaction"), type("AccountStore"), String.class,
+                        String.class, boolean.class).newInstance(files, target, previous, temporary, false);
+                byte[] replacement = (byte[]) type("AccountStore").getMethod("premiumClaimBytes", type("AccountStore$Account"),
+                        String.class, type("AccountStore$Account")).invoke(target, expected, temporary, premiumAccount);
+                @SuppressWarnings("unchecked") Map<String, byte[]> changes = (Map<String, byte[]>) type("MigrationPlan").getField("changes").get(plan);
+                changes.put("sao-auth/accounts.json", replacement);
+                type("AccountFlows").getMethod("addApprovalToPlan", type("MigrationPlan")).invoke(null, plan);
+                type("MigrationPlan").getMethod("execute").invoke(plan);
+                type("AccountStore").getMethod("reload").invoke(target);
+                type("AccountFlows").getMethod("reload").invoke(flows);
+                return type("AccountStore").getMethod("find", String.class).invoke(target, previous);
+            }
             if (method.getName().equals("premium")) {
                 if (args == null || !"PremiumFixture".equals(args[0]) || !args[1].equals(joinedChallenge)) return null;
                 return type("PremiumProof$Identity").getConstructor(String.class, UUID.class).newInstance(args[0], premiumId);

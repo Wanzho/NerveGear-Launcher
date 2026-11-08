@@ -338,9 +338,12 @@ final class SaoOathAccounts implements AutoCloseable {
         }
     }
 
-    /// Refreshes before handing the account into the same pack launch pipeline; locked accounts never launch.
+    /// Refreshes before launch; accounts awaiting mailbox verification or a replacement nickname cannot start.
     void linkStart() {
-        if (current == null || current.locked()) return;
+        SaoData.@Nullable OathAccount checked = current;
+        if (checked == null) return;
+        if (checked.mustRename()) { errors.accept("昵称已被正版玩家使用，请在启动器里更换昵称"); return; }
+        if (checked.locked()) return;
         submit(() -> launch.accept(prepareLaunchAccount())).exceptionally(failure -> {
             Throwable cause = failure instanceof CompletionException && failure.getCause() != null ? failure.getCause() : failure;
             errors.accept(cause instanceof SaoAccountException accountFailure ? accountFailure.getMessage() : "启动验证失败，请重新登录");
@@ -351,6 +354,8 @@ final class SaoOathAccounts implements AutoCloseable {
     /// Production launch preparation shared with headless tests; issues no game process and never falls back offline.
     AuthlibInjectorAccount prepareLaunchAccount() throws Exception {
         try {
+            SaoData.@Nullable OathAccount known = current;
+            if (known != null && known.mustRename()) throw new SaoAccountException("昵称已被正版玩家使用，请在启动器里更换昵称", "mustRename");
             Session active = requireSession();
             JsonObject refreshed = client.json("POST", "authserver/refresh", object("accessToken", active.access(), "clientToken", active.client()), null);
             JsonObject selected = refreshed.getAsJsonObject("selectedProfile");
@@ -359,6 +364,7 @@ final class SaoOathAccounts implements AutoCloseable {
             accept(refreshed);
             refresh();
             SaoData.OathAccount checked = Objects.requireNonNull(current);
+            if (checked.mustRename()) throw new SaoAccountException("昵称已被正版玩家使用，请在启动器里更换昵称", "mustRename");
             if (checked.locked()) throw new SaoAccountException("请先验证邮箱", "needVerify");
             active = requireSession();
             JsonObject metadata = client.json("GET", "", null, null);
@@ -370,7 +376,7 @@ final class SaoOathAccounts implements AutoCloseable {
             long preparedGeneration = generation.get();
             return new SaoOathLaunchAccount(new AuthlibInjectorServer(active.root().toString()), injector, active.name(), yggdrasil,
                     client, encodedMetadata, artifact,
-                    () -> !closed.get() && generation.get() == preparedGeneration && session == prepared && current != null && !current.locked(),
+                    () -> !closed.get() && generation.get() == preparedGeneration && session == prepared && current != null && current.canJoin(),
                     () -> { if (session == prepared) invalidSession(); },
                     (instance, server) -> {
                         if (session != prepared || preparedGeneration != generation.get()) throw new SaoAccountException("请重新登录 ARGUS ID", "invalidSession");
@@ -382,7 +388,7 @@ final class SaoOathAccounts implements AutoCloseable {
                         finally { ticket.remove("launchTicket"); }
                     });
         } catch (Exception failure) {
-            if (!(failure instanceof SaoAccountException accountFailure && accountFailure.code().equals("needVerify"))) invalidSession();
+            if (!(failure instanceof SaoAccountException accountFailure && (accountFailure.code().equals("needVerify") || accountFailure.code().equals("mustRename")))) invalidSession();
             throw failure;
         }
     }
@@ -457,7 +463,8 @@ final class SaoOathAccounts implements AutoCloseable {
             if (!accountState.equals("ready") && !accountState.equals("lockedVerify")) throw new SaoAccountException("账号状态无效", "invalidResponse");
             @Nullable String premiumName = optional(state, "premiumName");
             current = new SaoData.OathAccount(name, id, optional(state, "maskedEmail") == null ? "" : Objects.requireNonNull(optional(state, "maskedEmail")),
-                    state.get("emailVerified").getAsBoolean(), accountState.equals("lockedVerify"), Math.max(0, state.get("graceSeconds").getAsLong()), premiumName);
+                    state.get("emailVerified").getAsBoolean(), accountState.equals("lockedVerify"), Math.max(0, state.get("graceSeconds").getAsLong()), premiumName,
+                    state.has("mustRename") && state.get("mustRename").getAsBoolean());
             profileCache = new SaoOathSkins(root, namespace(active.root()), active.id());
             refreshSkin(active);
             refreshCardNow();

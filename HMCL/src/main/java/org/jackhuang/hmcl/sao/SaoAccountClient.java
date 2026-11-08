@@ -198,6 +198,7 @@ final class SaoAccountClient {
             case "socialEndpoint" -> new SaoAccountException("请更新启动器后使用聊天", "socialEndpoint");
             case "socialMethod" -> new SaoAccountException("聊天操作无效", "socialMethod");
             case "socialSession" -> new SaoAccountException("登录已失效，请重新登录", "socialSession");
+            case "mustRename" -> new SaoAccountException("昵称已被正版玩家使用，请在启动器里更换昵称", "mustRename");
             case "nameTaken" -> new SaoAccountException("这个昵称已被占用", "nameTaken");
             case "reservedName" -> new SaoAccountException("这个昵称暂不可用", "reservedName");
             case "renameLimit" -> new SaoAccountException("今天已经改了 3 次，明天再来", "renameLimit");

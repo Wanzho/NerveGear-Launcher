@@ -50,13 +50,35 @@ class SaoArgusTest {
         }
     }
 
-    /// A name held by another ARGUS ID cannot be acquired just by proving the same Microsoft display name.
-    @Test void premiumRefusesTakenName() throws Exception {
+    /// Independently proven ownership takes the name while the prior holder retains safe management access.
+    @Test void premiumTakesNameAndHolderMustRename() throws Exception {
         try (SaoLocalPremiumFixture server = fixture("taken"); SaoPackEngine engine = engine(temporary.resolve("taken-client"), server)) {
-            await(engine.oathRegister("PremiumFixture", "taken@example.test", secret()));
+            String password = new String(secret());
+            await(engine.oathRegister("PremiumFixture", "taken@example.test", password.toCharArray()));
+            String holderId = account(engine).profileId();
             engine.oathLogout();
-            failure(engine.oathPremiumLogin(), "nameTaken");
-            assertNull(engine.oathAccount().get()); assertTrue(server.tokenStayedLocal());
+            await(engine.oathPremiumLogin());
+            String premiumId = account(engine).profileId();
+            assertEquals("PremiumFixture", account(engine).name()); assertNotEquals(holderId, premiumId);
+            assertFalse(account(engine).mustRename());
+            engine.oathLogout();
+            await(engine.oathPremiumLogin()); assertEquals(premiumId, account(engine).profileId());
+            engine.oathLogout();
+            await(engine.oathLogin("PREMIUMFIXTURE", password.toCharArray(), false));
+            assertEquals(holderId, account(engine).profileId());
+            assertTrue(account(engine).mustRename()); assertFalse(account(engine).canJoin());
+            assertNotEquals("premiumfixture", account(engine).name().toLowerCase(java.util.Locale.ROOT));
+            engine.linkStartOath();
+            assertEquals("昵称已被正版玩家使用，请在启动器里更换昵称", engine.lastError().get());
+            SaoAccountException refusal = assertThrows(SaoAccountException.class, () -> engine.accounts().prepareLaunchAccount());
+            assertEquals("mustRename", refusal.code()); assertNotNull(engine.oathAccount().get());
+            await(engine.oathRename("HolderNewName"));
+            assertEquals(holderId, account(engine).profileId()); assertFalse(account(engine).mustRename());
+            engine.oathLogout();
+            failure(engine.oathLogin("PremiumFixture", password.toCharArray(), false), "invalidCredentials");
+            await(engine.oathLogin("HolderNewName", password.toCharArray(), false));
+            assertEquals(holderId, account(engine).profileId());
+            assertTrue(server.tokenStayedLocal()); server.assertHealthy();
         }
     }
 
