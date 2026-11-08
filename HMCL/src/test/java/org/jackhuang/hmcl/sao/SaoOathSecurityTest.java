@@ -161,6 +161,40 @@ class SaoOathSecurityTest {
         }
     }
 
+    /// The engine preserves mailbox spelling on the wire and never renders an untrusted refusal body.
+    @Test void mailboxPassesThroughUnchangedAndRefusalIsCurated() throws Exception {
+        String mailbox = "MiXeD-" + UUID.randomUUID() + "@Example.TEST";
+        java.util.concurrent.atomic.AtomicBoolean exact = new java.util.concurrent.atomic.AtomicBoolean();
+        com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(
+                new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/sao/login", exchange -> {
+            try {
+                com.google.gson.JsonObject body = com.google.gson.JsonParser.parseString(
+                        new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8)).getAsJsonObject();
+                exact.set(mailbox.equals(body.get("username").getAsString()));
+                byte[] refusal = ("{\"error\":\"ForbiddenOperationException\",\"errorMessage\":\"" + mailbox + "\"}")
+                        .getBytes(StandardCharsets.UTF_8);
+                exchange.sendResponseHeaders(403, refusal.length);
+                exchange.getResponseBody().write(refusal);
+            } finally { exchange.close(); }
+        });
+        server.start();
+        java.net.URI endpoint = java.net.URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/");
+        char[] password = UUID.randomUUID().toString().toCharArray();
+        try (SaoOathAccounts accounts = new SaoOathAccounts(temporary.resolve("mailbox-client"), () -> endpoint,
+                () -> "zh_cn", new SaoOathCredentialStore(temporary.resolve("mailbox-client"), false),
+                () -> { throw new AssertionError("Unexpected Microsoft proof"); },
+                account -> fail("Refused account cannot launch"), message -> { })) {
+            java.util.concurrent.ExecutionException refusal = assertThrows(java.util.concurrent.ExecutionException.class,
+                    () -> accounts.login(mailbox, password, false).get(10, java.util.concurrent.TimeUnit.SECONDS));
+            assertTrue(exact.get(), "Mailbox spelling must reach the account API unchanged");
+            assertInstanceOf(SaoAccountException.class, refusal.getCause());
+            assertEquals("密码错误", java.util.Objects.requireNonNull(refusal.getCause()).getMessage());
+            assertNull(accounts.rememberedName());
+            for (char value : password) assertTrue(value == '\0', "Consumed password must be wiped");
+        } finally { server.stop(0); }
+    }
+
     /// Metadata is stripped by a fresh encode; dimensions and foreign delete targets are refused before mutation.
     @Test void librarySanitizationValidationAndOwnership() throws Exception {
         String namespace = "a".repeat(64);
