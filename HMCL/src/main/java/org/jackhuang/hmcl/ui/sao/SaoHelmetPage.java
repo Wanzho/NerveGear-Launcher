@@ -40,10 +40,6 @@ import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
-import javafx.scene.paint.CycleMethod;
-import javafx.scene.paint.LinearGradient;
-import javafx.scene.paint.RadialGradient;
-import javafx.scene.paint.Stop;
 import javafx.scene.shape.Rectangle;
 import javafx.scene.text.Text;
 import javafx.scene.transform.Rotate;
@@ -131,10 +127,6 @@ public final class SaoHelmetPage extends StackPane {
     private static final String GLINT_MODE = System.getProperty("sao.glint", "over");
     private static final boolean BREATHE = !"false".equals(System.getProperty("sao.breathe"));
     static final boolean SWAY = !"false".equals(System.getProperty("sao.sway"));
-    /// The glint's light, made once.
-    private static final javafx.scene.layout.Background GLINT = new javafx.scene.layout.Background(new javafx.scene.layout.BackgroundFill(
-            new RadialGradient(0, 0, 0.5, 0.5, 0.5, true, CycleMethod.NO_CYCLE,
-                    new Stop(0, Color.color(0.45, 0.75, 1, 0.06)), new Stop(1, Color.color(0.45, 0.75, 1, 0))), null, null));
     /// The windows, back to front.
     private final Group windows = new Group();
     /// The flat layer on the ear pad (version and window buttons), in design coordinates.
@@ -148,11 +140,8 @@ public final class SaoHelmetPage extends StackPane {
     /// The pixel scale the visor and world were last made for.
     private double renderedK;
     private final Translate padShift = new Translate();
-    /// The soft glint on the glass: one fixed reflection, placed again only when the window is resized.
-    private final Region glint = new Region();
-    /// Where the glint's centre sits, in design pixels: past the bottom-right corner of the glass, so the light lies
-    /// on the empty lower-right glass and the bare foot of the server window, clear of the character and every text.
-    private static final double GLINT_X = 1340, GLINT_Y = 760, GLINT_R = 420;
+    /// The still reflection on the glass ([SaoGlint]), painted again only when the window is resized.
+    private final ImageView glint = new ImageView();
     /// Black over everything for power-down.
     private final Region black = new Region();
 
@@ -241,12 +230,11 @@ public final class SaoHelmetPage extends StackPane {
         glint.setManaged(false);
         glint.setMouseTransparent(true);
         // James, 8 Nov: "请优化". Added light (BlendMode.ADD) made JavaFX read the screen back from the graphics card
-        // under the glint every frame; drawn over (the same colour and strength, so the same light on the dark glass)
-        // it is one cached picture.
-        // James, 8 Nov: "光泽留着但不动，变成一块固定的反光。这个吧". The glint no longer drifts: it is placed once,
-        // and again only on resize, so no frame touches it.
+        // under the glint every frame, so it is drawn over as one cached picture.
+        // James, 8 Nov: "光泽留着但不动，变成一块固定的反光。这个吧", then "调亮到看得见吧". The glint no longer drifts
+        // and is a clear streak of light: painted and placed once, and again only on resize, so no frame touches it.
+        glint.setSmooth(true);
         if ("add".equals(GLINT_MODE)) glint.setBlendMode(BlendMode.ADD);
-        glint.setBackground(GLINT);
         glint.setCache(true);
         glint.setVisible(!"off".equals(GLINT_MODE));
         black.setStyle("-fx-background-color: black;");
@@ -1025,11 +1013,16 @@ public final class SaoHelmetPage extends StackPane {
             worldShrink.setX(1 / k);
             worldShrink.setY(1 / k);
             if (resized) {
-                // The fixed reflection, in whole screen pixels.
-                double gs = Math.min(w / EW, h / EH), r = GLINT_R * gs;
-                double gx = w / 2.0 + (GLINT_X - EW / 2) * gs, gy = h / 2.0 + (GLINT_Y - EH / 2) * gs;
-                glint.resizeRelocate(Math.round((gx - r) * k) / k, Math.round((gy - r) * k) / k,
-                        Math.round(2 * r * k) / k, Math.round(2 * r * k) / k);
+                // The still reflection, painted at the screen's pixels and placed on whole ones.
+                double gs = Math.min(w / EW, h / EH);
+                if (glint.isVisible()) {
+                    Image light = SaoGlint.render(gs * k);
+                    glint.setImage(light);
+                    glint.setFitWidth(light.getWidth() / k);
+                    glint.setFitHeight(light.getHeight() / k);
+                    glint.relocate(Math.round((w / 2.0 + (SaoGlint.LEFT - EW / 2) * gs) * k) / k,
+                            Math.round((h / 2.0 + (SaoGlint.TOP - EH / 2) * gs) * k) / k);
+                }
             }
         }
         double s = Math.min(w / EW, h / EH);
