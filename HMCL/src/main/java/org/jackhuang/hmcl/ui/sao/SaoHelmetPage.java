@@ -127,6 +127,9 @@ public final class SaoHelmetPage extends StackPane {
     private static final String GLINT_MODE = System.getProperty("sao.glint", "over");
     private static final boolean BREATHE = !"false".equals(System.getProperty("sao.breathe"));
     static final boolean SWAY = !"false".equals(System.getProperty("sao.sway"));
+    /// The reflection texture under `/assets/sao-launcher/glint/` (-Dsao.glintTex=double|corner|arc): soft sheens on
+    /// the glass and a faint rim along its edge, outshone over the lit plates so their text reads as before.
+    private static final String GLINT_TEXTURE = System.getProperty("sao.glintTex", "double").replaceAll("[^a-z]", "");
     /// The windows, back to front.
     private final Group windows = new Group();
     /// The flat layer on the ear pad (version and window buttons), in design coordinates.
@@ -140,7 +143,7 @@ public final class SaoHelmetPage extends StackPane {
     /// The pixel scale the visor and world were last made for.
     private double renderedK;
     private final Translate padShift = new Translate();
-    /// The still reflection on the glass ([SaoGlint]), painted again only when the window is resized.
+    /// The still reflection on the glass, sized again only when the window is resized.
     private final ImageView glint = new ImageView();
     /// Black over everything for power-down.
     private final Region black = new Region();
@@ -231,9 +234,11 @@ public final class SaoHelmetPage extends StackPane {
         glint.setMouseTransparent(true);
         // James, 8 Nov: "请优化". Added light (BlendMode.ADD) made JavaFX read the screen back from the graphics card
         // under the glint every frame, so it is drawn over as one cached picture.
-        // James, 8 Nov: "光泽留着但不动，变成一块固定的反光。这个吧", then "调亮到看得见吧". The glint no longer drifts
-        // and is a clear streak of light: painted and placed once, and again only on resize, so no frame touches it.
+        // James, 8 Nov: "光泽留着但不动，变成一块固定的反光。这个吧", then "调亮到看得见吧", then "你直接一个贴图糊上去
+        // 不行吗". The glint is a still reflection texture laid over the glass (see [#GLINT_TEXTURE]), sized only on
+        // resize, so no frame touches it.
         glint.setSmooth(true);
+        if (!"off".equals(GLINT_MODE)) glint.setImage(SaoAssets.image("glint/" + GLINT_TEXTURE + ".png"));
         if ("add".equals(GLINT_MODE)) glint.setBlendMode(BlendMode.ADD);
         glint.setCache(true);
         glint.setVisible(!"off".equals(GLINT_MODE));
@@ -1013,16 +1018,10 @@ public final class SaoHelmetPage extends StackPane {
             worldShrink.setX(1 / k);
             worldShrink.setY(1 / k);
             if (resized) {
-                // The still reflection, painted at the screen's pixels and placed on whole ones.
-                double gs = Math.min(w / EW, h / EH);
-                if (glint.isVisible()) {
-                    Image light = SaoGlint.render(gs * k);
-                    glint.setImage(light);
-                    glint.setFitWidth(light.getWidth() / k);
-                    glint.setFitHeight(light.getHeight() / k);
-                    glint.relocate(Math.round((w / 2.0 + (SaoGlint.LEFT - EW / 2) * gs) * k) / k,
-                            Math.round((h / 2.0 + (SaoGlint.TOP - EH / 2) * gs) * k) / k);
-                }
+                // The still reflection covers the glass, which is the 16:9 screen.
+                glint.setFitWidth(w);
+                glint.setFitHeight(h);
+                glint.relocate(0, 0);
             }
         }
         double s = Math.min(w / EW, h / EH);
