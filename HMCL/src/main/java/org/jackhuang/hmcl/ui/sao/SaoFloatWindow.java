@@ -121,13 +121,34 @@ final class SaoFloatWindow extends Group {
         grow.setPivotX(w / 2);
         grow.setPivotY(h / 2);
         getTransforms().addAll(at, yaw, pitch, grow);
-        hoverProperty().addListener((o, a, over) -> {
-            double k = over ? 1.02 : 1;
-            new Timeline(new KeyFrame(Duration.millis(over ? 160 : 220),
-                    new KeyValue(grow.xProperty(), k, Interpolator.EASE_OUT),
-                    new KeyValue(grow.yProperty(), k, Interpolator.EASE_OUT))).play();
-        });
+        hoverProperty().addListener((o, a, b) -> hoverChanged());
+        held.addListener((o, a, b) -> hoverChanged());
         recede.addListener((o, a, b) -> place());
+    }
+
+    /// The mouse is over a part of this window drawn outside it (the player's character, drawn over the 3D space
+    /// while the window rests); counts as over the window.
+    final javafx.beans.property.BooleanProperty held = new javafx.beans.property.SimpleBooleanProperty();
+    /// The hover growth running now.
+    private @Nullable Timeline growing;
+
+    /// Grows or shrinks back with the mouse. Leaving the window for its held part in one move stops the shrink at
+    /// once, so the window does not twitch.
+    private void hoverChanged() {
+        boolean over = isHover() || held.get();
+        double k = over ? 1.02 : 1;
+        if (growing != null) growing.stop();
+        growing = new Timeline(new KeyFrame(Duration.millis(over ? 160 : 220),
+                new KeyValue(grow.xProperty(), k, Interpolator.EASE_OUT),
+                new KeyValue(grow.yProperty(), k, Interpolator.EASE_OUT)));
+        growing.play();
+    }
+
+    /// Whether the window stands at its home, fully lit and not pushed back.
+    ///
+    /// @return true at rest
+    boolean resting() {
+        return glass.get() >= 0.999 && Math.abs(recede.get()) < 0.01;
     }
 
     /// The design-to-screen scale, read off the page's fit (set by the page).

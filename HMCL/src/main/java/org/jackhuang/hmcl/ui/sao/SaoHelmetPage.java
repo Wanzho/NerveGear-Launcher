@@ -14,6 +14,7 @@ import javafx.animation.Timeline;
 import javafx.beans.binding.Bindings;
 import javafx.collections.ListChangeListener;
 import javafx.geometry.Insets;
+import javafx.geometry.Point2D;
 import javafx.geometry.Pos;
 import javafx.scene.Group;
 import javafx.scene.Node;
@@ -114,8 +115,6 @@ public final class SaoHelmetPage extends StackPane {
     private final Scale fit = new Scale(1, 1, 1);
     private final Rotate turnY = new Rotate(0, Rotate.Y_AXIS);
     private final Rotate turnX = new Rotate(0, Rotate.X_AXIS);
-    /// The breath: the whole space rises and falls a few design pixels.
-    private final Translate breath = new Translate();
     /// How far the view sinks at the top of a breath, in design pixels.
     private static final double BREATH_PX = 2.6;
     /// One breath, in seconds (about 13 a minute at rest).
@@ -234,7 +233,8 @@ public final class SaoHelmetPage extends StackPane {
         world.setFill(Color.TRANSPARENT);
         world.getTransforms().add(worldShrink);
         world.setCamera(new PerspectiveCamera(false));
-        space.getTransforms().addAll(centre, fit, breath, turnY, turnX);
+        // The breath moves the finished picture of the space (world's translate, see [#frame(double)]), not the space.
+        space.getTransforms().addAll(centre, fit, turnY, turnX);
         space.getChildren().add(windows);
 
         news = buildNews();
@@ -261,18 +261,16 @@ public final class SaoHelmetPage extends StackPane {
         coverDesign.setPickOnBounds(false);
         cover.getChildren().add(new Group(coverDesign));
         StackPane.setAlignment(cover.getChildren().get(0), Pos.TOP_LEFT);
-        screen.getChildren().setAll(glass, world, frame, pad, cover, glint, black);
+        characterLayer.setManaged(false);
+        characterLayer.setPickOnBounds(false);
+        characterBox.getTransforms().addAll(characterAt, characterFit);
+        screen.getChildren().setAll(glass, world, characterLayer, frame, pad, cover, glint, black);
         getChildren().setAll(screen);
 
         setOnKeyPressed(e -> {
             if (e.getCode() == KeyCode.ESCAPE && app != null) closeApp();
         });
-        new AnimationTimer() {
-            @Override
-            public void handle(long now) {
-                frame(now / 1e9);
-            }
-        }.start();
+        ticker.start();
 
         service.state().addListener((o, a, b) -> onState(a, b));
         service.progress().addListener((o, a, b) -> refreshState());
@@ -286,7 +284,10 @@ public final class SaoHelmetPage extends StackPane {
 
         SaoBattery.start();
         sceneProperty().addListener((o, a, b) -> {
+            checkAwake();
             if (b == null) return;
+            b.windowProperty().addListener((oo, was, win) -> watchWindow(win));
+            watchWindow(b.getWindow());
             hookWindow();
             powerOn();
         });
@@ -405,7 +406,15 @@ public final class SaoHelmetPage extends StackPane {
         editSkin.setOnAction(e -> openSkin());
         StackPane.setAlignment(editSkin, Pos.BOTTOM_RIGHT);
         StackPane.setMargin(editSkin, new Insets(7));
-        StackPane stage = new StackPane(skin, editSkin);
+        // The character and its pencil; drawn over the 3D space while the window rests (see [#placeCharacter()]).
+        characterBox.getChildren().setAll(skin, editSkin);
+        for (Region b : new Region[]{characterBox, characterSlot}) {
+            b.setMinSize(STAGE_W, STAGE_H);
+            b.setPrefSize(STAGE_W, STAGE_H);
+            b.setMaxSize(STAGE_W, STAGE_H);
+        }
+        characterSlot.getChildren().setAll(characterBox);
+        StackPane stage = characterSlot;
         stage.getStyleClass().add("vr-stage");
         // James, 8 Nov: "中间这个界面，里面东西搞稍微大点，留白有点多，密码的那个点可以小一点": the stage and its
         // turntable grow with the rest (150 x 214 before).
@@ -1013,7 +1022,9 @@ public final class SaoHelmetPage extends StackPane {
         double eye = -(h / 2.0) / Math.tan(HALF_FOV) / s;
         // James, 8 Nov: "为什么要乱晃" / "模拟呼吸不是这么模拟的". The view no longer follows the mouse or drifts
         // on two axes. It only breathes: a slow vertical rise and fall, inhale quicker than exhale, then a short rest.
-        breath.setY(BREATH_PX * breath(t));
+        // Only the finished picture moves (James, 8 Nov: "请优化"): the space stays still, so JavaFX keeps its 3D
+        // render and only shifts it, in whole screen pixels so the text stays sharp.
+        world.setTranslateY(Math.round(s * BREATH_PX * breath(t) * k) / k);
         turnY.setPivotX(EW / 2);
         turnY.setPivotY(EH / 2);
         turnY.setPivotZ(eye);
@@ -1029,6 +1040,104 @@ public final class SaoHelmetPage extends StackPane {
         frame.relocate(0, 0);
         double r = 420 * s, gx = (((t * 0.045) % 1.6) - 0.3) * w, gy = h * 0.42;
         glint.resizeRelocate(gx - r, gy - r, 2 * r, 2 * r);
+        placeCharacter();
+    }
+
+    /// The character's stage inside the player window, and the character itself with its pencil.
+    private final StackPane characterSlot = new StackPane(), characterBox = new StackPane();
+    /// The flat layer over the 3D space that holds the character while the player window rests.
+    private final Pane characterLayer = new Pane();
+    private final Translate characterAt = new Translate();
+    private final Scale characterFit = new Scale(1, 1, 0, 0);
+
+    /// Puts the character where its stage is seen. James, 8 Nov: "这个启动器很消耗吗", "请优化": the character's slight arm
+    /// sway inside the 3D space made JavaFX draw the whole space again every frame. While the player window rests
+    /// (lit, at home, nothing in front) the character is drawn on a flat layer just over the space, at the stage's
+    /// place, size and light, so only the character is drawn again; the player window never turns, so its stage is
+    /// seen as a plain rectangle. Otherwise it goes back into the window and moves with it.
+    private void placeCharacter() {
+        boolean flat = app == null && !cover.isVisible() && player.resting() && world.getOpacity() >= 0.999;
+        double light = 1;
+        for (Node n = characterSlot; n != null && n != space; n = n.getParent()) {
+            if (!n.isVisible()) flat = false;
+            light *= n.getOpacity();
+        }
+        if (light < 0.999) flat = false;
+        Point2D a = null, b = null;
+        if (flat) {
+            // Laid out first, so the place is this frame's, not the last one's (a clean window returns at once).
+            player.layout();
+            a = characterSlot.localToScene(0, 0, true);
+            b = characterSlot.localToScene(STAGE_W, STAGE_H, true);
+            if (a == null || b == null) flat = false;
+        }
+        if (!flat) {
+            if (characterBox.getParent() != characterSlot) {
+                characterAt.setX(0);
+                characterAt.setY(0);
+                characterFit.setX(1);
+                characterFit.setY(1);
+                characterSlot.getChildren().setAll(characterBox);
+                player.held.set(false);
+            }
+            return;
+        }
+        if (characterBox.getParent() != characterLayer) characterLayer.getChildren().setAll(characterBox);
+        a = screen.sceneToLocal(a);
+        b = screen.sceneToLocal(b);
+        // Set only when it moved: an unchanged layer is not drawn again.
+        double k = (b.getX() - a.getX()) / STAGE_W;
+        if (Math.abs(characterAt.getX() - a.getX()) > 0.01) characterAt.setX(a.getX());
+        if (Math.abs(characterAt.getY() - a.getY()) > 0.01) characterAt.setY(a.getY());
+        if (Math.abs(characterFit.getX() - k) > 1e-4) {
+            characterFit.setX(k);
+            characterFit.setY(k);
+        }
+        player.held.set(characterBox.isHover());
+    }
+
+    /// Runs [#frame(double)] every frame while the launcher can be seen.
+    private final AnimationTimer ticker = new AnimationTimer() {
+        @Override
+        public void handle(long now) {
+            frame(now / 1e9);
+        }
+    };
+    /// Whether the frame and the character's sway run.
+    private boolean awake = true;
+    /// The window listened to.
+    private javafx.stage.@Nullable Window watched;
+
+    /// Follows the window: minimised or hidden, nothing moves (James, 8 Nov: "请优化").
+    private void watchWindow(javafx.stage.@Nullable Window win) {
+        if (win == null || win == watched) {
+            checkAwake();
+            return;
+        }
+        watched = win;
+        win.showingProperty().addListener((o, a, b) -> checkAwake());
+        if (win instanceof javafx.stage.Stage st) st.iconifiedProperty().addListener((o, a, b) -> checkAwake());
+        checkAwake();
+    }
+
+    /// Wakes or stills the page. With no window at all (the screen-shot tools) it stays awake.
+    private void checkAwake() {
+        javafx.stage.@Nullable Window win = getScene() == null ? null : getScene().getWindow();
+        setAwake(getScene() != null && (win == null
+                || win.isShowing() && !(win instanceof javafx.stage.Stage st && st.isIconified())));
+    }
+
+    /// Starts or stops the frame and the character's sway.
+    private void setAwake(boolean on) {
+        if (on == awake) return;
+        awake = on;
+        if (on) {
+            ticker.start();
+            skin.resume();
+        } else {
+            ticker.stop();
+            skin.pause();
+        }
     }
 
     // ------------------------------------------------------------------ power
@@ -1305,6 +1414,7 @@ public final class SaoHelmetPage extends StackPane {
         windows.addEventFilter(MouseEvent.MOUSE_PRESSED, e -> pressOnWindow = true);
         pad.addEventFilter(MouseEvent.MOUSE_PRESSED, e -> pressOnWindow = true);
         cover.addEventFilter(MouseEvent.MOUSE_PRESSED, e -> pressOnWindow = true);
+        characterLayer.addEventFilter(MouseEvent.MOUSE_PRESSED, e -> pressOnWindow = true);
         addEventFilter(MouseEvent.MOUSE_PRESSED, e -> pressOnWindow = false);
         addEventHandler(MouseEvent.MOUSE_PRESSED, e -> {
             moving = !pressOnWindow && e.isPrimaryButtonDown() && getCursor() == null && getScene() != null
@@ -1363,6 +1473,11 @@ public final class SaoHelmetPage extends StackPane {
     private double moveFromX, moveFromY;
 
     // ------------------------------------------------------------------ tools
+
+    /// Stills or wakes the page as if minimised (idle probe).
+    void forceAwake(boolean on) {
+        setAwake(on);
+    }
 
     /// Shows 确定退出吗？ (screenshot tools).
     void forceConfirmOut() {
@@ -1505,6 +1620,16 @@ public final class SaoHelmetPage extends StackPane {
                 e.consume();
             });
             getChildren().add(canvas);
+        }
+
+        /// Stops the sway while nobody can see it.
+        void pause() {
+            canvas.getAnimationPlayer().stop();
+        }
+
+        /// Starts the sway again.
+        void resume() {
+            canvas.getAnimationPlayer().start();
         }
 
         /// Shows a skin, or the default one.
