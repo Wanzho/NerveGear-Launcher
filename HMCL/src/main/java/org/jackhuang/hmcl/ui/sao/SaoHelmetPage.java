@@ -439,13 +439,13 @@ public final class SaoHelmetPage extends StackPane {
         // James, 8 Nov: "可以选择不登录任何东西，顶着个名字，但是提醒窗口写这样就登录不了咱服务器".
         HBox offlineRow = new HBox(SaoAccountApp.link("不登录，离线游玩", this::askOffline));
         offlineRow.setAlignment(Pos.CENTER);
-        signedOut.getChildren().setAll(outHead, key("用户名"), name, key("密码"), pw, rememberRow, login, rule(), useMicrosoft, offlineRow);
+        signedOut.getChildren().setAll(outHead, key("用户名／邮箱"), name, key("密码"), pw, rememberRow, login, rule(), useMicrosoft, offlineRow);
 
         // ---- signed in: filled by refreshAccount; Link Start at its bottom right
         HBox linkRow = buildLinkRow();
 
         problem.getStyleClass().add("vr-warn");
-        problem.setFont(SaoUiKit.ui(12, false));
+        SaoUiKit.font(problem, 12, false);
         problem.setWrappingWidth(240);
         StackPane sides = new StackPane(signedOut, signedIn, confirmOffline);
         for (VBox v : new VBox[]{signedOut, signedIn, confirmOffline}) StackPane.setAlignment(v, Pos.TOP_LEFT);
@@ -459,7 +459,7 @@ public final class SaoHelmetPage extends StackPane {
 
         // 确定退出吗？ in place of the body until answered.
         Text sure = ink("确定退出吗？", 18);
-        sure.setFont(SaoUiKit.ui(18, true));
+        SaoUiKit.font(sure, 18, true);
         Text after = dim("下次打开要重新输入密码", 12);
         Button no = SaoUiKit.button("取消"), yes = SaoUiKit.button("退出登录");
         yes.getStyleClass().add("vr-danger");
@@ -489,12 +489,14 @@ public final class SaoHelmetPage extends StackPane {
         });
         // 离线游玩: a name, and the warning that it cannot reach the 誓约 server.
         Text offTitle = ink("离线游玩", 15);
-        offTitle.setFont(SaoUiKit.ui(15, true));
+        SaoUiKit.font(offTitle, 15, true);
         offlineName.setMaxWidth(240);
         Text offWarn = dim("离线进不了誓约服务器，只能玩单人游戏", 12);
         offWarn.getStyleClass().setAll("vr-warn");
         Text offProblem = dim("", 12);
         offProblem.getStyleClass().setAll("vr-warn");
+        // Wrapped, or its width would push the column past the window's edge.
+        offProblem.setWrappingWidth(240);
         Button offNo = SaoUiKit.button("取消"), offYes = SaoUiKit.accent("离线进入");
         HBox offAnswers = new HBox(10, offNo, offYes);
         offAnswers.setAlignment(Pos.CENTER);
@@ -522,7 +524,7 @@ public final class SaoHelmetPage extends StackPane {
             begin(() -> service.linkStartOffline(n));
         });
         offlineName.setOnAction(e -> offYes.fire());
-        StackPane body = new StackPane(bodyRow, confirmOut, confirmName, confirmOffline);
+        StackPane body = new StackPane(bodyRow, confirmOut, confirmName);
         VBox.setVgrow(body, Priority.ALWAYS);
 
         service.oathAccount().addListener((o, a, b) -> refreshAccount());
@@ -611,7 +613,7 @@ public final class SaoHelmetPage extends StackPane {
         service.tasks().addListener((ListChangeListener<SaoData.Task>) c -> words.run());
         words.run();
         start.getStyleClass().add("vr-start");
-        start.setFont(ui(20, true));
+        SaoUiKit.font(start, 20, true);
         start.setMinWidth(Region.USE_PREF_SIZE);
         start.setOnAction(e -> linkStart());
         start.defaultButtonProperty().bind(signedIn.visibleProperty());
@@ -733,7 +735,7 @@ public final class SaoHelmetPage extends StackPane {
     /// Asks before saving a new 游戏昵称.
     private void askName(String name, Runnable yes) {
         Text sure = ink("确定把昵称改成", 16);
-        sure.setFont(SaoUiKit.ui(16, true));
+        SaoUiKit.font(sure, 16, true);
         Text n = sao(name, 30, true);
         Text after = dim("一天最多改 3 次", 12);
         confirmName.getChildren().setAll(sure, n, after, (Node) confirmName.getProperties().get("answers"));
@@ -1089,7 +1091,7 @@ public final class SaoHelmetPage extends StackPane {
             // James, 7 Nov: "让名字大一点", then "a bit too big now"; a long name shrinks to stay in the column.
             Text n = sao(a.name(), 38, true);
             double nw = n.getLayoutBounds().getWidth();
-            if (nw > 216) n.setFont(ui(38 * 216 / nw, true));
+            if (nw > 216) SaoUiKit.font(n, 38 * 216 / nw, true);
             n.getStyleClass().add("vr-link-text");
             n.setOnMouseClicked(e -> openAccount(SaoAccountApp.Page.MANAGE));
             // The mailbox and Microsoft live in 设置 only (James, 7 Nov).
@@ -1106,7 +1108,7 @@ public final class SaoHelmetPage extends StackPane {
             if (a.mustRename()) {
                 Text taken = new Text("昵称已被正版玩家使用，请更换昵称");
                 taken.getStyleClass().add("vr-warn");
-                taken.setFont(SaoUiKit.ui(12, false));
+                SaoUiKit.font(taken, 12, false);
                 Button change = SaoAccountApp.link("更换", () -> {
                     editingName = true;
                     refreshAccount();
@@ -1149,7 +1151,7 @@ public final class SaoHelmetPage extends StackPane {
                         : a.locked() ? "邮箱没验证，验证后才能进游戏"
                         : "邮箱待验证 · 还剩 " + SaoAccountApp.hours(a.graceSeconds()));
                 w.getStyleClass().add("vr-warn");
-                w.setFont(SaoUiKit.ui(12, false));
+                SaoUiKit.font(w, 12, false);
                 Button go = SaoAccountApp.link(a.maskedEmail().isEmpty() ? "去设置" : "去验证",
                         () -> openAccount(a.maskedEmail().isEmpty() ? SaoAccountApp.Page.MANAGE : SaoAccountApp.Page.VERIFY));
                 HBox warnRow = new HBox(6, w, grow(), go);
@@ -1178,8 +1180,10 @@ public final class SaoHelmetPage extends StackPane {
             return;
         }
         String n = name.getText().strip();
-        if (!SaoAccountApp.NAME.matcher(n).matches()) {
-            problem.setText("! 用户名 3-16 位：字母、数字、下划线");
+        // James, 8 Nov: "登录的时候可以Username/邮箱 登录".
+        boolean mail = n.indexOf('@') > 0 && n.length() <= 254;
+        if (!mail && !SaoAccountApp.NAME.matcher(n).matches()) {
+            problem.setText("! 填用户名或邮箱");
             return;
         }
         @Nullable String remembered = service.rememberedOathName();

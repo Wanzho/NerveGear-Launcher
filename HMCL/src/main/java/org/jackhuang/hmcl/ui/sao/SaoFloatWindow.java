@@ -85,7 +85,7 @@ final class SaoFloatWindow extends Group {
         if (!title.isEmpty()) {
             Text t = new Text(title);
             t.getStyleClass().add("vr-title");
-            t.setFont(SaoUiKit.ui(18, true));
+            SaoUiKit.font(t, 18, true);
             Region fill = new Region();
             HBox.setHgrow(fill, Priority.ALWAYS);
             head.getChildren().addAll(t, fill);
