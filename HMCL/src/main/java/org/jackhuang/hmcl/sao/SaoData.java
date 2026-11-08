@@ -244,12 +244,21 @@ public final class SaoData {
     /// @param locked        `lockedVerify`: the two-day grace ran out; the account can be managed but cannot join
     /// @param graceSeconds  seconds left to verify while unverified and not locked, else 0
     /// @param premiumName   the linked 正版 (Microsoft) name after 正版验证, or null when none is linked
+    /// @param mustRename    a 正版 player with this name took it (James, 8 Nov: "如果名字被正版玩家顶了，直接在launcher内提醒
+    ///                      请更换昵称", and "正版玩家拿走名字"); the account keeps its UUID and progress but cannot join
+    ///                      until it has a new name
     @NotNullByDefault
     public record OathAccount(String name, String profileId, String maskedEmail, boolean emailVerified, boolean locked,
-                              long graceSeconds, @Nullable String premiumName) {
+                              long graceSeconds, @Nullable String premiumName, boolean mustRename) {
+        /// An account whose name is its own.
+        public OathAccount(String name, String profileId, String maskedEmail, boolean emailVerified, boolean locked,
+                           long graceSeconds, @Nullable String premiumName) {
+            this(name, profileId, maskedEmail, emailVerified, locked, graceSeconds, premiumName, false);
+        }
+
         /// Whether the account may join the game now.
         public boolean canJoin() {
-            return !locked;
+            return !locked && !mustRename;
         }
     }
 

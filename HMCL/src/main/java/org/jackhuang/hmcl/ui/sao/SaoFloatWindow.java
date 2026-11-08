@@ -65,6 +65,13 @@ final class SaoFloatWindow extends Group {
     /// @param w     glass width
     /// @param h     glass height
     /// @param close what the close button does, or null for no close button
+    /// The window's height in design pixels.
+    ///
+    /// @return the height
+    double height() {
+        return h;
+    }
+
     SaoFloatWindow(String title, double w, double h, @Nullable Runnable close) {
         this.w = w;
         this.h = h;

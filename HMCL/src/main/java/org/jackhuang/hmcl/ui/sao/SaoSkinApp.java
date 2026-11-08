@@ -139,7 +139,11 @@ final class SaoSkinApp {
             }
         });
         HBox actions = new HBox(8, edit, apply);
-        VBox left = new VBox(8, view, viewBar, actions, status);
+        // The status line sits on the view's bottom edge, so the column fits the window (James, 8 Nov: "所有按键位置都是乱的").
+        StackPane viewBox = new StackPane(view, status);
+        StackPane.setAlignment(status, Pos.BOTTOM_LEFT);
+        StackPane.setMargin(status, new Insets(0, 0, 8, 10));
+        VBox left = new VBox(8, viewBox, viewBar, actions);
         left.setMinWidth(Editor.wOf(view));
         left.setMaxWidth(Editor.wOf(view));
 
@@ -206,8 +210,11 @@ final class SaoSkinApp {
 
         HBox body = new HBox(16, left, line(), right);
         VBox.setVgrow(body, Priority.ALWAYS);
-        return new SaoFloatWindow("皮肤", SaoApps.W, SaoApps.H, close).add(body);
+        return new SaoFloatWindow("皮肤", SaoApps.W, SKIN_H, close).add(body);
     }
+
+    /// The skin window's height: the 3D view, the arm chips and 编辑 / 穿上 one under the other.
+    static final double SKIN_H = 480;
 
     /// Opens the editor of the last skin window (screenshot tools).
     static Runnable forceEdit = () -> {
@@ -583,7 +590,10 @@ final class SaoSkinApp {
             innerMat.setDiffuseMap(tex);
             outerMat.setDiffuseMap(tex);
             build();
-            model.getTransforms().addAll(new Translate(0, 2, 0), yaw, tilt);
+            // Tilt outside the turn, as 3D software orbits: up and down always tip the model about the screen's
+            // horizontal, whichever side faces you (James, 8 Nov: turned to the back "上下划怎么是反的", to the side
+            // "像个pendulum一样").
+            model.getTransforms().addAll(new Translate(0, 2, 0), tilt, yaw);
             Group root = new Group(new AmbientLight(Color.WHITE), model);
             view = new SubScene(root, w, h, true, SceneAntialiasing.BALANCED);
             view.setFill(Color.TRANSPARENT);

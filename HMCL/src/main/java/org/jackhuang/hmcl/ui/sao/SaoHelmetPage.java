@@ -447,8 +447,8 @@ public final class SaoHelmetPage extends StackPane {
         problem.getStyleClass().add("vr-warn");
         problem.setFont(SaoUiKit.ui(12, false));
         problem.setWrappingWidth(240);
-        StackPane sides = new StackPane(signedOut, signedIn);
-        for (VBox v : new VBox[]{signedOut, signedIn}) StackPane.setAlignment(v, Pos.TOP_LEFT);
+        StackPane sides = new StackPane(signedOut, signedIn, confirmOffline);
+        for (VBox v : new VBox[]{signedOut, signedIn, confirmOffline}) StackPane.setAlignment(v, Pos.TOP_LEFT);
         VBox right = new VBox(6, sides, grow(), problem, linkRow);
         right.setPrefWidth(246);
         right.setMinWidth(246);
@@ -488,8 +488,8 @@ public final class SaoHelmetPage extends StackPane {
             confirmNameAction.run();
         });
         // 离线游玩: a name, and the warning that it cannot reach the 誓约 server.
-        Text offTitle = ink("离线游玩", 18);
-        offTitle.setFont(SaoUiKit.ui(18, true));
+        Text offTitle = ink("离线游玩", 15);
+        offTitle.setFont(SaoUiKit.ui(15, true));
         offlineName.setMaxWidth(240);
         Text offWarn = dim("离线进不了誓约服务器，只能玩单人游戏", 12);
         offWarn.getStyleClass().setAll("vr-warn");
@@ -498,10 +498,18 @@ public final class SaoHelmetPage extends StackPane {
         Button offNo = SaoUiKit.button("取消"), offYes = SaoUiKit.accent("离线进入");
         HBox offAnswers = new HBox(10, offNo, offYes);
         offAnswers.setAlignment(Pos.CENTER);
-        confirmOffline.getChildren().setAll(offTitle, offlineName, offWarn, offProblem, offAnswers);
-        confirmOffline.setAlignment(Pos.CENTER);
+        // James, 8 Nov: "离线游玩不要开个新的页面，只把右边的页面改了就行": it takes the sign-in's place on the right.
+        HBox offHead = new HBox(8, offTitle);
+        offHead.setAlignment(Pos.CENTER_LEFT);
+        offlineName.setMaxWidth(Double.MAX_VALUE);
+        offWarn.setWrappingWidth(240);
+        offAnswers.setAlignment(Pos.CENTER_LEFT);
+        confirmOffline.getChildren().setAll(offHead, key("名字"), offlineName, offWarn, offProblem, offAnswers);
+        confirmOffline.setAlignment(Pos.TOP_LEFT);
         confirmOffline.setVisible(false);
-        confirmOffline.visibleProperty().addListener((o, a, shown) -> bodyRow.setVisible(!shown));
+        confirmOffline.visibleProperty().addListener((o, a, shown) -> {
+            if (service.oathAccount().get() == null) signedOut.setVisible(!shown);
+        });
         offNo.setOnAction(e -> confirmOffline.setVisible(false));
         offYes.setOnAction(e -> {
             String n = offlineName.getText().strip();
@@ -864,7 +872,8 @@ public final class SaoHelmetPage extends StackPane {
         }
         if (appButton != null) appButton.getStyleClass().remove("vr-dock-on");
         SaoFloatWindow w = a.make().make(service, this::closeApp);
-        w.home(660, 146, 0, 0, 0);
+        // Centred in the view (James, 8 Nov: "为什么所有东西又这么靠下不居中了").
+        w.home(660, Math.max(96, (EH - w.height()) / 2 - 10), 0, 0, 0);
         windows.getChildren().add(w);
         w.flyIn(320);
         app = w;
@@ -1094,6 +1103,18 @@ public final class SaoHelmetPage extends StackPane {
             HBox nameRow = new HBox(8, n, rename);
             nameRow.setAlignment(Pos.CENTER_LEFT);
             signedIn.getChildren().setAll(head, editingName ? nameEditor(a) : nameRow);
+            if (a.mustRename()) {
+                Text taken = new Text("昵称已被正版玩家使用，请更换昵称");
+                taken.getStyleClass().add("vr-warn");
+                taken.setFont(SaoUiKit.ui(12, false));
+                Button change = SaoAccountApp.link("更换", () -> {
+                    editingName = true;
+                    refreshAccount();
+                });
+                HBox takenRow = new HBox(6, taken, grow(), change);
+                takenRow.setAlignment(Pos.CENTER_LEFT);
+                signedIn.getChildren().add(takenRow);
+            }
             // Under the name (James, 7 Nov, picked 1 3 4 5): LV, floor and Col; the last time in the game and the
             // play time; friends in the game now; and a red line while the mailbox waits for its code.
             SaoData.@Nullable PlayerCard card = service.playerCard().get();
@@ -1196,6 +1217,12 @@ public final class SaoHelmetPage extends StackPane {
 
     /// Starts with the signed-in 誓约 account, unless its mailbox check ran out.
     private void joinAs(SaoData.OathAccount a) {
+        if (a.mustRename()) {
+            problem.setText("! 昵称已被正版玩家使用，请更换昵称");
+            editingName = true;
+            refreshAccount();
+            return;
+        }
         if (a.locked()) {
             problem.setText("! 邮箱验证已过期，验证后才能进游戏");
             openAccount(SaoAccountApp.Page.VERIFY);
@@ -1377,8 +1404,13 @@ public final class SaoHelmetPage extends StackPane {
         /// HMCL's model, turned only about its own upright axis and tipped a little, never rolled
         /// (James, 8 Nov: "你的这个3d皮肤拖动鼠标的这个很搞笑，根本没做好反人类").
         private static final class Turntable extends SkinCanvas {
+            /// The camera's tip, after its turn: up and down tip the view about the screen's horizontal whichever side
+            /// faces you (James, 8 Nov: "上下划怎么是反的", "像个pendulum一样").
+            private final javafx.scene.transform.Rotate pitch = new javafx.scene.transform.Rotate(0, javafx.scene.transform.Rotate.X_AXIS);
+
             Turntable() {
                 super(TexturesLoader.getDefaultSkinImage(), 150, 214, true);
+                camera.getTransforms().add(camera.getTransforms().indexOf(yRotate) + 1, pitch);
             }
 
             double yaw() {
@@ -1386,12 +1418,15 @@ public final class SaoHelmetPage extends StackPane {
             }
 
             double tilt() {
-                return xRotate.getAngle();
+                return pitch.getAngle();
             }
 
             void turn(double yaw, double tilt) {
                 yRotate.setAngle(yaw);
-                xRotate.setAngle(Math.max(-20, Math.min(20, tilt)));
+                // The camera faces the front from yaw 180, where its own horizontal is the model's reversed, so a
+                // camera tip of +a looks like the model's old tilt of +a.
+                pitch.setAngle(Math.max(-20, Math.min(20, tilt)));
+                xRotate.setAngle(0);
                 zRotate.setAngle(0);
             }
         }
