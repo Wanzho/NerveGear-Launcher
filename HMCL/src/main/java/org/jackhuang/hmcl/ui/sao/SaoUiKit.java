@@ -36,7 +36,16 @@ final class SaoUiKit {
     /// @param bold the bold cut
     /// @return the font
     static Font ui(double size, boolean bold) {
-        return SaoAssets.sao(size, bold);
+        return SaoAssets.sao(readable(size), bold);
+    }
+
+    /// Small text one pixel larger (James, 8 Nov: "部分字体可以适当大一点，看着头疼，部分不要改"): the hint, label, link and
+    /// status lines at 12.5 px and under; names, titles, fields and buttons keep their size.
+    ///
+    /// @param size the size the screen asks for
+    /// @return the size drawn
+    static double readable(double size) {
+        return size <= 12.5 ? size + 1 : size;
     }
 
     /// An icon from HMCL's set.
