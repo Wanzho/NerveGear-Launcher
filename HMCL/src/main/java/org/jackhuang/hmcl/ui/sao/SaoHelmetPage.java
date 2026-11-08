@@ -460,7 +460,11 @@ public final class SaoHelmetPage extends StackPane {
         SaoUiKit.font(problem, 13, false);
         problem.setWrappingWidth(RIGHT_W - 6);
         StackPane sides = new StackPane(signedOut, signedIn, confirmOffline);
-        for (VBox v : new VBox[]{signedOut, signedIn, confirmOffline}) StackPane.setAlignment(v, Pos.TOP_LEFT);
+        for (VBox v : new VBox[]{signedOut, signedIn, confirmOffline}) {
+            StackPane.setAlignment(v, Pos.TOP_LEFT);
+            // Only the side shown takes room: the taller sign-in form, hidden, pushed Link Start out of the window.
+            v.managedProperty().bind(v.visibleProperty());
+        }
         VBox right = new VBox(6, sides, grow(), problem, linkRow);
         right.setPrefWidth(RIGHT_W);
         right.setMinWidth(RIGHT_W);
