@@ -81,15 +81,22 @@ import static org.jackhuang.hmcl.ui.sao.SaoUiKit.*;
 public final class SaoHelmetPage extends StackPane {
     /// The design space the windows are laid out in (the episode picture at depth 0).
     private static final double EW = 1280, EH = 720;
-    /// The dock's turn, its right edge toward the eye.
+    /// The dock's turn: its right edge away, so it leans toward facing the eye (JavaFX's Rotate, see DOCK_WIDEN).
     private static final double DOCK_TURN = -18;
-    /// How much wider the dock's icons are drawn so they look round on the turned dock. Seen from the eye (camera
-    /// 30 degree field, eye at 360 / tan 15), a small width at the dock's centre (x 60, depth -40) shrinks by
-    /// cos 18 - 580 sin 18 / (1343.6 - 40) = 0.814 against its height.
-    static final double DOCK_WIDEN = 1 / 0.814;
+    /// The dock's centre x and depth in the design space.
+    private static final double DOCK_X = 60, DOCK_Z = -40;
     /// Half the camera's vertical field of view, radians.
     private static final double HALF_FOV = Math.toRadians(15);
-
+    /// How much the dock's icons are scaled across so they look round on the turned dock (James, 8 Nov: "wide
+    /// putin"). JavaFX's Rotate of a about Y sends the window's x axis to (cos a, 0, -sin a): DOCK_TURN = -18 turns
+    /// the dock's right edge away, toward facing the eye. The eye sits at x 640, z -360 / tan 15 = -1343.6, so the
+    /// dock's centre is X = -580 across and Z = 1303.6 deep from it. A small width there is seen
+    /// (cos a + X sin a / Z) = cos 18 + 580 sin 18 / 1303.6 = 1.089 times its height: wider, not narrower (the old
+    /// comment had the sign of the second term reversed and widened them by 1 / 0.814 on top). Measured on the
+    /// 1920 x 1080 shot before the fix: gear 1.29, info 1.33 with that 1.23 widening, so 1.08 from the turn alone;
+    /// after it (0.919): gear 0.96 / 0.97, info 1.04 / 0.97, download 1.00 / 0.96 at 1920 / 2560 wide, within a pixel.
+    static final double DOCK_WIDEN = 1 / (Math.cos(Math.toRadians(DOCK_TURN))
+            + (DOCK_X - EW / 2) * Math.sin(Math.toRadians(DOCK_TURN)) / (EH / 2 / Math.tan(HALF_FOV) + DOCK_Z));
     /// The engine.
     private final SaoLauncherService service;
     /// The glass behind the windows.
@@ -867,7 +874,7 @@ public final class SaoHelmetPage extends StackPane {
             StackPane cell = new StackPane(b, tip);
             cell.setMinSize(36, 36);
             cell.setMaxSize(36, 36);
-            // The dock stays turned, so its icons are drawn wider by what the turn takes off (see DOCK_WIDEN).
+            // The dock stays turned, so its icons are scaled across by what the turn adds (see DOCK_WIDEN).
             cell.setScaleX(DOCK_WIDEN);
             tip.resizeRelocate(48, 5, 52, 26);
             b.hoverProperty().addListener((o, x, on) -> tip.setVisible(on));
@@ -882,8 +889,8 @@ public final class SaoHelmetPage extends StackPane {
         w.body.setPadding(new Insets(8, 12, 8, 12));
         w.body.getStyleClass().add("vr-dock");
         // James, 8 Nov: first "左边那一系列icons都感觉拉扁了", then, when it was turned to face the eye, "我叫你左边icon不要很宽，你
-        // 怎么直接给修平了": the dock keeps its turn and the icons are widened to look round again.
-        return w.home(60, 184, -40, DOCK_TURN, 0);
+        // 怎么直接给修平了": the dock keeps its turn and the icons are scaled across to look round again.
+        return w.home(DOCK_X, 184, DOCK_Z, DOCK_TURN, 0);
     }
 
     /// The flat layer on the ear pad: the version at the bottom left, minimise and close at the bottom

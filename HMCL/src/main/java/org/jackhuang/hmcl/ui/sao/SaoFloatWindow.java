@@ -164,7 +164,7 @@ final class SaoFloatWindow extends Group {
     /// @param cx    centre x
     /// @param top   top edge y
     /// @param z     depth
-    /// @param turn  degrees about the vertical, positive turns its right edge away
+    /// @param turn  degrees about the vertical, positive brings its right edge toward the eye (JavaFX's Rotate)
     /// @param tip   degrees about the horizontal, positive tips its top away
     /// @return this window
     SaoFloatWindow home(double cx, double top, double z, double turn, double tip) {
