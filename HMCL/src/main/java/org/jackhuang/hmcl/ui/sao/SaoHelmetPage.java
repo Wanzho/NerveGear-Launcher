@@ -148,8 +148,11 @@ public final class SaoHelmetPage extends StackPane {
     /// The pixel scale the visor and world were last made for.
     private double renderedK;
     private final Translate padShift = new Translate();
-    /// The soft glint drifting over the glass.
+    /// The soft glint on the glass: one fixed reflection, placed again only when the window is resized.
     private final Region glint = new Region();
+    /// Where the glint's centre sits, in design pixels: past the bottom-right corner of the glass, so the light lies
+    /// on the empty lower-right glass and the bare foot of the server window, clear of the character and every text.
+    private static final double GLINT_X = 1340, GLINT_Y = 760, GLINT_R = 420;
     /// Black over everything for power-down.
     private final Region black = new Region();
 
@@ -239,9 +242,13 @@ public final class SaoHelmetPage extends StackPane {
         glint.setMouseTransparent(true);
         // James, 8 Nov: "请优化". Added light (BlendMode.ADD) made JavaFX read the screen back from the graphics card
         // under the glint every frame; drawn over (the same colour and strength, so the same light on the dark glass)
-        // it is one cached picture moved each frame.
+        // it is one cached picture.
+        // James, 8 Nov: "光泽留着但不动，变成一块固定的反光。这个吧". The glint no longer drifts: it is placed once,
+        // and again only on resize, so no frame touches it.
         if ("add".equals(GLINT_MODE)) glint.setBlendMode(BlendMode.ADD);
+        glint.setBackground(GLINT);
         glint.setCache(true);
+        glint.setVisible(!"off".equals(GLINT_MODE));
         black.setStyle("-fx-background-color: black;");
         black.setMouseTransparent(true);
 
@@ -979,7 +986,7 @@ public final class SaoHelmetPage extends StackPane {
 
     // ------------------------------------------------------------------ frame
 
-    /// Keeps the visor rendered at the window's size and minute, fits the space, turns it with the head and moves the glint.
+    /// Keeps the visor rendered at the window's size and minute, fits the space, turns it with the head and, on resize, places the glint.
     ///
     /// @param t seconds on the clock
     private void frame(double t) {
@@ -1017,6 +1024,13 @@ public final class SaoHelmetPage extends StackPane {
             world.setHeight(h * k);
             worldShrink.setX(1 / k);
             worldShrink.setY(1 / k);
+            if (resized) {
+                // The fixed reflection, in whole screen pixels.
+                double gs = Math.min(w / EW, h / EH), r = GLINT_R * gs;
+                double gx = w / 2.0 + (GLINT_X - EW / 2) * gs, gy = h / 2.0 + (GLINT_Y - EH / 2) * gs;
+                glint.resizeRelocate(Math.round((gx - r) * k) / k, Math.round((gy - r) * k) / k,
+                        Math.round(2 * r * k) / k, Math.round(2 * r * k) / k);
+            }
         }
         double s = Math.min(w / EW, h / EH);
         SaoFloatWindow.fitScale = s;
@@ -1050,15 +1064,10 @@ public final class SaoHelmetPage extends StackPane {
         turnX.setPivotZ(eye);
         turnY.setAngle(lookX * 3.2);
         turnX.setAngle(lookY * 2.4);
-        if (glint.getBackground() == null) glint.setBackground(GLINT);
 
         black.resizeRelocate(0, 0, w, h);
         glass.relocate(0, 0);
         frame.relocate(0, 0);
-        double r = 420 * s, gx = (((t * 0.045) % 1.6) - 0.3) * w, gy = h * 0.42;
-        // In whole screen pixels: the cached picture of the light is then only moved.
-        if (!"off".equals(GLINT_MODE)) glint.resizeRelocate(Math.round((gx - r) * k) / k, Math.round((gy - r) * k) / k, 2 * r, 2 * r);
-        else glint.setVisible(false);
         placeCharacter();
     }
 
