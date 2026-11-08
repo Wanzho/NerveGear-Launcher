@@ -465,10 +465,45 @@ final class SaoAccountApp {
     /// A password field in the glass look.
     static PasswordField password(String prompt) {
         PasswordField f = new PasswordField();
+        // James, 8 Nov: "密码的那个点可以小一点": the SAO face's small bullet, not JavaFX's big circle (U+25CF).
+        f.setSkin(new SmallDots(f));
         f.getStyleClass().add("vr-field");
         SaoUiKit.font(f, 14, false);
         f.setPromptText(prompt);
         return f;
+    }
+
+    /// A password field's look with smaller dots (James, 8 Nov: "密码的那个点可以小一点"). The SAO UI face has no
+    /// U+25CF, so JavaFX draws the dots from the fallback face at the field's full size, and the face's own U+2022 is
+    /// only a speck; so the typed text keeps U+25CF and is drawn at [#DOTS] of the field's font. That font is still
+    /// the one [SaoUiKit#font] gave the field and follows 字体大小; the field's height and the prompt stay as they are.
+    private static final class SmallDots extends javafx.scene.control.skin.TextFieldSkin {
+        /// The dots' size against the field's text.
+        private static final double DOTS = 0.7;
+
+        SmallDots(PasswordField f) {
+            super(f);
+            // Built before any prompt is set, the first Text in the skin is the one showing the typed text.
+            @Nullable Text shown = firstText(getChildren());
+            if (shown != null) {
+                shown.fontProperty().unbind();
+                shown.fontProperty().bind(javafx.beans.binding.Bindings.createObjectBinding(() -> {
+                    javafx.scene.text.Font font = f.getFont();
+                    return new javafx.scene.text.Font(font.getName(), font.getSize() * DOTS);
+                }, f.fontProperty()));
+            }
+        }
+
+        private static @Nullable Text firstText(java.util.List<javafx.scene.Node> nodes) {
+            for (javafx.scene.Node n : nodes) {
+                if (n instanceof Text t) return t;
+                if (n instanceof javafx.scene.Parent p) {
+                    @Nullable Text t = firstText(p.getChildrenUnmodifiable());
+                    if (t != null) return t;
+                }
+            }
+            return null;
+        }
     }
 
     /// The line a form's problem shows in.

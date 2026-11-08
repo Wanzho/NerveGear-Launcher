@@ -164,8 +164,8 @@ public final class SaoHelmetPage extends StackPane {
     private final ToggleButton remember = new ToggleButton();
     private final Button login = SaoUiKit.accent("登录");
     private final Button useMicrosoft = SaoUiKit.button("使用 Microsoft 登录");
-    private final VBox signedOut = new VBox(6);
-    private final VBox signedIn = new VBox(8);
+    private final VBox signedOut = new VBox(10);
+    private final VBox signedIn = new VBox(10);
     /// Logging in with the remembered password on opening: the player sees the account, not a password form
     /// (James, 7 Nov: "登录进去就直接显示已登录，别再显示一整个密码界面").
     private boolean autoLogging;
@@ -181,7 +181,7 @@ public final class SaoHelmetPage extends StackPane {
     /// 确定退出吗？ over the player's body.
     private final VBox confirmOut = new VBox(10);
     /// 离线游玩: the name and the warning, in place of the body.
-    private final VBox confirmOffline = new VBox(10);
+    private final VBox confirmOffline = new VBox(11);
     /// The name for 离线游玩.
     private final javafx.scene.control.TextField offlineName = SaoUiKit.field("游戏里的名字");
     /// The character.
@@ -398,64 +398,76 @@ public final class SaoHelmetPage extends StackPane {
     private SaoFloatWindow buildPlayer() {
         ImageView logo = new ImageView(SaoAssets.image("logo.png"));
         logo.setPreserveRatio(true);
-        logo.setFitHeight(46);
+        logo.setFitHeight(54);
         logo.getStyleClass().add("vr-logo");
 
-        Button editSkin = round(SVG.EDIT, 28, 14);
+        Button editSkin = round(SVG.EDIT, 30, 15);
         editSkin.setOnAction(e -> openSkin());
         StackPane.setAlignment(editSkin, Pos.BOTTOM_RIGHT);
-        StackPane.setMargin(editSkin, new Insets(6));
+        StackPane.setMargin(editSkin, new Insets(7));
         StackPane stage = new StackPane(skin, editSkin);
         stage.getStyleClass().add("vr-stage");
-        stage.setMinSize(150, 214);
-        stage.setPrefSize(150, 214);
-        stage.setMaxSize(150, 214);
+        // James, 8 Nov: "中间这个界面，里面东西搞稍微大点，留白有点多，密码的那个点可以小一点": the stage and its
+        // turntable grow with the rest (150 x 214 before).
+        stage.setMinSize(STAGE_W, STAGE_H);
+        stage.setPrefSize(STAGE_W, STAGE_H);
+        stage.setMaxSize(STAGE_W, STAGE_H);
         // The left as it was: the logo over the character ("左边不用动").
-        VBox left = new VBox(12, logo, stage);
+        VBox left = new VBox(14, logo, stage);
 
         // ---- signed out
         @Nullable String remembered = service.rememberedOathName();
         if (remembered != null) name.setText(remembered);
         name.textProperty().addListener((o, a, b) -> refreshPrompt());
-        remember.getStyleClass().add("vr-check");
+        remember.getStyleClass().addAll("vr-check", "vr-check-big");
         remember.setFocusTraversable(false);
         remember.setSelected(true);
-        remember.setGraphic(icon(SVG.CHECK, 12));
+        remember.setGraphic(icon(SVG.CHECK, 14));
         remember.getGraphic().visibleProperty().bind(remember.selectedProperty());
-        Text rememberLabel = dim("记住我", 12);
+        Text rememberLabel = dim("记住我", 14);
         rememberLabel.setOnMouseClicked(e -> remember.setSelected(!remember.isSelected()));
-        HBox rememberRow = new HBox(6, remember, rememberLabel, grow(),
-                SaoAccountApp.link("注册", () -> openAccount(SaoAccountApp.Page.REGISTER)),
-                SaoAccountApp.link("忘记密码", () -> openAccount(SaoAccountApp.Page.FORGOT)));
+        HBox rememberRow = new HBox(7, remember, rememberLabel, grow(),
+                bigLink("注册", () -> openAccount(SaoAccountApp.Page.REGISTER)),
+                bigLink("忘记密码", () -> openAccount(SaoAccountApp.Page.FORGOT)));
         rememberRow.setAlignment(Pos.CENTER_LEFT);
+        for (javafx.scene.control.TextField f : new javafx.scene.control.TextField[]{name, pw, offlineName}) {
+            SaoUiKit.font(f, 16, false);
+            f.setMinHeight(FIELD_H);
+            f.setPrefHeight(FIELD_H);
+        }
+        for (Button b : new Button[]{login, useMicrosoft}) {
+            SaoUiKit.font(b, 15, false);
+            b.setMinHeight(BUTTON_H);
+            b.setPrefHeight(BUTTON_H);
+        }
         login.setMaxWidth(Double.MAX_VALUE);
         login.setOnAction(e -> login());
         login.defaultButtonProperty().bind(signedOut.visibleProperty());
-        useMicrosoft.setGraphic(microsoftLogo(14));
+        useMicrosoft.setGraphic(microsoftLogo(16));
         useMicrosoft.setMaxWidth(Double.MAX_VALUE);
         useMicrosoft.setOnAction(e -> premiumLogin());
-        HBox outHead = new HBox(8, sao("ARGUS ID", 15, true), grow(), dim("未登录", 12));
+        HBox outHead = new HBox(8, sao("ARGUS ID", 17, true), grow(), dim("未登录", 14));
         outHead.setAlignment(Pos.CENTER_LEFT);
         // James, 8 Nov: "可以选择不登录任何东西，顶着个名字，但是提醒窗口写这样就登录不了咱服务器".
-        HBox offlineRow = new HBox(SaoAccountApp.link("不登录，离线游玩", this::askOffline));
+        HBox offlineRow = new HBox(bigLink("不登录，离线游玩", this::askOffline));
         offlineRow.setAlignment(Pos.CENTER);
-        signedOut.getChildren().setAll(outHead, key("用户名／邮箱"), name, key("密码"), pw, rememberRow, login, rule(), useMicrosoft, offlineRow);
+        signedOut.getChildren().setAll(outHead, bigKey("用户名／邮箱"), name, bigKey("密码"), pw, rememberRow, login, rule(), useMicrosoft, offlineRow);
 
         // ---- signed in: filled by refreshAccount; Link Start at its bottom right
         HBox linkRow = buildLinkRow();
 
         problem.getStyleClass().add("vr-warn");
-        SaoUiKit.font(problem, 12, false);
-        problem.setWrappingWidth(240);
+        SaoUiKit.font(problem, 13, false);
+        problem.setWrappingWidth(RIGHT_W - 6);
         StackPane sides = new StackPane(signedOut, signedIn, confirmOffline);
         for (VBox v : new VBox[]{signedOut, signedIn, confirmOffline}) StackPane.setAlignment(v, Pos.TOP_LEFT);
         VBox right = new VBox(6, sides, grow(), problem, linkRow);
-        right.setPrefWidth(246);
-        right.setMinWidth(246);
-        right.setMaxWidth(246);
+        right.setPrefWidth(RIGHT_W);
+        right.setMinWidth(RIGHT_W);
+        right.setMaxWidth(RIGHT_W);
         linkRow.visibleProperty().bind(signedIn.visibleProperty());
         linkRow.managedProperty().bind(signedIn.visibleProperty());
-        HBox bodyRow = new HBox(16, left, right);
+        HBox bodyRow = new HBox(GAP, left, right);
 
         // 确定退出吗？ in place of the body until answered.
         Text sure = ink("确定退出吗？", 18);
@@ -488,25 +500,29 @@ public final class SaoHelmetPage extends StackPane {
             confirmNameAction.run();
         });
         // 离线游玩: a name, and the warning that it cannot reach the 誓约 server.
-        Text offTitle = ink("离线游玩", 15);
-        SaoUiKit.font(offTitle, 15, true);
-        offlineName.setMaxWidth(240);
-        Text offWarn = dim("离线进不了誓约服务器，只能玩单人游戏", 12);
+        Text offTitle = ink("离线游玩", 17);
+        SaoUiKit.font(offTitle, 17, true);
+        Text offWarn = dim("离线进不了誓约服务器，只能玩单人游戏", 13);
         offWarn.getStyleClass().setAll("vr-warn");
-        Text offProblem = dim("", 12);
+        Text offProblem = dim("", 14);
         offProblem.getStyleClass().setAll("vr-warn");
         // Wrapped, or its width would push the column past the window's edge.
-        offProblem.setWrappingWidth(240);
+        offProblem.setWrappingWidth(RIGHT_W - 6);
         Button offNo = SaoUiKit.button("取消"), offYes = SaoUiKit.accent("离线进入");
+        for (Button b : new Button[]{offNo, offYes}) {
+            SaoUiKit.font(b, 15, false);
+            b.setMinHeight(BUTTON_H);
+            b.setPrefHeight(BUTTON_H);
+        }
         HBox offAnswers = new HBox(10, offNo, offYes);
         offAnswers.setAlignment(Pos.CENTER);
         // James, 8 Nov: "离线游玩不要开个新的页面，只把右边的页面改了就行": it takes the sign-in's place on the right.
         HBox offHead = new HBox(8, offTitle);
         offHead.setAlignment(Pos.CENTER_LEFT);
         offlineName.setMaxWidth(Double.MAX_VALUE);
-        offWarn.setWrappingWidth(240);
+        offWarn.setWrappingWidth(RIGHT_W - 6);
         offAnswers.setAlignment(Pos.CENTER_LEFT);
-        confirmOffline.getChildren().setAll(offHead, key("名字"), offlineName, offWarn, offProblem, offAnswers);
+        confirmOffline.getChildren().setAll(offHead, bigKey("名字"), offlineName, offWarn, offProblem, offAnswers);
         confirmOffline.setAlignment(Pos.TOP_LEFT);
         confirmOffline.setVisible(false);
         confirmOffline.visibleProperty().addListener((o, a, shown) -> {
@@ -532,9 +548,29 @@ public final class SaoHelmetPage extends StackPane {
         Accounts.getAccounts().addListener((ListChangeListener<Account>) c -> refreshAccount());
         refreshAccount();
         autoLogin();
-        SaoFloatWindow w = new SaoFloatWindow("", 448, 410, null).add(body);
-        w.body.setPadding(new Insets(16, 18, 16, 18));
-        return w.home(640, 186, 0, 0, 0);
+        // 448 x 410 before; still clear of 公告 and 服务器 (their near edges at x 396 and 884) and centred on the
+        // same middle, y 391.
+        SaoFloatWindow w = new SaoFloatWindow("", PLAYER_W, PLAYER_H, null).add(body);
+        w.body.setPadding(new Insets(18, 16, 18, 16));
+        return w.home(640, 391 - PLAYER_H / 2, 0, 0, 0);
+    }
+
+    /// The player window's size and its parts (James, 8 Nov: "中间这个界面，里面东西搞稍微大点，留白有点多").
+    private static final double PLAYER_W = 468, PLAYER_H = 420, STAGE_W = 168, STAGE_H = 300, GAP = 16,
+            RIGHT_W = PLAYER_W - 32 - STAGE_W - GAP, FIELD_H = 40, BUTTON_H = 40;
+
+    /// A label over a field in the player window, a step larger than [SaoUiKit#key].
+    private static HBox bigKey(String label) {
+        HBox h = key(label);
+        SaoUiKit.font(h.getChildren().get(0), 14, true);
+        return h;
+    }
+
+    /// A text link in the player window, a step larger than [SaoAccountApp#link].
+    private static Button bigLink(String text, Runnable r) {
+        Button b = SaoAccountApp.link(text, r);
+        SaoUiKit.font(b, 14, false);
+        return b;
     }
 
     /// The Microsoft logo, its four squares in their colours, as Microsoft's own sign-in buttons show it.
@@ -563,7 +599,7 @@ public final class SaoHelmetPage extends StackPane {
     /// Link Start inside the player window, bottom right. While the pack downloads or installs, only a progress bar
     /// across the row (James, 7 Nov: "那个就绪可以删了，下载的时候linkstart别显示然后只有进度条就行").
     private HBox buildLinkRow() {
-        double bw = 246;
+        double bw = RIGHT_W;
         Region track = new Region();
         track.getStyleClass().add("vr-track");
         track.setPrefSize(bw, 4);
@@ -581,9 +617,9 @@ public final class SaoHelmetPage extends StackPane {
         track2.setMaxWidth(bw);
         // James, 7 Nov: "write more stuff on the progress bar while downloading": the step and how far over it,
         // the speed and how many files are left under it.
-        Text step = SaoUiKit.ink("", 12), percent = dim("", 12), speed = dim("", 11), left = dim("", 11);
-        percent.setFont(SaoAssets.sao(13, false));
-        speed.setFont(SaoAssets.sao(12, false));
+        Text step = SaoUiKit.ink("", 13), percent = dim("", 13), speed = dim("", 12), left = dim("", 12);
+        SaoUiKit.font(percent, 14, false);
+        SaoUiKit.font(speed, 13, false);
         HBox above = new HBox(6, step, grow(), percent);
         above.setAlignment(Pos.BASELINE_LEFT);
         HBox below = new HBox(6, speed, grow(), left);
@@ -613,17 +649,16 @@ public final class SaoHelmetPage extends StackPane {
         service.tasks().addListener((ListChangeListener<SaoData.Task>) c -> words.run());
         words.run();
         start.getStyleClass().add("vr-start");
-        SaoUiKit.font(start, 20, true);
+        SaoUiKit.font(start, 22, true);
         start.setMinWidth(Region.USE_PREF_SIZE);
         start.setOnAction(e -> linkStart());
         start.defaultButtonProperty().bind(signedIn.visibleProperty());
         // Installed: only the version beside Link Start ("安装完了那个进度条也删了，只剩v0.x").
-        Text version = dim("", 12);
-        version.setFont(SaoAssets.sao(13, false));
+        Text version = dim("", 14);
         StackPane.setAlignment(version, Pos.CENTER_LEFT);
         StackPane slot = new StackPane(bar, version, start);
         StackPane.setAlignment(start, Pos.CENTER_RIGHT);
-        slot.setMinHeight(44);
+        slot.setMinHeight(48);
         HBox.setHgrow(slot, Priority.ALWAYS);
         Runnable show = () -> {
             SaoPackState s = service.state().get();
@@ -761,9 +796,9 @@ public final class SaoHelmetPage extends StackPane {
     private static Node stat(String before, String value, String after) {
         HBox h = new HBox(4);
         h.setAlignment(Pos.BASELINE_LEFT);
-        if (!before.isEmpty()) h.getChildren().add(dim(before, 11));
-        h.getChildren().add(sao(value, 19, true));
-        if (!after.isEmpty()) h.getChildren().add(dim(after, 11));
+        if (!before.isEmpty()) h.getChildren().add(dim(before, 12));
+        h.getChildren().add(sao(value, 21, true));
+        if (!after.isEmpty()) h.getChildren().add(dim(after, 12));
         return h;
     }
 
@@ -771,9 +806,9 @@ public final class SaoHelmetPage extends StackPane {
     private static Node statRule() {
         Region r = new Region();
         r.getStyleClass().add("vr-rule");
-        r.setMinSize(1, 14);
-        r.setPrefSize(1, 14);
-        r.setMaxSize(1, 14);
+        r.setMinSize(1, 16);
+        r.setPrefSize(1, 16);
+        r.setMaxSize(1, 16);
         return r;
     }
 
@@ -1063,7 +1098,8 @@ public final class SaoHelmetPage extends StackPane {
     /// forgets it).
     private void refreshPrompt() {
         @Nullable String r = service.rememberedOathName();
-        pw.setPromptText(r != null && name.getText().strip().equals(r) ? "●●●●●●  已记住" : "密码");
+        // James, 8 Nov: "密码的那个点可以小一点": the prompt says it in words, no row of big dots.
+        pw.setPromptText(r != null && name.getText().strip().equals(r) ? "已记住密码" : "密码");
     }
 
     /// Shows the side that fits, signed out or signed in (or logging in), and the skin worn now.
@@ -1079,25 +1115,26 @@ public final class SaoHelmetPage extends StackPane {
         }
         if (waiting) {
             @Nullable String r = service.rememberedOathName();
-            signedIn.getChildren().setAll(sao("ARGUS ID", 15, true), sao(r == null ? "" : r, 30, true), dim("正在登录…", 12));
+            signedIn.getChildren().setAll(sao("ARGUS ID", 17, true), sao(r == null ? "" : r, 33, true), dim("正在登录…", 14));
         } else if (a != null) {
             Button out = SaoUiKit.button("退出登录");
             out.setOnAction(e -> confirmOut.setVisible(true));
             // James, 7 Nov: "Sign out 右边加个Settings": the account's own settings.
             Button settings = SaoUiKit.button("设置");
             settings.setOnAction(e -> openAccount(SaoAccountApp.Page.MANAGE));
-            HBox head = new HBox(8, sao("ARGUS ID", 15, true), out, settings);
+            for (Button b : new Button[]{out, settings}) SaoUiKit.font(b, 14, false);
+            HBox head = new HBox(8, sao("ARGUS ID", 17, true), out, settings);
             head.setAlignment(Pos.CENTER_LEFT);
             // James, 7 Nov: "让名字大一点", then "a bit too big now"; a long name shrinks to stay in the column.
-            Text n = sao(a.name(), 38, true);
-            double nw = n.getLayoutBounds().getWidth();
-            if (nw > 216) SaoUiKit.font(n, 38 * 216 / nw, true);
+            Text n = sao(a.name(), 42, true);
+            double nw = n.getLayoutBounds().getWidth(), room = RIGHT_W - 38;
+            if (nw > room) SaoUiKit.font(n, 42 * room / nw, true);
             n.getStyleClass().add("vr-link-text");
             n.setOnMouseClicked(e -> openAccount(SaoAccountApp.Page.MANAGE));
             // The mailbox and Microsoft live in 设置 only (James, 7 Nov).
             // A pencil beside the name: it can be changed (James, 7 Nov), in 设置.
             // James, 7 Nov: "点击铅笔可以直接在那个界面换昵称".
-            Button rename = round(SVG.EDIT, 26, 13);
+            Button rename = round(SVG.EDIT, 28, 14);
             rename.setOnAction(e -> {
                 editingName = true;
                 refreshAccount();
@@ -1108,8 +1145,8 @@ public final class SaoHelmetPage extends StackPane {
             if (a.mustRename()) {
                 Text taken = new Text("昵称已被正版玩家使用，请更换昵称");
                 taken.getStyleClass().add("vr-warn");
-                SaoUiKit.font(taken, 12, false);
-                Button change = SaoAccountApp.link("更换", () -> {
+                SaoUiKit.font(taken, 13, false);
+                Button change = bigLink("更换", () -> {
                     editingName = true;
                     refreshAccount();
                 });
@@ -1127,22 +1164,22 @@ public final class SaoHelmetPage extends StackPane {
                         stat("", card.col() < 0 ? "-" : String.format(java.util.Locale.ROOT, "%,d", card.col()), "Col"));
                 tiles.setAlignment(Pos.CENTER_LEFT);
                 // James, 7 Nov: "上次进入：昨天22:18", "累计游玩时长：_._小时 （不到一小时，_分钟）".
-                Text last = dim(card.lastPlayed() <= 0 ? "上次进入：还没进过游戏" : "上次进入：" + whenText(card.lastPlayed()), 12);
-                Text total = dim("累计游玩时长：" + playText(card.playSeconds()), 12);
+                Text last = dim(card.lastPlayed() <= 0 ? "上次进入：还没进过游戏" : "上次进入：" + whenText(card.lastPlayed()), 14);
+                Text total = dim("累计游玩时长：" + playText(card.playSeconds()), 14);
                 HBox friends = new HBox(6);
                 friends.setAlignment(Pos.CENTER_LEFT);
                 if (card.friendsOnline().isEmpty()) {
-                    friends.getChildren().add(dim("没有好友在线", 12));
+                    friends.getChildren().add(dim("没有好友在线", 14));
                 } else {
-                    friends.getChildren().add(dim("好友在线", 12));
+                    friends.getChildren().add(dim("好友在线", 14));
                     for (String f : card.friendsOnline().subList(0, Math.min(3, card.friendsOnline().size()))) {
-                        HBox chip = new HBox(5, light(true), sao(f, 12, false));
+                        HBox chip = new HBox(5, light(true), sao(f, 14, false));
                         chip.setAlignment(Pos.CENTER_LEFT);
                         chip.getStyleClass().addAll("vr-name", "vr-row");
                         chip.setOnMouseClicked(e -> openFriendChat(f));
                         friends.getChildren().add(chip);
                     }
-                    if (card.friendsOnline().size() > 3) friends.getChildren().add(dim("+" + (card.friendsOnline().size() - 3), 12));
+                    if (card.friendsOnline().size() > 3) friends.getChildren().add(dim("+" + (card.friendsOnline().size() - 3), 14));
                 }
                 signedIn.getChildren().addAll(tiles, new VBox(2, last, total), friends);
             }
@@ -1151,8 +1188,8 @@ public final class SaoHelmetPage extends StackPane {
                         : a.locked() ? "邮箱没验证，验证后才能进游戏"
                         : "邮箱待验证 · 还剩 " + SaoAccountApp.hours(a.graceSeconds()));
                 w.getStyleClass().add("vr-warn");
-                SaoUiKit.font(w, 12, false);
-                Button go = SaoAccountApp.link(a.maskedEmail().isEmpty() ? "去设置" : "去验证",
+                SaoUiKit.font(w, 13, false);
+                Button go = bigLink(a.maskedEmail().isEmpty() ? "去设置" : "去验证",
                         () -> openAccount(a.maskedEmail().isEmpty() ? SaoAccountApp.Page.MANAGE : SaoAccountApp.Page.VERIFY));
                 HBox warnRow = new HBox(6, w, grow(), go);
                 warnRow.setAlignment(Pos.CENTER_LEFT);
@@ -1328,6 +1365,18 @@ public final class SaoHelmetPage extends StackPane {
         confirmOut.setVisible(true);
     }
 
+    /// Fills the sign-in form, the name and a typed password (screenshot tools).
+    void forceSignIn(String user, String password) {
+        name.setText(user);
+        pw.setText(password);
+    }
+
+    /// Shows or hides 离线游玩 in the right column (screenshot tools).
+    void forceOffline(boolean shown) {
+        if (shown) askOffline();
+        else confirmOffline.setVisible(false);
+    }
+
     /// Opens the 誓约账号 window on a page (screenshot tools).
     void forceAccount(SaoAccountApp.Page page) {
         openAccount(page);
@@ -1413,7 +1462,7 @@ public final class SaoHelmetPage extends StackPane {
             private final javafx.scene.transform.Rotate pitch = new javafx.scene.transform.Rotate(0, javafx.scene.transform.Rotate.X_AXIS);
 
             Turntable() {
-                super(TexturesLoader.getDefaultSkinImage(), 150, 214, true);
+                super(TexturesLoader.getDefaultSkinImage(), STAGE_W, STAGE_H, true);
                 camera.getTransforms().add(camera.getTransforms().indexOf(yRotate) + 1, pitch);
             }
 

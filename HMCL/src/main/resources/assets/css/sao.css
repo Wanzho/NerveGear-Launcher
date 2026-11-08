@@ -310,6 +310,8 @@
 .vr-check { -fx-background-color: #ffffff; -fx-border-color: #a0a0a4; -fx-border-width: 1.2; -fx-border-radius: 3; -fx-background-radius: 3;
             -fx-padding: 0; -fx-min-width: 16; -fx-min-height: 16; -fx-max-width: 16; -fx-max-height: 16; -fx-cursor: hand; }
 .vr-check:selected { -fx-background-color: #f2a43a; -fx-border-color: #f2a43a; }
+/* The player window's 记住我, a step larger with the rest (8 Nov). */
+.vr-check-big { -fx-min-width: 18; -fx-min-height: 18; -fx-max-width: 18; -fx-max-height: 18; }
 .vr-check .vr-icon, .vr-check:selected SVGPath { -fx-fill: #ffffff; }
 .vr-link-text { -fx-cursor: hand; }
 

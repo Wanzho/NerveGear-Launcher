@@ -223,7 +223,8 @@ final class SaoApps {
 
         // James, 8 Nov: "加几个字体大小控制吧，我眼睛要瞎了".
         ToggleGroup sizes = new ToggleGroup();
-        javafx.beans.property.DoubleProperty scale = org.jackhuang.hmcl.setting.SettingsManager.settings().saoTextScaleProperty();
+        var settings = SaoUiKit.settings();
+        javafx.beans.property.DoubleProperty scale = settings != null ? settings.saoTextScaleProperty() : new javafx.beans.property.SimpleDoubleProperty(1);
         HBox sizeRow = new HBox(6);
         String[] names = {"小", "标准", "大", "特大"};
         double[] factors = {0.9, 1, 1.15, 1.3};

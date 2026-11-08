@@ -154,6 +154,22 @@ public final class SaoScreenShotTool {
                     fake.oathLogout();
                 });
                 shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "32-signed-out.png"));
+                // The password typed (its dots), then the remembered one's prompt, then 离线游玩 in the right column.
+                fx(() -> page[0].forceSignIn("Kirito_07", "linkstart"));
+                shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "33-signed-out-typed.png"));
+                fx(() -> {
+                    fake.remembered = "Kirito_07";
+                    page[0].forceSignIn("", "");
+                    page[0].forceSignIn("Kirito_07", "");
+                });
+                shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "34-signed-out-remembered.png"));
+                fx(() -> page[0].forceOffline(true));
+                shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "35-offline.png"));
+                fx(() -> {
+                    page[0].forceOffline(false);
+                    page[0].forceSignIn("", "");
+                    fake.remembered = null;
+                });
                 // 誓约账号: signed in (verified, then waiting for the code), and each page of its window.
                 fx(() -> fake.forceOath(true));
                 shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "21-home-signed-in.png"));

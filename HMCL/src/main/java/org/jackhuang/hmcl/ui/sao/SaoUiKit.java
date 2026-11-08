@@ -44,16 +44,27 @@ final class SaoUiKit {
 
     static {
         // James, 8 Nov: "加几个字体大小控制吧，我眼睛要瞎了": 设置 → 字体大小 sets this, and every text follows at once.
-        org.jackhuang.hmcl.setting.SettingsManager.settings().saoTextScaleProperty().addListener((o, a, b) -> {
+        var settings = settings();
+        if (settings != null) settings.saoTextScaleProperty().addListener((o, a, b) -> {
             for (var e : new java.util.ArrayList<>(SIZED.entrySet())) apply(e.getKey(), e.getValue()[0], e.getValue()[1] != 0);
         });
+    }
+
+    /// The launcher's settings, or null before they are loaded (the screen-shot tool runs without them).
+    static org.jackhuang.hmcl.setting.@org.jetbrains.annotations.Nullable LauncherSettings settings() {
+        try {
+            return org.jackhuang.hmcl.setting.SettingsManager.settings();
+        } catch (IllegalStateException notLoaded) {
+            return null;
+        }
     }
 
     /// The 字体大小 factor.
     ///
     /// @return 0.9 to 1.3
     static double textScale() {
-        double k = org.jackhuang.hmcl.setting.SettingsManager.settings().saoTextScaleProperty().get();
+        var settings = settings();
+        double k = settings == null ? 1 : settings.saoTextScaleProperty().get();
         return k >= 0.8 && k <= 1.5 ? k : 1;
     }
 
