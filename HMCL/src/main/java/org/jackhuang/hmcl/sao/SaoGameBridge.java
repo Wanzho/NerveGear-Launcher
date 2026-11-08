@@ -186,6 +186,8 @@ final class SaoGameBridge {
 
     /// Builds the production launch plan using the same memory, runtime, window and JVM settings in both modes.
     /// Offline identities must be plain HMCL accounts without a custom skin, preventing injector/API side effects.
+    /// The version name is the storage id: NeoForge expands it in `ignoreList` to exclude the primary client jar.
+    /// Pack release labels remain presentation metadata and must not participate in jar resolution.
     static LaunchPlan launchPlan(Account account, SaoPackManifest manifest, int memoryMiB, SaoData.GameWindow window,
                                  String jvmArgs, JavaRuntime runtime, Path instance, boolean offline) throws Exception {
         if (offline && (account.getClass() != OfflineAccount.class || ((OfflineAccount) account).getSkin() != null))
@@ -193,7 +195,7 @@ final class SaoGameBridge {
         AuthInfo auth = account.logIn();
         LaunchOptions.Builder options = new LaunchOptions.Builder().setInstanceId(INSTANCE_ID)
                 .setGameDir(instance).setJava(runtime).setMaxMemory(memoryMiB)
-                .setVersionName("SAO Oath " + manifest.version()).setVersionType("SAO Oath")
+                .setVersionName(INSTANCE_ID.toString()).setVersionType("SAO Oath")
                 .setProfileName(account.getProfileName()).setDisableAutoGameOptions(true)
                 .setWidth(window.width()).setHeight(window.height()).setFullscreen(window.fullscreen())
                 .setJavaArguments(org.jackhuang.hmcl.util.StringUtils.tokenize(jvmArgs));
