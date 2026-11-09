@@ -13,16 +13,19 @@ int main(int argc, char **argv) {
     char *slash = strrchr(resolved, '/');
     if (!slash) return 70;
     *slash = '\0';
-    if (snprintf(java, sizeof(java), "%s/../runtime/bin/java", resolved) >= sizeof(java)
-        || snprintf(jar, sizeof(jar), "%s/../app/launcher.jar", resolved) >= sizeof(jar)) return 70;
-    char **arguments = calloc((size_t) argc + 8, sizeof(char *));
+    int java_length = snprintf(java, sizeof(java), "%s/../runtime/bin/java", resolved);
+    int jar_length = snprintf(jar, sizeof(jar), "%s/../app/launcher.jar", resolved);
+    if (java_length < 0 || (size_t) java_length >= sizeof(java)
+        || jar_length < 0 || (size_t) jar_length >= sizeof(jar)) return 70;
+    char **arguments = calloc((size_t) argc + 9, sizeof(char *));
     if (!arguments) return 71;
     arguments[0] = java;
     arguments[1] = "--add-modules=javafx.controls,jdk.zipfs,jdk.crypto.ec,jdk.localedata";
-    arguments[2] = "-Xdock:name=刀剑神域·誓约";
-    arguments[3] = "-jar";
+    arguments[2] = "-Xdock:name=NerveGear启动器";
+    arguments[3] = "-cp";
     arguments[4] = jar;
-    int count = 5;
+    arguments[5] = "org.jackhuang.hmcl.sao.SaoLauncherBootstrap";
+    int count = 6;
     for (int i = 1; i < argc; i++) {
         /* Older Finder versions can pass a process serial-number argument. */
         if (strncmp(argv[i], "-psn_", 5)) arguments[count++] = argv[i];

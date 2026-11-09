@@ -5,6 +5,7 @@
  */
 package org.jackhuang.hmcl.sao;
 
+import org.jackhuang.hmcl.Metadata;
 import org.jackhuang.hmcl.auth.Account;
 import org.jackhuang.hmcl.auth.AuthInfo;
 import org.jackhuang.hmcl.auth.microsoft.MicrosoftAccount;
@@ -188,6 +189,7 @@ final class SaoGameBridge {
     /// Offline identities must be plain HMCL accounts without a custom skin, preventing injector/API side effects.
     /// The version name is the storage id: NeoForge expands it in `ignoreList` to exclude the primary client jar.
     /// Pack release labels remain presentation metadata and must not participate in jar resolution.
+    /// Minecraft's launcher profile and version type use the product title; account identity remains in AuthInfo.
     static LaunchPlan launchPlan(Account account, SaoPackManifest manifest, int memoryMiB, SaoData.GameWindow window,
                                  String jvmArgs, JavaRuntime runtime, Path instance, boolean offline) throws Exception {
         if (offline && (account.getClass() != OfflineAccount.class || ((OfflineAccount) account).getSkin() != null))
@@ -195,8 +197,8 @@ final class SaoGameBridge {
         AuthInfo auth = account.logIn();
         LaunchOptions.Builder options = new LaunchOptions.Builder().setInstanceId(INSTANCE_ID)
                 .setGameDir(instance).setJava(runtime).setMaxMemory(memoryMiB)
-                .setVersionName(INSTANCE_ID.toString()).setVersionType("SAO Oath")
-                .setProfileName(account.getProfileName()).setDisableAutoGameOptions(true)
+                .setVersionName(INSTANCE_ID.toString()).setVersionType(Metadata.TITLE)
+                .setProfileName(Metadata.TITLE).setDisableAutoGameOptions(true)
                 .setWidth(window.width()).setHeight(window.height()).setFullscreen(window.fullscreen())
                 .setJavaArguments(org.jackhuang.hmcl.util.StringUtils.tokenize(jvmArgs));
         String server = offline ? "" : manifest.server().isEmpty() && account instanceof SaoOathLaunchAccount

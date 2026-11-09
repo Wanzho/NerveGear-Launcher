@@ -83,6 +83,32 @@ public final class SaoPackInstaller {
         }
     }
 
+    /// Verifies and composes all quick hops while holding the same lock as the single preserving commit.
+    /// The complete resulting source is cached before writes, so repair survives restart without the original drops.
+    public SaoPackArchive applyQuick(List<Path> archives, @Nullable SaoPackArchive pristine, Path cache) throws Exception {
+        SaoPackFiles.resolve(instance, "sao-pack-lock-check");
+        Files.createDirectories(instance);
+        Path lockPath = instance.resolve(".sao-pack.lock");
+        if (Files.isSymbolicLink(lockPath)) throw new IOException("Invalid pack lock file");
+        try (FileChannel channel = FileChannel.open(lockPath, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
+             var lock = channel.tryLock()) {
+            if (lock == null) throw new IOException("Another SAO launcher is updating this instance");
+            @Nullable SaoPackManifest installed = installed();
+            if (installed == null) throw new IOException(SaoQuickUpdate.FULL_REQUIRED);
+            Files.createDirectories(cache);
+            Path work = Files.createTempDirectory(cache, "chain-");
+            try {
+                SaoPackArchive composed = SaoQuickUpdate.compose(instance, installed, archives, pristine, work);
+                String key = SaoPackArchive.sha1(new ByteArrayInputStream(composed.manifest().toJson().getBytes(StandardCharsets.UTF_8)));
+                Path retained = cache.resolve(key + ".zip");
+                SaoPackFiles.atomicMove(composed.zip(), retained);
+                SaoPackArchive complete = new SaoPackArchive(retained, composed.manifest());
+                applyLocked(complete, true);
+                return complete;
+            } finally { SaoPackFiles.deleteTree(work); }
+        }
+    }
+
     /// Stages all required bytes before modifying the instance, then commits the receipt last.
     private Result applyLocked(SaoPackArchive source, boolean repair) throws Exception {
         @Nullable SaoPackManifest previous = installed();

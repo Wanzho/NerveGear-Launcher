@@ -75,7 +75,10 @@ class SaoAuthAndSkinTest {
             assertTrue(child.waitFor(10, java.util.concurrent.TimeUnit.SECONDS), "Stdin probe timed out");
             String response = new String(child.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
             assertEquals(0, child.exitValue(), response);
-            assertEquals("one-frame;no-arguments;stdin-closed\n", response);
+            // The required inherited headless environment prints this JVM notice before main runs.
+            String body = response.lines().filter(line -> !line.startsWith("Picked up JAVA_TOOL_OPTIONS: "))
+                    .collect(java.util.stream.Collectors.joining("\n", "", "\n"));
+            assertEquals("one-frame;no-arguments;stdin-closed\n", body);
             String logs = captured.toString(StandardCharsets.UTF_8);
             assertFalse(logs.contains(synthetic));
             assertFalse(logs.contains(encoded));

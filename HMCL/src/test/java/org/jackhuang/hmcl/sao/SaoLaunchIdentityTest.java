@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 package org.jackhuang.hmcl.sao;
 
+import org.jackhuang.hmcl.Metadata;
 import org.jackhuang.hmcl.game.*;
 import org.jackhuang.hmcl.java.JavaRuntime;
 import org.jackhuang.hmcl.launch.DefaultLauncher;
@@ -79,7 +80,11 @@ class SaoLaunchIdentityTest {
                     "BootstrapLauncher must exclude the actual primary jar: " + ignore);
             assertFalse(ignore.contains("SAO Oath 0.8.jar"));
             assertEquals("sao-oath", plan.options().getVersionName());
-            assertEquals("SAO Oath", plan.options().getVersionType());
+            assertEquals(Metadata.TITLE, plan.options().getVersionType());
+            assertEquals(Metadata.TITLE, plan.options().getProfileName());
+            assertEquals(Metadata.NAME, valueAfter(command, "--launcherName"));
+            assertEquals(Metadata.TITLE, valueAfter(command, "--versionType"));
+            assertEquals(Metadata.TITLE, valueAfter(command, "--profileName"));
             assertEquals("sao-oath", valueAfter(command, "--version"));
             assertEquals(client.toString(), property(command, "-Dminecraft.client.jar="));
             @Unmodifiable List<String> classpath = List.of(valueAfter(command, "-cp").split(Pattern.quote(File.pathSeparator)));
@@ -101,7 +106,9 @@ class SaoLaunchIdentityTest {
                 .withArguments(new Arguments().addJVMArguments(
                         "-DignoreList=bootstraplauncher,securejarhandler,client-extra,${version_name}.jar",
                         "-Djava.library.path=${natives_directory}", "-cp", "${classpath}")
-                        .addGameArguments("--version", "${version_name}", "--gameDir", "${game_directory}"))
+                        .addGameArguments("--version", "${version_name}", "--gameDir", "${game_directory}",
+                                "--launcherName", "${launcher_name}", "--versionType", "${version_type}",
+                                "--profileName", "${profile_name}"))
                 .withLibraries(List.of(new Library("net.neoforged", "forge", "1.20.1-47.1.106"),
                         new Library("cpw.mods", "bootstraplauncher", "1.1.2"),
                         new Library(new Artifact("net.minecraft", "client", "1.20.1", "extra"))));

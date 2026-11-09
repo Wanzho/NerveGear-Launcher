@@ -34,6 +34,7 @@ class SaoUninstallerTest {
                 || actual.startsWith(evidence.resolve("friends1/fixtures"))
                 || actual.startsWith(evidence.resolve("argusfix1/fixtures"))
                 || actual.startsWith(evidence.resolve("premiumname1/fixtures"))
+                || actual.startsWith(evidence.resolve("gitee3/fixtures"))
                 || actual.startsWith(evidence.resolve("loginmail1/fixtures")), "Configure an isolated launcher fixture directory before these tests");
     }
 

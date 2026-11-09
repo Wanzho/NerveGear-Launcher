@@ -104,6 +104,18 @@ public interface SaoLauncherService {
     /// Accepts a manually chosen or discovered ZIP, verifies size/SHA-256, then uses the preserving pack installer.
     default void applyDownloadedPack(Path zip) { applyUpdateZip(zip); }
 
+    /// Accepts full packs, accumulated quick hops or verified launcher JARs in any drop order.
+    /// Files are snapshotted privately; completion and public errors are also exposed through observable state.
+    default CompletableFuture<Void> acceptDroppedFiles(List<Path> paths) {
+        for (Path path : paths) applyUpdateZip(path);
+        return CompletableFuture.completedFuture(null);
+    }
+
+    /// Staged launcher replacement and last bootstrap rollback result; restarting uses the native shell.
+    default ReadOnlyObjectProperty<SaoData.LauncherUpdate> launcherUpdate() {
+        return new SimpleObjectProperty<>(new SaoData.LauncherUpdate("", false, ""));
+    }
+
     /// Sets the skin the game sends to the server on join; copies it into the instance as `sao/skin.png`.
     ///
     /// @param png a 64×64 or 64×32 PNG, or null to go back to the default lookup

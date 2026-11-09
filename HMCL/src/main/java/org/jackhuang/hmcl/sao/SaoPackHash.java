@@ -38,7 +38,7 @@ public final class SaoPackHash {
         long size = after.size();
         if (size <= 0) throw new IOException("整合包文件为空");
         JsonObject pack = new JsonObject();
-        pack.addProperty("version", SaoUpdates.version(version)); pack.addProperty("quark", SaoUpdates.QUARK_URL);
+        pack.addProperty("version", SaoUpdates.version(version));
         pack.addProperty("file", filename); pack.addProperty("size", size); pack.addProperty("sha256", hash);
         JsonObject result = new JsonObject(); result.add("pack", pack);
         return new GsonBuilder().setPrettyPrinting().create().toJson(result);

@@ -181,7 +181,7 @@ val createPropertiesFile = tasks.register("createPropertiesFile") {
 }
 
 tasks.jar {
-    archiveBaseName.set("SAO-Oath-Launcher")
+    archiveBaseName.set("NerveGear-Launcher")
     enabled = false
     dependsOn(tasks["shadowJar"])
 }
@@ -192,7 +192,7 @@ tasks.shadowJar {
     dependsOn(createPropertiesFile)
 
     archiveClassifier.set(null as String?)
-    archiveBaseName.set("SAO-Oath-Launcher")
+    archiveBaseName.set("NerveGear-Launcher")
 
     exclude("**/package-info.class")
     exclude("META-INF/maven/**")

@@ -22,8 +22,8 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
 HEADLESS = "-Djava.awt.headless=true"
 TARGETS = ("macos-arm64", "macos-x64", "windows-x64", "linux-x64")
-PRODUCT = "SAO Oath Launcher"
-WINDOWS_NAME = "刀剑神域·誓约 启动器"
+PRODUCT = "NerveGear启动器"
+WINDOWS_NAME = "NerveGear启动器"
 MODULES = (
     "java.base,java.net.http,java.sql,javafx.controls,javafx.swing,jdk.attach,"
     "jdk.management,jdk.unsupported,jdk.charsets,jdk.crypto.ec,jdk.localedata,jdk.zipfs"
@@ -54,10 +54,15 @@ def digest(path):
 
 
 def check_space(path):
-    """Stop before new work when the user-defined 15 GiB floor is reached."""
-    free = shutil.disk_usage(path).free
-    if free < 15 * 1024 ** 3:
-        raise RuntimeError(f"Free space {free / 1024 ** 3:.2f} GiB is below the 15 GiB stop threshold")
+    """Confirm low space twice a minute apart before stopping below 10 GB."""
+    for check in range(3):
+        free = shutil.disk_usage(path).free
+        if free >= 10_000_000_000:
+            return
+        if check < 2:
+            print(f"Free space {free / 1e9:.2f} GB; rechecking in one minute", flush=True)
+            time.sleep(60)
+    raise RuntimeError(f"Free space {free / 1e9:.2f} GB remained below the 10 GB stop threshold")
 
 
 def linked_copy(source, destination):
@@ -130,8 +135,8 @@ def build_jar(args, work, host):
     try:
         attempts_file = work / "full-gradle-builds.json"
         count = json.loads(attempts_file.read_text())["count"] if attempts_file.exists() else 0
-        if count >= 3:
-            raise RuntimeError("Maximum three full Gradle builds reached")
+        if count >= 4:
+            raise RuntimeError("Maximum four full Gradle builds reached")
         attempts_file.write_text(json.dumps({"count": count + 1}) + "\n")
         env_home = os.environ.get("GRADLE_USER_HOME")
         if not env_home:
@@ -149,15 +154,17 @@ def build_jar(args, work, host):
         run(command, log=args.output / "gradle-build.log", cwd=REPO)
     finally:
         lockdir.rmdir()
-    jars = list((REPO / "HMCL/build/libs").glob("SAO-Oath-Launcher-*.jar"))
+    jars = list((REPO / "HMCL/build/libs").glob("NerveGear-Launcher-*.jar"))
     if len(jars) != 1:
         raise RuntimeError("Expected one plain launcher JAR; pass --jar to select one")
     return jars[0]
 
 
 def verify_pack_mode(jar, embed_pack):
-    """Reject a reused embedded JAR in player packages unless explicitly opted in."""
+    """Require the native bootstrap and reject implicit embedded-pack player builds."""
     with zipfile.ZipFile(jar) as archive:
+        if "org/jackhuang/hmcl/sao/SaoLauncherBootstrap.class" not in archive.namelist():
+            raise RuntimeError("Native packages require a self-update-bootstrap-enabled launcher JAR")
         # The authentication helper is also under assets/sao and is required in thin builds.
         embedded = any(name in ("assets/sao/pack.zip", "assets/sao/sao-manifest.json")
                        or name.startswith("assets/sao/files/") and not name.endswith("/")
@@ -244,11 +251,11 @@ def mac_app(target, host, home, dist, work, jar, icns, evidence, lock):
     runtime(host, home, contents / "runtime", evidence / (target + "-jlink.log"))
     architecture = "arm64" if target.endswith("arm64") else "x86_64"
     run(["clang", "-arch", architecture, "-mmacosx-version-min=11.0", "-Os", "-Wall", "-Wextra",
-         HERE / "macos-launcher.c", "-o", contents / "MacOS/SAO-Oath-Launcher"])
+         HERE / "macos-launcher.c", "-o", contents / "MacOS/NerveGear-Launcher"])
     linked_copy(jar, contents / "app/launcher.jar")
     shutil.copy2(icns, contents / "Resources/launcher.icns")
-    info = {"CFBundleExecutable": "SAO-Oath-Launcher", "CFBundleIdentifier": "com.saooath.launcher",
-            "CFBundleName": PRODUCT, "CFBundleDisplayName": "刀剑神域·誓约",
+    info = {"CFBundleExecutable": "NerveGear-Launcher", "CFBundleIdentifier": "com.saooath.launcher",
+            "CFBundleName": PRODUCT, "CFBundleDisplayName": PRODUCT,
             "CFBundleIconFile": "launcher.icns", "CFBundlePackageType": "APPL",
             "CFBundleShortVersionString": "0.1.0", "CFBundleVersion": "1",
             "LSMinimumSystemVersion": "11.0", "NSHighResolutionCapable": True,
@@ -257,7 +264,7 @@ def mac_app(target, host, home, dist, work, jar, icns, evidence, lock):
     notices(contents / "Resources", lock)
     sign_app(app, evidence / (target + "-codesign.txt"))
     check_space(work)
-    image = dist / f"SAO-Oath-Launcher-0.1.0-{target}.dmg"
+    image = dist / f"NerveGear-Launcher-0.1.0-{target}.dmg"
     if image.exists():
         image.unlink()
     # -srcfolder creates an image directly; no Finder, mount or .app execution occurs.
@@ -269,7 +276,7 @@ def mac_app(target, host, home, dist, work, jar, icns, evidence, lock):
 
 def portable(target, host, home, dist, work, jar, ico, evidence, lock):
     """Assemble a native Windows executable or Linux shell entry point with a runtime."""
-    root = work / "staging" / target / "SAO-Oath-Launcher"
+    root = work / "staging" / target / "NerveGear-Launcher"
     (root / "app").mkdir(parents=True, exist_ok=True)
     runtime(host, home, root / "runtime", evidence / (target + "-jlink.log"))
     linked_copy(jar, root / "app/launcher.jar")
@@ -282,26 +289,27 @@ def portable(target, host, home, dist, work, jar, ico, evidence, lock):
         executable.write_bytes(template)
         replace_icon(executable, ico)
         (root / "app" / (WINDOWS_NAME + ".cfg")).write_text(
-            "[Application]\napp.name=SAO Oath Launcher\napp.version=0.1.0\n"
-            "app.mainjar=$APPDIR/launcher.jar\n\n[JavaOptions]\n"
+            "[Application]\napp.name=NerveGear启动器\napp.version=0.1.0\n"
+            "app.mainclass=org.jackhuang.hmcl.sao.SaoLauncherBootstrap\n"
+            "app.classpath=$APPDIR/launcher.jar\n\n[JavaOptions]\n"
             "java-options=--add-modules=" + ADD_MODULES + "\n", encoding="utf-8")
         # Remove the earlier ASCII development basename, when reusing staging.
-        for obsolete in (root / "SAO-Oath-Launcher.exe", root / "app/SAO-Oath-Launcher.cfg"):
+        for obsolete in (root / "NerveGear-Launcher.exe", root / "app/NerveGear-Launcher.cfg"):
             if obsolete.exists():
                 obsolete.unlink()
-        archive = dist / "SAO-Oath-Launcher-0.1.0-windows-x64.zip"
+        archive = dist / "NerveGear-Launcher-0.1.0-windows-x64.zip"
         with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=1) as output:
             for path in sorted(root.rglob("*")):
                 if path.is_file():
                     output.write(path, path.relative_to(root.parent))
     else:
-        script = root / "SAO-Oath-Launcher.sh"
+        script = root / "NerveGear-Launcher.sh"
         script.write_text("#!/bin/sh\nset -eu\nROOT=$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\n"
                           "exec \"$ROOT/runtime/bin/java\" --add-modules=" + ADD_MODULES
-                          + " -jar \"$ROOT/app/launcher.jar\" \"$@\"\n")
+                          + " -cp \"$ROOT/app/launcher.jar\" org.jackhuang.hmcl.sao.SaoLauncherBootstrap \"$@\"\n")
         script.chmod(0o755)
         shutil.copy2(HERE / "icon.png", root / "icon.png")
-        with tarfile.open(dist / "SAO-Oath-Launcher-0.1.0-linux-x64.tar.gz", "w:gz", compresslevel=1) as output:
+        with tarfile.open(dist / "NerveGear-Launcher-0.1.0-linux-x64.tar.gz", "w:gz", compresslevel=1) as output:
             output.add(root, arcname=root.name)
     return root / "runtime", root / "app/launcher.jar", root
 
@@ -330,9 +338,9 @@ def finalize(dist, output):
     """Bundle the committed corresponding source and hash every deliverable."""
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip()
     (dist / "SOURCE-COMMIT.txt").write_text(commit + "\n")
-    source_path = dist / "SAO-Oath-Launcher-source.tar.gz"
+    source_path = dist / "NerveGear-Launcher-source.tar.gz"
     with source_path.open("wb") as destination:
-        source = subprocess.Popen(["git", "archive", "--format=tar", "--prefix=SAO-Oath-Launcher-source/", "HEAD"],
+        source = subprocess.Popen(["git", "archive", "--format=tar", "--prefix=NerveGear-Launcher-source/", "HEAD"],
                                   cwd=REPO, stdout=subprocess.PIPE)
         with gzip.GzipFile(fileobj=destination, mode="wb", compresslevel=6, mtime=0) as compressed:
             shutil.copyfileobj(source.stdout, compressed)
@@ -348,7 +356,7 @@ def finalize(dist, output):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output", type=Path, default=Path.home() / "Developer/sao-launcher-runs/gitee2")
+    parser.add_argument("--output", type=Path, default=Path.home() / "Developer/sao-launcher-runs/gitee3")
     parser.add_argument("--embed-pack", action="store_true", help="Embed a full pack for offline test builds only")
     parser.add_argument("--toolchain-cache", type=Path, help="Reuse previously SHA-256-pinned downloads/toolchains")
     parser.add_argument("--pack", type=Path, default=Path.home() / "Downloads/SAO OATH0.8.zip")

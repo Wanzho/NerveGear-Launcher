@@ -27,7 +27,7 @@ final class SaoOnlineData implements AutoCloseable {
         Thread thread = new Thread(task, "sao-status-deadline"); thread.setDaemon(true); return thread;
     });
     /// Reused client does not create a new selector/executor for every refresh.
-    private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3))
+    private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10))
             .followRedirects(HttpClient.Redirect.NEVER).build();
     /// Cache file for the last valid remote document.
     private final Path cache;
@@ -127,10 +127,10 @@ final class SaoOnlineData implements AutoCloseable {
         finally { Files.deleteIfExists(temporary); }
     }
 
-    /// Fetches a bounded document under one three-second deadline, permitting only Gitee's one raw-host redirect.
+    /// Fetches a bounded document under one ten-second deadline, permitting only Gitee's one raw-host redirect.
     private String fetchDocument(String endpoint, int limit) throws Exception {
         URI uri = checkedEndpoint(URI.create(endpoint));
-        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
         Response response = exchange.send(request(uri, deadline), limit);
         if (redirect(response.status())) {
             uri = redirected(uri, response.location());

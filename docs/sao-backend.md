@@ -1,8 +1,8 @@
-# SAO Oath Launcher backend
+# NerveGear Launcher backend
 
 The frontend calls `SaoLauncherService`; the backend installs one `SaoPackEngine` before controllers are initialized. The original seam remains intact. `sao_auth` is a password handoff associated with an offline or Microsoft account, not a third account type.
 
-The launcher identity is **刀剑神域·誓约 启动器 / SAO Oath Launcher**, version **0.1.0**. Pack releases have independent versions. Existing HMCL copyright and license notices remain in the source and About page.
+The launcher identity is **NerveGear启动器 / NerveGear Launcher**, version **0.1.0**. Pack releases have independent versions. Existing HMCL copyright and license notices remain in the source and About page.
 
 ## Storage isolation
 

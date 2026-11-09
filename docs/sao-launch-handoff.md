@@ -13,7 +13,7 @@ Build the launcher with:
 
 `-PsaoPackBaseline` is optional. It reuses read-only local files only after exact SHA-1 and byte-size verification. Without it, preprocessing downloads external Modrinth dependencies from their declared HTTPS sources, verifies them, and embeds them. Source archive and receipt files are never modified. No absolute baseline paths enter the embedded manifest.
 
-The output is `HMCL/build/libs/SAO-Oath-Launcher-0.1.0.jar`. `-PsaoVersion` overrides the launcher's own version. Pack versions are separate: the supplied archive's `SAO OATH0.8` name normalizes its generic `1.0.0` export ID to `0.8`; future numeric OATH names remain distinct. `-PsaoPackVersion` overrides the derived release version. `-PsaoServer=host:port` configures auto-join; its default is empty. `MICROSOFT_AUTH_ID` remains the upstream build environment input.
+The output is `HMCL/build/libs/NerveGear-Launcher-0.1.0.jar`. `-PsaoVersion` overrides the launcher's own version. Pack versions are separate: the supplied archive's `SAO OATH0.8` name normalizes its generic `1.0.0` export ID to `0.8`; future numeric OATH names remain distinct. `-PsaoPackVersion` overrides the derived release version. `-PsaoServer=host:port` configures auto-join; its default is empty. `MICROSOFT_AUTH_ID` remains the upstream build environment input.
 
 The full distribution contains the original archive, a precomputed manifest and content-addressed copies of all external pack dependencies. Runtime can unpack the pack without asking players to obtain it separately. Minecraft 1.20.1, exact NeoForge 47.1.106 and any missing Java 17 runtime still use HMCL's installers. China uses BMCLAPI first with official fallback; other regions retain HMCL's default source order. Forge and other Minecraft/NeoForge versions are rejected.
 
@@ -82,7 +82,7 @@ After building the complete jar and preparing those runtime libraries, use a Jav
 
 ```sh
 java -Djava.awt.headless=true \
-  -cp "SAO-Oath-Launcher-0.1.0.jar:/path/to/javafx-21.0.8/lib/*" \
+  -cp "NerveGear-Launcher-0.1.0.jar:/path/to/javafx-21.0.8/lib/*" \
   org.jackhuang.hmcl.sao.SaoPackCli prove \
   --root /path/to/fresh-scratch --embedded --report /path/to/fresh-scratch/proof.json
 ```

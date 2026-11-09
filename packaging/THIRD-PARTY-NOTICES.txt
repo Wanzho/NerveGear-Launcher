@@ -1,4 +1,4 @@
-SAO Oath Launcher is a modified distribution of Hello Minecraft! Launcher (HMCL).
+NerveGear Launcher is a modified distribution of Hello Minecraft! Launcher (HMCL).
 Copyright (C) 2013-2025 huangyuhui and contributors.
 Launcher source is licensed under GNU GPL version 3 or later, with the upstream
 Section 7 naming and copyright-preservation terms. See LICENSE-launcher-GPL-3.0.txt
@@ -26,9 +26,9 @@ are retained by the upstream build. JOrbis 0.0.17 is a declared LGPL dependency 
 the inherited build configuration, but is unused in this source snapshot and
 removed from this distribution by the existing Shadow minimizer.
 
-The embedded OATH 0.8 pack is the user-supplied SAO OATH0.8.zip and verified
-baseline payloads, not a newly fabricated pack. Individual mods, assets, sounds,
+Player distributions are thin and contain no OATH pack. Optional offline-test
+builds embed the supplied OATH pack and verified baseline payloads. Individual mods, assets, sounds,
 and pack resources retain their own upstream rights and licenses. This local
 packaging run does not establish public redistribution rights for every asset.
-Minecraft itself is not included in the embedded pack payload, and game base
+Minecraft itself is not included in the launcher package, and game base
 downloads remain handled by the existing launcher installation engine.

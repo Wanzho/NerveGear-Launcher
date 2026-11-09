@@ -20,28 +20,60 @@ public final class SaoData {
     private SaoData() {
     }
 
-    /// Exact public download identity; the archive is downloaded manually from Quark.
-    /// @param version numeric dotted pack version
-    /// @param quark validated HTTPS Quark share link
-    /// @param file exact ZIP basename in Downloads
+    /// Exact public full-pack identity; bytes are downloaded manually from the shared Quark link.
+    /// @param version numeric pack version
+    /// @param file suggested portable ZIP basename
     /// @param size exact compressed byte count
-    /// @param sha256 lowercase SHA-256 of the entire ZIP
+    /// @param sha256 lowercase SHA-256 of the complete ZIP
     @NotNullByDefault
-    public record PackRelease(String version, String quark, String file, long size, String sha256) { }
+    public record PackRelease(String version, String file, long size, String sha256) { }
+
+    /// One directed quick update; a unique from-version determines the next hop.
+    /// @param from required installed version
+    /// @param to resulting version
+    /// @param file suggested portable ZIP basename
+    /// @param size exact compressed byte count
+    /// @param sha256 lowercase SHA-256 of the complete ZIP
+    @NotNullByDefault
+    public record QuickRelease(String from, String to, String file, long size, String sha256) { }
 
     /// Launcher compatibility policy, independent of the pack version.
     /// @param latest newest launcher version
     /// @param min oldest permitted launcher version
-    /// @param quark validated HTTPS Quark share link
+    /// @param artifact optional exact JAR download identity; absent means complete launcher download
+    /// @param nativeRequired whether runtime/native changes require the complete launcher
     @NotNullByDefault
-    public record LauncherRelease(String latest, String min, String quark) { }
+    public record LauncherRelease(String latest, String min, @Nullable LauncherArtifact artifact, boolean nativeRequired) {
+        /// Creates a policy requiring a complete native download when no JAR identity is advertised.
+        public LauncherRelease(String latest, String min) { this(latest, min, null, false); }
+    }
 
-    /// A completely validated schema-1 version document.
-    /// @param schema supported schema number, always 1
-    /// @param pack public pack release identity
-    /// @param launcher public launcher compatibility policy
+    /// Exact manually downloaded launcher JAR or single-JAR ZIP identity.
+    /// @param file portable suggested basename
+    /// @param size compressed download byte count
+    /// @param sha256 hash of the complete download
     @NotNullByDefault
-    public record VersionMetadata(int schema, PackRelease pack, LauncherRelease launcher) { }
+    public record LauncherArtifact(String file, long size, String sha256) { }
+
+    /// Persisted native-bootstrap state exposed without touching the packaged application.
+    /// @param version staged or active JAR version, empty when using bundled JAR
+    /// @param restartRequired whether a verified staged JAR awaits restart
+    /// @param message success, rollback or full-download instruction
+    @NotNullByDefault
+    public record LauncherUpdate(String version, boolean restartRequired, String message) { }
+
+    /// Completely validated schema-2 policy with one shared manual-download link.
+    /// @param schema supported schema, always 2
+    /// @param quark validated shared HTTPS Quark link
+    /// @param pack complete pack release
+    /// @param updates directed quick-update edges, every path ending at the complete release
+    /// @param launcher launcher compatibility policy
+    @NotNullByDefault
+    public record VersionMetadata(int schema, String quark, PackRelease pack,
+                                  @Unmodifiable List<QuickRelease> updates, LauncherRelease launcher) {
+        /// Isolates the immutable release inventory from its parser.
+        public VersionMetadata { updates = List.copyOf(updates); }
+    }
 
     /// Startup/update comparison for the UI; missing metadata never blocks an installed pack.
     /// @param metadata last-good metadata, or null before a valid document is available
@@ -53,12 +85,27 @@ public final class SaoData {
     public record UpdateStatus(@Nullable VersionMetadata metadata, boolean packUpdateAvailable,
                                boolean launcherBlocked, boolean launcherUpdateAvailable, String message) { }
 
-    /// State of the UI's cancellable Downloads polling prompt; finding never installs automatically.
-    /// @param watching whether polling is active
-    /// @param candidate exact-name and exact-size ZIP, or null while still waiting
-    /// @param message Chinese prompt text
+    /// Cancellable drop/download prompt with retained quick-update identities across multiple drops.
+    /// @param watching whether the prompt is active
+    /// @param candidate optional complete-pack Downloads candidate, requiring explicit acceptance
+    /// @param message exact Chinese instruction for the missing quick hops or full pack
+    /// @param required destination versions in chain order
+    /// @param present destination versions whose private verified snapshots are retained
+    /// @param missing destination versions still needed
+    /// @param fullPackRequired whether no usable quick chain exists
     @NotNullByDefault
-    public record DownloadPrompt(boolean watching, @Nullable Path candidate, String message) { }
+    public record DownloadPrompt(boolean watching, @Nullable Path candidate, String message,
+                                 @Unmodifiable List<String> required, @Unmodifiable List<String> present,
+                                 @Unmodifiable List<String> missing, boolean fullPackRequired) {
+        /// Copies all observable inventories so a later drop never mutates an earlier state.
+        public DownloadPrompt {
+            required = List.copyOf(required); present = List.copyOf(present); missing = List.copyOf(missing);
+        }
+        /// Constructs an inactive or legacy frontend polling state without quick-update inventories.
+        public DownloadPrompt(boolean watching, @Nullable Path candidate, String message) {
+            this(watching, candidate, message, List.of(), List.of(), List.of(), true);
+        }
+    }
 
     /// What a news entry is.
     @NotNullByDefault

@@ -32,9 +32,9 @@ class SaoUpdatesTest {
 
     /// Produces a complete schema document with exact primitive types.
     private static String document(String minimum, String latest) {
-        return "{\"schema\":1,\"pack\":{\"version\":\"0.10\",\"quark\":\"" + SaoUpdates.QUARK_URL
-                + "\",\"file\":\"pack.zip\",\"size\":1,\"sha256\":\"" + SHA
-                + "\"},\"launcher\":{\"latest\":\"" + latest + "\",\"min\":\"" + minimum + "\",\"quark\":\"" + SaoUpdates.QUARK_URL + "\"}}";
+        return "{\"schema\":2,\"quark\":\"" + SaoUpdates.QUARK_URL
+                + "\",\"pack\":{\"version\":\"0.10\",\"file\":\"pack.zip\",\"size\":1,\"sha256\":\"" + SHA
+                + "\"},\"updates\":[],\"launcher\":{\"latest\":\"" + latest + "\",\"min\":\"" + minimum + "\"}}";
     }
 
     /// Strict parsing preserves the advertised identity and forbids all schema/type/path/link ambiguities.
@@ -43,8 +43,8 @@ class SaoUpdatesTest {
         SaoData.VersionMetadata parsed = SaoUpdates.parse(valid);
         assertEquals("0.10", parsed.pack().version()); assertEquals(1, parsed.pack().size());
         for (String invalid : List.of(
-                valid.replace("\"schema\":1", "\"schema\":2"), valid.replace("\"schema\":1", "\"schema\":\"1\""),
-                valid.replace("\"schema\":1", "\"schema\":1,\"schema\":1"), valid.replace("\"schema\":1", "\"schema\":1,\"extra\":1"),
+                valid.replace("\"schema\":2", "\"schema\":1"), valid.replace("\"schema\":2", "\"schema\":\"1\""),
+                valid.replace("\"schema\":2", "\"schema\":1,\"schema\":1"), valid.replace("\"schema\":2", "\"schema\":1,\"extra\":1"),
                 valid.replace("\"size\":1", "\"size\":0"), valid.replace("\"size\":1", "\"size\":1.0"),
                 valid.replace("\"size\":1", "\"size\":1e0"), valid.replace("\"size\":1", "\"size\":\"1\""),
                 valid.replace("\"size\":1", "\"size\":9223372036854775808"), valid.replace("\"size\":1", "\"size\":true"),
@@ -95,7 +95,7 @@ class SaoUpdatesTest {
         List<URI> visited = new ArrayList<>();
         String news = "{\"news\":[{\"kind\":\"NOTICE\",\"title\":\"真实格式 fixture\"}]}";
         try (SaoOnlineData online = new SaoOnlineData(temporary, (request, limit) -> {
-            visited.add(request.uri()); assertTrue(request.timeout().orElseThrow().compareTo(Duration.ofSeconds(3)) <= 0);
+            visited.add(request.uri()); assertTrue(request.timeout().orElseThrow().compareTo(Duration.ofSeconds(10)) <= 0);
             return requests.incrementAndGet() == 1 ? new SaoOnlineData.Response(302, "https://raw.giteeusercontent.com/news?signature=fixture", new byte[0])
                     : new SaoOnlineData.Response(200, null, news.getBytes(StandardCharsets.UTF_8));
         })) {
@@ -229,7 +229,7 @@ class SaoUpdatesTest {
             output.putNextEntry(new ZipEntry(SaoPackManifest.NAME)); output.write(manifest.toJson().getBytes(StandardCharsets.UTF_8)); output.closeEntry();
             output.putNextEntry(new ZipEntry(managed.entry())); output.write(bytes); output.closeEntry();
         }
-        SaoData.PackRelease release = new SaoData.PackRelease("0.10", SaoUpdates.QUARK_URL, "release.zip", Files.size(download), SaoUpdates.sha256(download));
+        SaoData.PackRelease release = new SaoData.PackRelease("0.10", "release.zip", Files.size(download), SaoUpdates.sha256(download));
         SaoPackArchive snapshot = SaoUpdates.snapshot(download, release, temporary.resolve("private-cache"));
         try {
             Files.writeString(download, "replaced by a browser after acceptance");

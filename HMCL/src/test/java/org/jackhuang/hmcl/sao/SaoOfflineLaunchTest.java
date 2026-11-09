@@ -54,7 +54,7 @@ class SaoOfflineLaunchTest {
                     JavaRuntime.CURRENT_JAVA, instance, true);
             LaunchOptions options = plan.options();
             assertEquals("Asuna_123", plan.auth().getUsername());
-            assertEquals("Asuna_123", options.getProfileName());
+            assertEquals(org.jackhuang.hmcl.Metadata.TITLE, options.getProfileName());
             assertEquals(instance, options.getGameDir());
             assertEquals(SaoGameBridge.INSTANCE_ID, options.getInstanceId());
             assertEquals(JavaRuntime.CURRENT_JAVA.getBinary(), options.getJavaExecutable());

@@ -40,28 +40,100 @@ final class SaoUpdates {
             reader.setStrictness(Strictness.STRICT);
             JsonObject root = object(reader, 0);
             if (reader.peek() != JsonToken.END_DOCUMENT) throw new IOException("Trailing version data");
-            fields(root, "schema", "pack", "launcher");
-            if (integer(root, "schema") != 1) throw new IOException("Unsupported version schema");
-            JsonObject pack = child(root, "pack"); fields(pack, "version", "quark", "file", "size", "sha256");
+            fields(root, "schema", "quark", "pack", "updates", "launcher");
+            if (integer(root, "schema") != 2) throw new IOException("Unsupported version schema");
+            String quark = checkedQuark(string(root, "quark")).toString();
+            JsonObject pack = child(root, "pack"); fields(pack, "version", "file", "size", "sha256");
             String version = version(string(pack, "version"));
-            String quark = checkedQuark(string(pack, "quark")).toString();
-            String file = filename(string(pack, "file"));
-            long size = integer(pack, "size");
-            if (size <= 0) throw new IOException("Pack size must be positive");
-            String sha256 = string(pack, "sha256");
-            if (!sha256.matches("[0-9a-f]{64}")) throw new IOException("Invalid SHA-256");
-            JsonObject launcher = child(root, "launcher"); fields(launcher, "latest", "min", "quark");
+            SaoData.PackRelease release = new SaoData.PackRelease(version, filename(string(pack, "file")),
+                    positiveSize(pack), digest(pack));
+            if (!root.get("updates").isJsonArray()) throw new IOException("Expected updates array");
+            List<SaoData.QuickRelease> updates = new ArrayList<>();
+            for (JsonElement element : root.getAsJsonArray("updates")) {
+                if (!element.isJsonObject()) throw new IOException("Expected update object");
+                JsonObject update = element.getAsJsonObject(); fields(update, "from", "to", "file", "size", "sha256");
+                updates.add(new SaoData.QuickRelease(version(string(update, "from")), version(string(update, "to")),
+                        filename(string(update, "file")), positiveSize(update), digest(update)));
+            }
+            validateChains(updates, version);
+            JsonObject launcher = child(root, "launcher");
+            Set<String> launcherFields = new HashSet<>(Set.of("latest", "min"));
+            boolean artifactPresent = launcher.has("file") || launcher.has("size") || launcher.has("sha256");
+            if (artifactPresent) launcherFields.addAll(Set.of("file", "size", "sha256"));
+            if (launcher.has("nativeRequired")) launcherFields.add("nativeRequired");
+            if (!launcher.keySet().equals(launcherFields)) throw new IOException("Unexpected or missing launcher fields");
             String latest = version(string(launcher, "latest"));
             String minimum = version(string(launcher, "min"));
             if (compare(latest, minimum) < 0) throw new IOException("Launcher latest is below min");
-            return new SaoData.VersionMetadata(1, new SaoData.PackRelease(version, quark, file, size, sha256),
-                    new SaoData.LauncherRelease(latest, minimum, checkedQuark(string(launcher, "quark")).toString()));
+            @Nullable SaoData.LauncherArtifact artifact = artifactPresent ? new SaoData.LauncherArtifact(
+                    launcherFilename(string(launcher, "file")), positiveSize(launcher), digest(launcher)) : null;
+            if (launcher.has("nativeRequired") && (!launcher.get("nativeRequired").isJsonPrimitive()
+                    || !launcher.getAsJsonPrimitive("nativeRequired").isBoolean())) throw new IOException("Expected nativeRequired boolean");
+            boolean nativeRequired = launcher.has("nativeRequired") && launcher.get("nativeRequired").getAsBoolean();
+            return new SaoData.VersionMetadata(2, quark, release, updates,
+                    new SaoData.LauncherRelease(latest, minimum, artifact, nativeRequired));
         } catch (RuntimeException failure) { throw new IOException("Invalid version document", failure); }
+    }
+
+    /// Requires a positive compressed archive size.
+    private static long positiveSize(JsonObject object) throws IOException {
+        long size = integer(object, "size");
+        if (size <= 0) throw new IOException("Archive size must be positive");
+        return size;
+    }
+
+    /// Requires the exact lowercase SHA-256 representation.
+    private static String digest(JsonObject object) throws IOException {
+        String hash = string(object, "sha256");
+        if (!hash.matches("[0-9a-f]{64}")) throw new IOException("Invalid SHA-256");
+        return hash;
+    }
+
+    /// Rejects ambiguous from-versions, cycles, non-increasing edges and branches that cannot reach the full release.
+    private static void validateChains(List<SaoData.QuickRelease> updates, String destination) throws IOException {
+        Map<String, SaoData.QuickRelease> edges = new TreeMap<>(SaoUpdates::compare);
+        for (var edge : updates) {
+            if (compare(edge.from(), edge.to()) >= 0 || compare(edge.to(), destination) > 0
+                    || edges.put(edge.from(), edge) != null) throw new IOException("Invalid or duplicate quick-update edge");
+        }
+        for (var edge : updates) {
+            String cursor = edge.from(); Set<String> visited = new TreeSet<>(SaoUpdates::compare);
+            while (compare(cursor, destination) != 0) {
+                if (!visited.add(cursor)) throw new IOException("Quick-update cycle");
+                @Nullable SaoData.QuickRelease next = edges.get(cursor);
+                if (next == null) throw new IOException("Quick-update chain has a gap");
+                cursor = next.to();
+            }
+        }
+    }
+
+    /// Returns the complete directed chain from an installed release, or an empty list when full import is required.
+    static @Unmodifiable List<SaoData.QuickRelease> chain(SaoData.VersionMetadata metadata, @Nullable String installed) {
+        if (installed == null) return List.of();
+        try { version(installed); } catch (IOException legacy) { return List.of(); }
+        List<SaoData.QuickRelease> result = new ArrayList<>(); String cursor = installed;
+        for (int hop = 0; hop <= metadata.updates().size(); hop++) {
+            if (compare(cursor, metadata.pack().version()) >= 0) return List.copyOf(result);
+            @Nullable SaoData.QuickRelease next = null;
+            for (var edge : metadata.updates()) if (compare(cursor, edge.from()) == 0) { next = edge; break; }
+            if (next == null) return List.of();
+            result.add(next); cursor = next.to();
+        }
+        return List.of();
+    }
+
+    /// Builds the specified Chinese instruction with natural one-, two- and three-or-more-version punctuation.
+    static String prompt(List<String> versions) {
+        if (versions.isEmpty()) return "请把在夸克里下载的模组文件拖进来";
+        @Unmodifiable List<String> labels = versions.stream().map(value -> "[" + value + "]").toList();
+        String joined = labels.size() == 1 ? labels.get(0)
+                : String.join("、", labels.subList(0, labels.size() - 1)) + " 和 " + labels.get(labels.size() - 1);
+        return "请把 " + joined + " 的快速更新包拖进来";
     }
 
     /// Reads objects with a small nesting bound and rejects duplicate names before a JSON tree can hide them.
     private static JsonObject object(JsonReader reader, int depth) throws IOException {
-        if (depth > 1 || reader.peek() != JsonToken.BEGIN_OBJECT) throw new IOException("Invalid version object");
+        if (depth > 2 || reader.peek() != JsonToken.BEGIN_OBJECT) throw new IOException("Invalid version object");
         reader.beginObject();
         JsonObject object = new JsonObject();
         while (reader.hasNext()) {
@@ -69,6 +141,19 @@ final class SaoUpdates {
             if (object.has(name)) throw new IOException("Duplicate version field");
             switch (reader.peek()) {
                 case BEGIN_OBJECT -> object.add(name, object(reader, depth + 1));
+                case BEGIN_ARRAY -> {
+                    if (depth != 0 || !name.equals("updates")) throw new IOException("Unexpected version array");
+                    JsonArray values = new JsonArray(); reader.beginArray();
+                    while (reader.hasNext()) {
+                        if (values.size() >= 256) throw new IOException("Too many quick updates");
+                        values.add(object(reader, depth + 1));
+                    }
+                    reader.endArray(); object.add(name, values);
+                }
+                case BOOLEAN -> {
+                    if (depth != 1 || !name.equals("nativeRequired")) throw new IOException("Unexpected boolean");
+                    object.addProperty(name, reader.nextBoolean());
+                }
                 case STRING -> object.addProperty(name, reader.nextString());
                 case NUMBER -> {
                     String number = reader.nextString();
@@ -133,6 +218,13 @@ final class SaoUpdates {
         return name;
     }
 
+    /// Accepts the same portable basename policy for a launcher JAR or a ZIP containing exactly one JAR.
+    static String launcherFilename(String name) throws IOException {
+        if (name.endsWith(".jar")) filename(name.substring(0, name.length() - 4) + ".zip");
+        else filename(name);
+        return name;
+    }
+
     /// Allows only the exact Quark HTTPS origin, without credentials, fragments or alternate ports.
     static URI checkedQuark(String link) throws IOException {
         try {
@@ -151,8 +243,10 @@ final class SaoUpdates {
         boolean blocked = compareInstalled(launcher, metadata.launcher().min()) < 0;
         boolean optional = !blocked && compareInstalled(launcher, metadata.launcher().latest()) < 0
                 && !metadata.launcher().latest().equals(dismissedLatest);
-        String message = blocked ? "启动器版本过低，请先从夸克下载并更新启动器后再 Link Start（最低版本 " + metadata.launcher().min() + "）"
-                : optional ? "有新版启动器 " + metadata.launcher().latest() + "，可从夸克下载；也可暂时忽略" : "";
+        String message = blocked ? "启动器版本过低，请先从夸克下载完整启动器后再 Link Start（最低版本 " + metadata.launcher().min() + "）"
+                : optional ? metadata.launcher().artifact() != null && !metadata.launcher().nativeRequired()
+                        ? "请把 [NerveGear启动器 " + metadata.launcher().latest() + "] 的更新包拖进来"
+                        : "有新版启动器 " + metadata.launcher().latest() + "，请从夸克下载完整启动器；也可暂时忽略" : "";
         return new SaoData.UpdateStatus(metadata, installed == null || compareInstalled(installed, metadata.pack().version()) < 0,
                 blocked, optional, message);
     }
@@ -182,6 +276,22 @@ final class SaoUpdates {
     static void verify(Path zip, SaoData.PackRelease release) throws IOException {
         if (!Files.isRegularFile(zip, LinkOption.NOFOLLOW_LINKS) || Files.size(zip) != release.size()
                 || !sha256(zip).equals(release.sha256()) || Files.size(zip) != release.size()) throw new IOException(INVALID_ARCHIVE);
+    }
+
+    /// Verifies any release identity without relying on the suggested filename.
+    static void verify(Path zip, long size, String digest) throws IOException {
+        if (!Files.isRegularFile(zip, LinkOption.NOFOLLOW_LINKS) || Files.size(zip) != size
+                || !sha256(zip).equals(digest) || Files.size(zip) != size) throw new IOException(INVALID_ARCHIVE);
+    }
+
+    /// Copies an untrusted drop privately before matching its compressed identity; caller deletes the snapshot.
+    static Path snapshot(Path zip, long size, String digest, Path cache) throws IOException {
+        if (!Files.isRegularFile(zip, LinkOption.NOFOLLOW_LINKS) || Files.size(zip) != size) throw new IOException(INVALID_ARCHIVE);
+        Files.createDirectories(cache); Path copy = Files.createTempFile(cache, "drop-", ".zip");
+        boolean accepted = false;
+        try {
+            Files.copy(zip, copy, StandardCopyOption.REPLACE_EXISTING); verify(copy, size, digest); accepted = true; return copy;
+        } finally { if (!accepted) Files.deleteIfExists(copy); }
     }
 
     /// Takes a private copy, validates exact archive bytes and manifest version, and returns that immutable input.

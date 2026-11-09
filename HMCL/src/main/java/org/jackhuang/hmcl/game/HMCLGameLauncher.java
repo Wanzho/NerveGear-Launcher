@@ -65,6 +65,7 @@ public final class HMCLGameLauncher extends DefaultLauncher {
         super(instance, manifest, authInfo, options, listener, daemon);
     }
 
+    /// Supplies the product identity to Minecraft without changing any game or data paths.
     @Override
     protected Map<String, String> getConfigurations() {
         Map<String, String> res = super.getConfigurations();
