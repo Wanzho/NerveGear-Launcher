@@ -217,8 +217,14 @@ public final class SaoData {
     /// @param presence where they are
     /// @param where    a few words on where in the game ("誓约", "单人游戏"; no floor), empty when not in it
     /// @param head     a picture of their skin's face, or null while not downloaded
+    /// @param id stable ARGUS profile UUID, empty only in old UI fixtures
+    /// @param remark current user's private remark, empty when unset
     @NotNullByDefault
-    public record Friend(String name, Presence presence, String where, @Nullable Path head) {
+    public record Friend(String name, Presence presence, String where, @Nullable Path head, String id, String remark) {
+        /// Protocol-1 and existing UI sample compatibility; new consumers should use the stable UUID.
+        public Friend(String name,Presence presence,String where,@Nullable Path head){this(name,presence,where,head,"","");}
+        /// Private display label; the server never substitutes a remark into public nicknames.
+        public String displayName(){return remark.isEmpty()?name:remark;}
     }
 
     /// A friend request.
@@ -238,11 +244,20 @@ public final class SaoData {
     /// @param unread   messages not read yet
     /// @param lastText the last message, for the list
     /// @param lastTime when it was sent, epoch milliseconds, 0 when there is none
+    /// @param mentions unread visible messages mentioning this account
+    /// @param muted current user's notification suppression preference
+    /// @param pinned current user's sort-first preference
+    /// @param shouldNotify true only when unread and not muted; wire field is notify
+    /// @param peerRead direct peer's monotonic read watermark, zero for groups/unknown
+    /// @param typing immutable five-second leases; the UI also expires them locally
     @NotNullByDefault
     public record Chat(String id, String title, boolean group, @Unmodifiable List<String> members, int unread,
-                       String lastText, long lastTime) {
+                       String lastText, long lastTime, int mentions, boolean muted, boolean pinned, boolean shouldNotify,
+                       long peerRead, @Unmodifiable List<Typing> typing) {
+        /// Protocol-1 source compatibility; direct read watermark defaults to zero.
+        public Chat(String id,String title,boolean group,List<String> members,int unread,String lastText,long lastTime){this(id,title,group,members,unread,lastText,lastTime,0,false,false,unread>0,0,List.of());}
         /// Copies the members so a newer chat never shares a list with an older one.
-        public Chat { members = List.copyOf(members); }
+        public Chat { members = List.copyOf(members); typing = List.copyOf(typing); }
     }
 
     /// One message.
@@ -252,9 +267,48 @@ public final class SaoData {
     /// @param time    when, epoch milliseconds
     /// @param mine    sent by this player
     /// @param pending sent by this player and not delivered to the server yet
+    /// @param id stable server message ID, zero for pending/old fixture values
+    /// @param chat opaque conversation ID
+    /// @param sender stable sender profile UUID
+    /// @param nonce sender-scoped retry key
+    /// @param revision newest durable replacement revision, initially equal to id
+    /// @param kind text, play invitation, or erased-message notice
+    /// @param quote bounded author/preview from a visible source, or null
+    /// @param invite authoritative target and expiry, or null for other kinds
+    /// @param mentions immutable resolved group member UUIDs
+    /// @param shouldNotify new-delivery notification eligibility; wire field is notify
     @NotNullByDefault
-    public record ChatMessage(String from, String text, long time, boolean mine, boolean pending) {
+    public record ChatMessage(String from, String text, long time, boolean mine, boolean pending,
+                              long id, String chat, String sender, String nonce, long revision,
+                              MessageKind kind, @Nullable Quote quote, @Nullable PlayInvite invite,
+                              @Unmodifiable List<String> mentions, boolean shouldNotify) {
+        /// Protocol-1 source compatibility for existing screens; pending rows have no durable ID.
+        public ChatMessage(String from,String text,long time,boolean mine,boolean pending){this(from,text,time,mine,pending,0,"","","",0,MessageKind.TEXT,null,null,List.of(),!mine);}
+        /// Defensively copies resolved mention UUIDs.
+        public ChatMessage { mentions=List.copyOf(mentions); }
+        /// Whether this confirmed outgoing message lies at or below the direct peer's read watermark.
+        public boolean readByPeer(Chat conversation){return !conversation.group()&&mine&&!pending&&id>0&&id<=conversation.peerRead();}
     }
+
+    /// Text, a ten-minute Link Start card, or an erased-message notice.
+    @NotNullByDefault
+    public enum MessageKind { /// Ordinary Unicode text, optionally quoting an earlier message.
+        TEXT, /// Target is validated against knownServers and revalidated by the authority on acceptance.
+        INVITE, /// Original text and invite data were erased by the sender.
+        RECALLED }
+    /// Bounded quoted preview supplied even when the source is outside the local history window.
+    @NotNullByDefault
+    public record Quote(long replyTo,String sender,String from,String text) { }
+    /// Server-produced public destination; acceptance still requires an online membership/expiry check.
+    @NotNullByDefault
+    public record PlayInvite(String target,long expiresAt) { }
+    /// Ephemeral typing snapshot; hide at expiresAt even if the connection stops updating.
+    @NotNullByDefault
+    public record Typing(String id,String from,long expiresAt) {
+        /// Tests the transient five-second lease against the UI clock.
+        public boolean active(long now){return now<expiresAt;}
+    }
+
 
     /// One download task.
     ///

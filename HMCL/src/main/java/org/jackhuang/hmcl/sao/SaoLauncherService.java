@@ -498,6 +498,37 @@ public interface SaoLauncherService {
         return unsupported();
     }
 
+    /// Sends text quoting a confirmed message in the same conversation; zero means ordinary text.
+    default CompletableFuture<Void> sendMessage(String chatId,String text,long replyTo) { return unsupported(); }
+
+    /// Sends a ten-minute Link Start invitation using authoritative sender presence, with no caller-supplied host.
+    default CompletableFuture<Void> sendPlayInvite(String chatId) { return unsupported(); }
+
+    /// Revalidates this card with the authority and returns a known target for the UI's Link Start action.
+    /// This method never launches a game automatically.
+    default CompletableFuture<String> acceptInvite(SaoData.ChatMessage message) { return unsupported(); }
+
+    /// Erases a confirmed own message if it is at most two minutes old; replaces it with a recall notice.
+    default CompletableFuture<Void> recallMessage(SaoData.ChatMessage message) { return unsupported(); }
+
+    /// Emits a transient typing lease; callers may invoke on keystrokes, the service coalesces to three seconds.
+    default CompletableFuture<Void> typing(String chatId) { return unsupported(); }
+
+    /// Stores both private per-conversation flags; mute keeps unread/mentions but suppresses notify.
+    default CompletableFuture<Void> setChatPreferences(String chatId,boolean muted,boolean pinned) { return unsupported(); }
+
+    /// Sets a private friend remark of at most twelve Unicode scalar values; empty clears it.
+    default CompletableFuture<Void> setFriendRemark(String name,String remark) { return unsupported(); }
+
+    /// Searches visible stored text, case-insensitive, newest first, at most 100 results; empty chatId searches all.
+    default CompletableFuture<@org.jetbrains.annotations.Unmodifiable List<SaoData.ChatMessage>> searchMessages(String text,String chatId,int limit) { return unsupported(); }
+
+    /// Explicit scroll callback; messages(chatId) remains source-compatible with the old paging seam.
+    default void loadOlderMessages(String chatId) { }
+
+    /// Exact destinations currently offered by this launcher; invitations never add arbitrary hosts.
+    default @org.jetbrains.annotations.Unmodifiable List<String> knownServers() { var result=new java.util.ArrayList<String>();result.add(serverAddress());result.addAll(serverNodes());return List.copyOf(result); }
+
     /// Marks a conversation read (it is open on screen).
     default void markRead(String chatId) {
     }

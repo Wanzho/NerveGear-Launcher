@@ -493,6 +493,24 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     @Override public CompletableFuture<Void> leaveGroup(String id){return oath.friends.operation("leave",SaoFriends.object("chat",id)).thenApply(value->null);}
     /// Shows pending immediately and reconciles the server-assigned message ID after delivery.
     @Override public CompletableFuture<Void> sendMessage(String id,String text){return oath.friends.send(id,text);}
+    /// Sends a reply with the authoritative same-chat source ID.
+    @Override public CompletableFuture<Void> sendMessage(String id,String text,long replyTo){return oath.friends.send(id,text,replyTo,false);}
+    /// Sends a presence-derived Link Start invitation.
+    @Override public CompletableFuture<Void> sendPlayInvite(String id){return oath.friends.send(id,"",0,true);}
+    /// Resolves a validated destination, leaving the actual launch to the screen's explicit action.
+    @Override public CompletableFuture<String> acceptInvite(SaoData.ChatMessage message){return oath.friends.acceptInvite(message,knownServers());}
+    /// Erases one own message and refreshes its stable observable list.
+    @Override public CompletableFuture<Void> recallMessage(SaoData.ChatMessage message){var body=SaoFriends.object("chat",message.chat());body.addProperty("message",message.id());return oath.friends.operation("recall",body).thenApply(v->null);}
+    /// Emits locally coalesced ephemeral typing.
+    @Override public CompletableFuture<Void> typing(String id){return oath.friends.typing(id);}
+    /// Persists the current user's conversation flags.
+    @Override public CompletableFuture<Void> setChatPreferences(String id,boolean muted,boolean pinned){var body=SaoFriends.object("chat",id);body.addProperty("muted",muted);body.addProperty("pinned",pinned);return oath.friends.operation("preferences",body).thenApply(v->null);}
+    /// Persists a private friend remark without renaming the friend.
+    @Override public CompletableFuture<Void> setFriendRemark(String name,String remark){return oath.friends.operation("remark",SaoFriends.object("name",name,"remark",remark)).thenApply(v->null);}
+    /// Searches retained visible text independently of history/read/delivery state.
+    @Override public CompletableFuture<@org.jetbrains.annotations.Unmodifiable List<SaoData.ChatMessage>> searchMessages(String text,String chat,int limit){return oath.friends.search(text,chat,limit);}
+    /// Explicit older-page callback for a scrolling conversation.
+    @Override public void loadOlderMessages(String id){oath.friends.loadOlder(id);}
     /// Advances read status through messages actually applied to this open conversation.
     @Override public void markRead(String id){oath.friends.markRead(id);}
     /// Current server card merged with this account's local process history.

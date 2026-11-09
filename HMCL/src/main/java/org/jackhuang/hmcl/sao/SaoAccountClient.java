@@ -186,6 +186,15 @@ final class SaoAccountClient {
             case "groupFull" -> new SaoAccountException("群已满", "groupFull");
             case "notGroup" -> new SaoAccountException("这不是群聊", "notGroup");
             case "chatMissing" -> new SaoAccountException("会话已结束", "chatMissing");
+            case "inviteTarget" -> new SaoAccountException("邀请的服务器不可用", "inviteTarget");
+            case "inviteExpired" -> new SaoAccountException("邀请已过期，请重新邀请", "inviteExpired");
+            case "notSender" -> new SaoAccountException("只能撤回自己的消息", "notSender");
+            case "recallExpired" -> new SaoAccountException("只能撤回两分钟内的消息", "recallExpired");
+            case "messageMissing" -> new SaoAccountException("消息不可用", "messageMissing");
+            case "messageRecalled" -> new SaoAccountException("消息已撤回", "messageRecalled");
+            case "typingRate" -> new SaoAccountException("输入状态更新过快", "typingRate");
+            case "remarkLength" -> new SaoAccountException("备注最多十二个字，请勿换行", "remarkLength");
+            case "searchLength" -> new SaoAccountException("搜索限 1—100 字，请勿换行", "searchLength");
             case "messageLength" -> new SaoAccountException("消息限 1—1024 字，请勿换行", "messageLength");
             case "messageRate" -> new SaoAccountException("发太快了，稍后再试", "messageRate");
             case "nonceConflict" -> new SaoAccountException("消息状态已改变，请重试", "nonceConflict");
