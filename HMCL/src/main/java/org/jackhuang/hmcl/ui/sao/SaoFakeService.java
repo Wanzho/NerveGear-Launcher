@@ -194,6 +194,8 @@ public final class SaoFakeService implements SaoLauncherService {
 
     /// Pretend news.
     private final ObservableList<SaoData.News> news = FXCollections.observableArrayList(
+            new SaoData.News(SaoData.NewsKind.UPDATE, "NerveGear启动器 上线", "11-09",
+                    "· 启动器改名 NerveGear启动器，安装包只要 70 MB 左右\n· 模组在夸克下载，拖进启动器就装好，启动器会自动核对文件\n· 以后更新只要下快速更新包，差几个版本就拖几个\n· 启动器自己也用更新包升级，出问题自动退回旧版\n· 新外观：深色，跟随系统或按时间自动切换\n· 进不去服务器时，直接告诉你原因\n· 聊天：邀请好友一起 Link Start、回复、撤回、@、已读、正在输入、免打扰、置顶、好友备注、搜索记录、表情\n· 画质预设：流畅 / 均衡 / 画质\n· 一键反馈：日志和崩溃报告打成一个包，发到 QQ 群 1104279677\n· 游戏运行时启动器自动隐藏，退出游戏后回来\n· 第一次打开会检查内存和硬盘空间"),
             new SaoData.News(SaoData.NewsKind.NOTICE, "第一层开放测试", "11-06",
                     "起始之城今晚 20:00 开放。\n第一次进入请先在大厅完成 sao_auth 登录。"),
             new SaoData.News(SaoData.NewsKind.UPDATE, "v0.8 更新", "10-30",

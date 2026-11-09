@@ -349,12 +349,16 @@ public final class SaoHelmetPage extends StackPane {
     private SaoFloatWindow buildNews() {
         VBox list = SaoApps.live(service.news(), n -> {
             Text title = ink(n.title(), 14);
-            Text body = dim(n.body(), 12);
+            // The card keeps a short preview; the whole entry opens in its own window (James, 9 Nov:
+            // "启动器点击某个公告能像别的一样单开一个窗口吗").
+            Text body = dim(SaoNewsApp.preview(n.body(), 54), 12);
             body.setWrappingWidth(222);
             HBox head = new HBox(8, title, grow(), dim(n.date(), 12));
             head.setAlignment(Pos.CENTER_LEFT);
             VBox v = new VBox(6, head, body);
             v.getStyleClass().add("vr-tile");
+            v.setCursor(javafx.scene.Cursor.HAND);
+            v.setOnMouseClicked(e -> openNews(n));
             return v;
         }, empty(SVG.CHAT, "暂无公告"));
         return new SaoFloatWindow("公告", 290, 430, null)
@@ -1064,6 +1068,13 @@ public final class SaoHelmetPage extends StackPane {
         if (b != null) b.getStyleClass().add("vr-dock-on");
         for (SaoFloatWindow home : new SaoFloatWindow[]{news, server, player}) home.moveBack(300, 0.22, 320);
         requestFocus();
+    }
+
+    /// Opens one announcement in its own window; another one replaces it, Esc closes it.
+    ///
+    /// @param n the announcement
+    void openNews(SaoData.News n) {
+        openApp(new SaoApps.App(SVG.CHAT, "公告", (s, c) -> SaoNewsApp.make(n, c)), null);
     }
 
     /// Opens the 誓约账号 window on a page.

@@ -216,6 +216,14 @@ public final class SaoScreenShotTool {
                 fx(() -> img[0] = scene[0].snapshot(null));
                 write(img[0], out.resolve(p + "21-home-friends-more-clicked.png"));
                 fx(() -> page[0].forceApp(-1));
+                // 公告 in their own window (James, 9 Nov): the long 11-09 entry, then a short one replacing it.
+                for (int k : new int[]{0, 3}) {
+                    fx(() -> page[0].openNews(fake.news().get(k)));
+                    Thread.sleep(1300);
+                    fx(() -> img[0] = scene[0].snapshot(null));
+                    write(img[0], out.resolve(p + (k == 0 ? "70-news-long.png" : "71-news-short.png")));
+                }
+                fx(() -> page[0].forceApp(-1));
                 fx(() -> fake.forceFriends(2));
                 // 外观 switches live: the same page turned to the other look without a rebuild.
                 fx(() -> page[0].setDark(!dark));
