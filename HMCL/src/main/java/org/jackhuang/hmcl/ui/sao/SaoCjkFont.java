@@ -47,6 +47,8 @@ public final class SaoCjkFont {
     private static @Nullable Object bold;
     /// Whether [#install()] ran.
     private static boolean installed;
+    /// Whether [#install()] put a Simplified face first everywhere.
+    private static boolean active;
     /// The fallback lists already patched or already in use; composite fonts live as long as JavaFX does.
     private static final Set<Object> DONE = Collections.newSetFromMap(new IdentityHashMap<>());
 
@@ -114,10 +116,18 @@ public final class SaoCjkFont {
                 for (int style = 0; style < 4; style++)
                     patch(resource.invoke(get.invoke(null, family, (style & 1) != 0, (style & 2) != 0, 12f)));
 
+            active = true;
             LOG.info("SAO: Chinese drawn in " + name(regular) + " / " + name(bold));
         } catch (Throwable e) {
             LOG.warning("SAO: could not set the Simplified Chinese fallback", e);
         }
+    }
+
+    /// Whether [#install()] ran and put a Simplified Chinese face first (screenshot tools fail without it).
+    ///
+    /// @return true once patched
+    public static synchronized boolean active() {
+        return active;
     }
 
     /// Finds PingFang's file: macOS 15 and later keep it in a font asset folder.

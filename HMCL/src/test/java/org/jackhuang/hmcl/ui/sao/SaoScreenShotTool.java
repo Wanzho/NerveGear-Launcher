@@ -54,6 +54,11 @@ public final class SaoScreenShotTool {
         Platform.startup(up::countDown);
         up.await();
         System.out.println("SCENE3D supported: " + Platform.isSupported(javafx.application.ConditionalFeature.SCENE3D));
+        // The real launcher's font setup before the first scene (Launcher.start): Chinese in mainland Simplified
+        // forms (James, 8 Nov, and again 9 Nov: "怎么又犯之前修好的错误"). No shot without it.
+        fx(SaoCjkFont::install);
+        if (!SaoCjkFont.active()) throw new IllegalStateException("SaoCjkFont.install() could not patch the fonts");
+        checkSimplified(out);
         // Never open a browser: About's link buttons go to an inert opener, and each must hand over its own link.
         java.util.List<String> opened = new java.util.ArrayList<>();
         SaoUi.linkOpener = opened::add;
@@ -241,6 +246,83 @@ public final class SaoScreenShotTool {
         WritableImage[] img = new WritableImage[1];
         fx(() -> img[0] = scene.snapshot(null));
         write(img[0], file);
+    }
+
+    /// Draws 置 直 设 in the SAO face (the launcher's text) and compares each with PingFang SC and with the Japanese
+    /// Hiragino Sans; fails unless they match PingFang. Writes `font-check.png` (rows: SAO, PingFang SC, Hiragino).
+    ///
+    /// @param out the shot folder
+    /// @throws Exception when they do not match or rendering fails
+    private static void checkSimplified(Path out) throws Exception {
+        String[] chars = {"置", "直", "设", "置"};
+        javafx.scene.text.Font[] fonts = {SaoAssets.sao(48, false), new javafx.scene.text.Font("PingFang SC Regular", 48),
+                new javafx.scene.text.Font("Hiragino Sans W3", 48)};
+        WritableImage[][] img = new WritableImage[fonts.length][chars.length];
+        fx(() -> {
+            for (int f = 0; f < fonts.length; f++)
+                for (int c = 0; c < chars.length; c++) {
+                    javafx.scene.text.Text t = new javafx.scene.text.Text(chars[c]);
+                    t.setFont(fonts[f]);
+                    t.setFontSmoothingType(javafx.scene.text.FontSmoothingType.GRAY);
+                    t.setTextOrigin(javafx.geometry.VPos.TOP);
+                    javafx.scene.layout.Pane p = new javafx.scene.layout.Pane(t);
+                    p.setStyle("-fx-background-color: white;");
+                    new Scene(p, 64, 64);
+                    img[f][c] = p.snapshot(null, new WritableImage(64, 64));
+                }
+        });
+        System.out.println("font faces: " + fonts[1].getName() + " / " + fonts[2].getName());
+        if (!fonts[1].getName().startsWith("PingFang")) throw new IllegalStateException("PingFang SC not loaded: " + fonts[1].getName());
+        BufferedImage sheet = new BufferedImage(64 * chars.length, 64 * fonts.length, BufferedImage.TYPE_INT_RGB);
+        for (int f = 0; f < fonts.length; f++)
+            for (int c = 0; c < chars.length; c++) {
+                PixelReader r = img[f][c].getPixelReader();
+                for (int y = 0; y < 64; y++)
+                    for (int x = 0; x < 64; x++) sheet.setRGB(c * 64 + x, f * 64 + y, r.getArgb(x, y));
+            }
+        ImageIO.write(sheet, "png", out.resolve("font-check.png").toFile());
+        for (int c = 0; c < chars.length; c++) {
+            double vsPingFang = diff(img[0][c], img[1][c]), vsHiragino = diff(img[0][c], img[2][c]);
+            System.out.printf("font %s: differs from PingFang SC %.4f, from Hiragino Sans %.4f%n", chars[c], vsPingFang, vsHiragino);
+            if (vsPingFang > 0.02 || vsPingFang * 3 > vsHiragino)
+                throw new IllegalStateException(chars[c] + " is not drawn in PingFang SC (Simplified forms)");
+        }
+        System.out.println("font check OK: Simplified forms");
+    }
+
+    /// How different two glyphs are: each is aligned by its ink box (fonts place the baseline differently), then the
+    /// share of inked pixels whose grey differs by more than 64.
+    private static double diff(WritableImage a, WritableImage b) {
+        PixelReader ra = a.getPixelReader(), rb = b.getPixelReader();
+        int[] ba = ink(ra), bb = ink(rb);
+        int w = Math.max(ba[2] - ba[0], bb[2] - bb[0]) + 1, h = Math.max(ba[3] - ba[1], bb[3] - bb[1]) + 1, n = 0, inked = 0;
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++) {
+                int pa = grey(ra, ba[0] + x, ba[1] + y), pb = grey(rb, bb[0] + x, bb[1] + y);
+                if (pa < 128 || pb < 128) inked++;
+                if (Math.abs(pa - pb) > 64) n++;
+            }
+        return inked == 0 ? 1 : n / (double) inked;
+    }
+
+    /// The ink box of a 64 x 64 glyph: x0, y0, x1, y1.
+    private static int[] ink(PixelReader r) {
+        int x0 = 64, y0 = 64, x1 = -1, y1 = -1;
+        for (int y = 0; y < 64; y++)
+            for (int x = 0; x < 64; x++)
+                if (grey(r, x, y) < 128) {
+                    x0 = Math.min(x0, x);
+                    y0 = Math.min(y0, y);
+                    x1 = Math.max(x1, x);
+                    y1 = Math.max(y1, y);
+                }
+        if (x1 < 0) throw new IllegalStateException("a glyph drew nothing");
+        return new int[]{x0, y0, x1, y1};
+    }
+
+    /// The grey at a point, white outside the 64 x 64 cell.
+    private static int grey(PixelReader r, int x, int y) {
+        return x < 0 || y < 0 || x >= 64 || y >= 64 ? 255 : r.getArgb(x, y) & 0xff;
     }
 
     /// Runs a job on the JavaFX thread and waits for it.
