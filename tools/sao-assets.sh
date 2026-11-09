@@ -15,6 +15,8 @@ for f in "$tex"/wallpaper_??.jpg; do sips -Z 1920 "$f" --out "$out/wallpapers/${
 # The title logo is James's pick of 9 Nov, logo-49, copied byte for byte from the logo folder.
 logo=${SAO_LOGO:-"/Users/James/Desktop/Claude Workspace/SAO logo v7/game/logo版本/logo-49-黄圈盖住誓约(45).png"}
 cp "$logo" "$out/logo.png"
+# The dark-ink logo for 浅色, when one is given (SAO_LOGO_LIGHT); without it 浅色 shows logo-49 too.
+if [[ -n $SAO_LOGO_LIGHT ]]; then cp "$SAO_LOGO_LIGHT" "$out/logo-light.png"; fi
 cp "$mod/forge120-full/src/packui/resources/assets/sao/lyrics/title.lrc" "$out/lyrics/title.lrc"
 unzip -p "$jar" assets/sao/sounds/entrance/title_crossing_field.ogg > "$out/music/title.ogg"
 for k in intro loop outro; do cp "$mod/forge120-full/src/packui/resources/assets/sao/sounds/entrance_helmet_$k.ogg" "$out/music/helmet_$k.ogg"; done

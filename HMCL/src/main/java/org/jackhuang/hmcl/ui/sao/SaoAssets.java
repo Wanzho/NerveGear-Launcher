@@ -97,21 +97,55 @@ public final class SaoAssets {
         return url == null ? null : new Image(url.toExternalForm(), true);
     }
 
-    /// The title logo (logo-49, James's pick of 9 Nov), sized to fit a box with its ratio kept and smoothed, decoded
-    /// at twice the box so it stays sharp on HiDPI screens and is never cropped.
+    /// The title logo, sized to fit a box with its ratio kept and smoothed, decoded at twice the box so it stays sharp
+    /// on HiDPI screens and is never cropped. 深色 always shows `logo.png` (logo-49, James's pick of 9 Nov); 浅色
+    /// shows `logo-light.png` (a dark-ink version, being drawn) when it is there, logo-49 until then. Every view
+    /// made here follows [#setLogoDark(boolean)].
     ///
     /// @param maxW the widest it may be
     /// @param maxH the tallest it may be
     /// @return the logo view
     public static javafx.scene.image.ImageView logo(double maxW, double maxH) {
-        @Nullable var url = SaoAssets.class.getResource(ROOT + "logo.png");
-        var view = new javafx.scene.image.ImageView(url == null ? null
-                : new Image(url.toExternalForm(), maxW * 2, maxH * 2, true, true, true));
+        var view = new javafx.scene.image.ImageView();
+        view.getProperties().put("sao-logo-box", new double[]{maxW, maxH});
+        view.setImage(logoImage(logoDark, maxW, maxH));
         view.setPreserveRatio(true);
         view.setSmooth(true);
         view.setFitWidth(maxW);
         view.setFitHeight(maxH);
+        LOGOS.add(view);
         return view;
+    }
+
+    /// Which look the logos are drawn for.
+    private static boolean logoDark;
+    /// Every logo view on screen (weakly held).
+    private static final java.util.Set<javafx.scene.image.ImageView> LOGOS =
+            java.util.Collections.newSetFromMap(new java.util.WeakHashMap<>());
+
+    /// Switches every logo to the light or dark theme's file.
+    ///
+    /// @param dark true for 深色
+    public static void setLogoDark(boolean dark) {
+        if (dark == logoDark) return;
+        logoDark = dark;
+        for (var v : LOGOS) {
+            double[] box = (double[]) v.getProperties().get("sao-logo-box");
+            v.setImage(logoImage(dark, box[0], box[1]));
+        }
+    }
+
+    /// The logo file for a theme: `logo-light.png` in 浅色 when present, else `logo.png`.
+    ///
+    /// @param dark true for 深色
+    /// @return the path under the asset root
+    static String logoFile(boolean dark) {
+        return !dark && SaoAssets.class.getResource(ROOT + "logo-light.png") != null ? "logo-light.png" : "logo.png";
+    }
+
+    private static @Nullable Image logoImage(boolean dark, double maxW, double maxH) {
+        @Nullable var url = SaoAssets.class.getResource(ROOT + logoFile(dark));
+        return url == null ? null : new Image(url.toExternalForm(), maxW * 2, maxH * 2, true, true, true);
     }
 
     /// The paths of every wallpaper that exists, in order.

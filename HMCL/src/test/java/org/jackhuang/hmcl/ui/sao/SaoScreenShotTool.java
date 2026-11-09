@@ -66,6 +66,7 @@ public final class SaoScreenShotTool {
         if (!opened.equals(java.util.List.of(SaoUi.AFDIAN_URL, SaoUi.QUARK_URL)))
             throw new IllegalStateException("About links opened " + opened);
         System.out.println("About links OK: " + opened);
+        checkThemes();
         // Every shot twice: 浅色 into the folder, 深色 (James, 9 Nov) into dark/.
         for (boolean dark : new boolean[]{false, true})
         for (int[] size : sizes) {
@@ -77,7 +78,7 @@ public final class SaoScreenShotTool {
             // the first big one the Mac's.
             System.setProperty("sao.windowButtons", big ? "left" : "right");
             SaoFakeService fake = new SaoFakeService();
-            if (dark) fake.setPreference("theme", "dark");
+            fake.setPreference("theme", dark ? "dark" : "light");
             SaoHelmetPage[] page = new SaoHelmetPage[1];
             Scene[] scene = new Scene[1];
             fx(() -> {
@@ -297,6 +298,31 @@ public final class SaoScreenShotTool {
                 throw new IllegalStateException(chars[c] + " is not drawn in PingFang SC (Simplified forms)");
         }
         System.out.println("font check OK: Simplified forms");
+    }
+
+    /// 外观 (James, 9 Nov: "按跟随系统/时间来定"): 跟随系统 follows the system, and 按时间 (19:00 to 07:00 dark) when
+    /// the system does not say; saved 浅色 / 深色 keep working; unknown values are 跟随系统.
+    private static void checkThemes() {
+        java.time.LocalTime nine = java.time.LocalTime.of(21, 0), ten = java.time.LocalTime.of(10, 0);
+        Object[][] cases = {
+                {SaoTheme.Mode.SYSTEM, true, ten, true, "system dark at 10:00 -> dark"},
+                {SaoTheme.Mode.SYSTEM, false, nine, false, "system light at 21:00 -> light"},
+                {SaoTheme.Mode.SYSTEM, null, nine, true, "system unknown at 21:00 -> dark"},
+                {SaoTheme.Mode.SYSTEM, null, ten, false, "system unknown at 10:00 -> light"},
+                {SaoTheme.Mode.TIME, null, java.time.LocalTime.of(6, 59), true, "time 06:59 -> dark"},
+                {SaoTheme.Mode.TIME, null, java.time.LocalTime.of(7, 0), false, "time 07:00 -> light"},
+                {SaoTheme.Mode.TIME, null, java.time.LocalTime.of(19, 0), true, "time 19:00 -> dark"},
+                {SaoTheme.Mode.of("light"), true, nine, false, "saved light -> light"},
+                {SaoTheme.Mode.of("dark"), false, ten, true, "saved dark -> dark"},
+        };
+        for (Object[] c : cases) {
+            boolean got = SaoTheme.decide((SaoTheme.Mode) c[0], (Boolean) c[1], (java.time.LocalTime) c[2]);
+            if (got != (Boolean) c[3]) throw new IllegalStateException("theme check failed: " + c[4]);
+            System.out.println("theme OK: " + c[4]);
+        }
+        if (SaoTheme.Mode.of("whatever") != SaoTheme.Mode.SYSTEM) throw new IllegalStateException("default is not 跟随系统");
+        System.out.println("theme: this machine's system dark mode = " + SaoTheme.systemDark()
+                + ", logo for 浅色 = " + SaoAssets.logoFile(false) + ", for 深色 = " + SaoAssets.logoFile(true));
     }
 
     /// How different two glyphs are: each is aligned by its ink box (fonts place the baseline differently), then the

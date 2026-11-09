@@ -238,21 +238,21 @@ final class SaoApps {
         if (sizes.getSelectedToggle() == null) sizes.selectToggle(sizes.getToggles().get(1));
         keepOne(sizes);
 
-        // 外观 (James, 9 Nov: "你设计个深色的版本？"): live, saved, 浅色 by default.
+        // 外观 (James, 9 Nov: "你设计个深色的版本？", "按跟随系统/时间来定"): live, saved, 跟随系统 by default.
         ToggleGroup looks = new ToggleGroup();
-        ToggleButton lightLook = chip("浅色", looks), darkLook = chip("深色", looks);
-        boolean isDark = "dark".equals(s.preference(SaoHelmetPage.THEME_KEY, "light"));
-        (isDark ? darkLook : lightLook).setSelected(true);
-        for (ToggleButton c : new ToggleButton[]{lightLook, darkLook}) {
-            boolean d = c == darkLook;
+        HBox lookRow = new HBox(6);
+        SaoTheme.Mode chosen = SaoTheme.Mode.of(s.preference(SaoHelmetPage.THEME_KEY, SaoTheme.Mode.SYSTEM.key));
+        for (SaoTheme.Mode m : SaoTheme.Mode.values()) {
+            ToggleButton c = chip(m.label, looks);
+            c.setSelected(m == chosen);
             c.setOnAction(e -> {
-                s.setPreference(SaoHelmetPage.THEME_KEY, d ? "dark" : "light");
+                s.setPreference(SaoHelmetPage.THEME_KEY, m.key);
                 SaoHelmetPage p = SaoHelmetPage.current();
-                if (p != null) p.setDark(d);
+                if (p != null) p.setThemeMode(m);
             });
+            lookRow.getChildren().add(c);
         }
         keepOne(looks);
-        HBox lookRow = new HBox(6, lightLook, darkLook);
 
         VBox left = column(318,
                 memHead, memory, memAuto,

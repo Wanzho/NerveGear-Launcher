@@ -368,7 +368,8 @@
 .theme-sao-dark .vr-scroll .scroll-bar .thumb { -fx-background-color: rgba(255,255,255,0.22); }
 .theme-sao-dark .vr-pill { -fx-background-color: rgba(255,255,255,0.40); }
 .theme-sao-dark .vr-chip:selected:disabled { -fx-background-color: rgba(255,255,255,0.10); -fx-border-color: rgba(255,255,255,0.14); -fx-text-fill: #b4b4bb; }
-.theme-sao-dark .vr-danger { -fx-background-color: rgba(224,96,90,0.10); -fx-border-color: #e0605a; -fx-text-fill: #ff8a84; }
+/* The only red, as clear as in 浅色: a lit red outline and red text on a darker red key. */
+.theme-sao-dark .vr-danger { -fx-background-color: rgba(224,96,90,0.22); -fx-border-color: #ff6f68; -fx-border-width: 1.5; -fx-text-fill: #ffa29d; }
 .theme-sao-dark .vr-danger:hover { -fx-background-color: #e0605a; -fx-border-color: #e0605a; -fx-text-fill: #ffffff; }
 .theme-sao-dark .vr-swatch { -fx-border-color: rgba(255,255,255,0.28); }
 .theme-sao-dark .vr-check { -fx-background-color: rgba(0,0,0,0.30); -fx-border-color: #75757e; }

@@ -22,6 +22,7 @@ import javafx.scene.PerspectiveCamera;
 import javafx.scene.SceneAntialiasing;
 import javafx.scene.SubScene;
 import javafx.application.Platform;
+import org.jackhuang.hmcl.ui.FXUtils;
 import javafx.scene.control.Button;
 import javafx.scene.control.PasswordField;
 import javafx.scene.control.TextField;
@@ -275,12 +276,25 @@ public final class SaoHelmetPage extends StackPane {
         cover.setStyle("-fx-background-color: rgba(0,0,0,0.55);");
         cover.getStyleClass().add("theme-sao");
         cover.getStylesheets().add(css);
-        // 外观 浅色 / 深色 (James, 9 Nov: "你设计个深色的版本？"), saved; 浅色 until he picks.
+        // 外观 (James, 9 Nov: "你设计个深色的版本？", then "按跟随系统/时间来定"): decided here, before the first
+        // frame, then kept up live: the system's own change, the window regaining focus, and a check every minute
+        // (the 19:00 / 07:00 boundary and systems JavaFX cannot watch).
         sceneProperty().addListener((o, a, b) -> {
             if (a != null) a.getRoot().getStyleClass().remove(DARK);
             applyDark();
+            if (b != null) b.windowProperty().addListener((o2, w0, w) -> {
+                if (w != null) w.focusedProperty().addListener((o3, was, now) -> {
+                    if (now) refreshTheme(true);
+                });
+            });
         });
-        setDark("dark".equals(service.preference(THEME_KEY, "light")));
+        themeMode = SaoTheme.Mode.of(service.preference(THEME_KEY, SaoTheme.Mode.SYSTEM.key));
+        refreshTheme(false);
+        if (FXUtils.DARK_MODE != null) FXUtils.DARK_MODE.addListener((o, a, b) -> refreshTheme(false));
+        javafx.animation.Timeline themeTick = new javafx.animation.Timeline(
+                new javafx.animation.KeyFrame(javafx.util.Duration.minutes(1), e -> refreshTheme(true)));
+        themeTick.setCycleCount(javafx.animation.Animation.INDEFINITE);
+        themeTick.play();
         coverDesign.getTransforms().addAll(coverShift, coverFit);
         coverDesign.setPickOnBounds(false);
         cover.getChildren().add(new Group(coverDesign));
@@ -1569,6 +1583,31 @@ public final class SaoHelmetPage extends StackPane {
     static final String THEME_KEY = "theme", DARK = "theme-sao-dark";
     /// Whether the screen is in 深色.
     private boolean dark;
+    /// The 外观 choice.
+    private SaoTheme.Mode themeMode = SaoTheme.Mode.SYSTEM;
+
+    /// Sets the 外观 choice (设置) and applies it now.
+    ///
+    /// @param mode the choice
+    void setThemeMode(SaoTheme.Mode mode) {
+        themeMode = mode;
+        refreshTheme(false);
+    }
+
+    /// Applies the 外观 choice. When the system has to be asked by a command, a background check asks it off the
+    /// JavaFX thread; the first decision (before the first frame) asks it directly.
+    ///
+    /// @param background whether a slow system check may run in the background
+    private void refreshTheme(boolean background) {
+        SaoTheme.Mode m = themeMode;
+        if (m != SaoTheme.Mode.SYSTEM || FXUtils.DARK_MODE != null || !background) {
+            setDark(SaoTheme.decide(m, m == SaoTheme.Mode.SYSTEM ? SaoTheme.systemDark() : null, java.time.LocalTime.now()));
+            return;
+        }
+        java.util.concurrent.CompletableFuture.supplyAsync(SaoTheme::systemDark).thenAccept(sys -> Platform.runLater(() -> {
+            if (themeMode == SaoTheme.Mode.SYSTEM) setDark(SaoTheme.decide(SaoTheme.Mode.SYSTEM, sys, java.time.LocalTime.now()));
+        }));
+    }
 
     /// Switches 外观 live: every window, the space, the cover and HMCL's own dialogs (on the scene root).
     ///
@@ -1584,6 +1623,7 @@ public final class SaoHelmetPage extends StackPane {
     }
 
     private void applyDark() {
+        SaoAssets.setLogoDark(dark);
         for (javafx.scene.Node n : new javafx.scene.Node[]{this, space, cover, getScene() == null ? null : getScene().getRoot()}) {
             if (n == null) continue;
             n.getStyleClass().remove(DARK);
