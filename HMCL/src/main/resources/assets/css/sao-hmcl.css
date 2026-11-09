@@ -64,3 +64,46 @@
 .jfx-layout-actions .jfx-button:hover, .dialog-cancel:hover { -fx-background-color: #f2a43a; -fx-border-color: #f2a43a; -fx-text-fill: #ffffff; }
 .dialog-accept:hover { -fx-background-color: #f7b75a; -fx-border-color: #f7b75a; }
 .hyperlink, .jfx-hyperlink { -fx-text-fill: #d98a1f; }
+
+/* 深色 (James, 9 Nov): the same dialogs as smoked glass when the screen is dark (.theme-sao-dark on the scene root). */
+.root.theme-sao-dark {
+    -monet-primary-container: #4a3412;
+    -monet-on-primary-container: #fbe3c0;
+    -monet-primary-fixed-dim: #2a2b31;
+    -monet-on-primary-fixed: #ececf0;
+    -monet-secondary-container: #34353c;
+    -monet-on-secondary-container: #ececf0;
+    -monet-tertiary-fixed-dim: #3d2f1a;
+    -monet-on-tertiary-fixed: #f7d9a8;
+    -monet-error-container: #4a2422;
+    -monet-on-error-container: #ffb4ae;
+    -monet-surface: #202127;
+    -monet-surface-bright: #2e2f36;
+    -monet-surface-variant: #34353c;
+    -monet-surface-container-lowest: #18191d;
+    -monet-surface-container-low: #1e1f24;
+    -monet-surface-container: #23242a;
+    -monet-surface-container-high: #2a2b31;
+    -monet-surface-container-highest: #34353c;
+    -monet-on-surface: #ececf0;
+    -monet-on-surface-variant: #a6a6ae;
+    -monet-outline: #55565e;
+    -monet-outline-variant: #3e3f46;
+    -monet-inverse-surface: #ececf0;
+    -monet-inverse-on-surface: #202127;
+}
+.theme-sao-dark .jfx-dialog-layout, .theme-sao-dark .task-executor-dialog-layout {
+    -fx-background-color: rgba(30,31,37,0.97);
+    -fx-border-color: rgba(255,255,255,0.13);
+}
+.theme-sao-dark .jfx-layout-heading, .theme-sao-dark .jfx-layout-heading .label, .theme-sao-dark .jfx-layout-heading Text { -fx-text-fill: #ececf0; -fx-fill: #ececf0; }
+.theme-sao-dark .jfx-layout-body .label { -fx-text-fill: #c4c4cb; }
+.theme-sao-dark .hint { -fx-border-color: #3e3f46; }
+.theme-sao-dark .hint.info { -fx-background-color: #2a2b31; }
+.theme-sao-dark .hint.warning { -fx-background-color: #3d2f1a; -fx-border-color: #7a5a26; }
+.theme-sao-dark .hint.error { -fx-background-color: #4a2422; -fx-border-color: #7d3a36; }
+.theme-sao-dark .jfx-layout-actions .jfx-button, .theme-sao-dark .dialog-cancel, .theme-sao-dark .dialog-error {
+    -fx-background-color: rgba(255,255,255,0.08); -fx-border-color: rgba(255,255,255,0.14); -fx-text-fill: #dedee3;
+}
+.theme-sao-dark .dialog-error { -fx-text-fill: #ff8a84; }
+.theme-sao-dark .jfx-layout-actions .jfx-button:hover, .theme-sao-dark .dialog-cancel:hover { -fx-background-color: #f2a43a; -fx-border-color: #f2a43a; -fx-text-fill: #ffffff; }

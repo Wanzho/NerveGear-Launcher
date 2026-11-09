@@ -95,7 +95,7 @@ public final class Launcher extends Application {
         LOG.info("Prism Pipeline: " + FXUtils.GRAPHICS_PIPELINE);
         LOG.info("Dark Mode: " + Optional.ofNullable(FXUtils.DARK_MODE).map(ObservableBooleanValue::get).orElse(false));
         LOG.info("Reduced Motion: " + Objects.requireNonNullElse(FXUtils.REDUCED_MOTION, false));
-        if (org.jackhuang.hmcl.ui.sao.SaoUi.enabled()) org.jackhuang.hmcl.ui.sao.SaoCjkFont.install();
+        org.jackhuang.hmcl.ui.sao.SaoCjkFont.install();
 
         if (Screen.getScreens().isEmpty()) {
             LOG.info("No screen");

@@ -238,12 +238,30 @@ final class SaoApps {
         if (sizes.getSelectedToggle() == null) sizes.selectToggle(sizes.getToggles().get(1));
         keepOne(sizes);
 
+        // 外观 (James, 9 Nov: "你设计个深色的版本？"): live, saved, 浅色 by default.
+        ToggleGroup looks = new ToggleGroup();
+        ToggleButton lightLook = chip("浅色", looks), darkLook = chip("深色", looks);
+        boolean isDark = "dark".equals(s.preference(SaoHelmetPage.THEME_KEY, "light"));
+        (isDark ? darkLook : lightLook).setSelected(true);
+        for (ToggleButton c : new ToggleButton[]{lightLook, darkLook}) {
+            boolean d = c == darkLook;
+            c.setOnAction(e -> {
+                s.setPreference(SaoHelmetPage.THEME_KEY, d ? "dark" : "light");
+                SaoHelmetPage p = SaoHelmetPage.current();
+                if (p != null) p.setDark(d);
+            });
+        }
+        keepOne(looks);
+        HBox lookRow = new HBox(6, lightLook, darkLook);
+
         VBox left = column(318,
                 memHead, memory, memAuto,
                 rule(),
                 key("游戏窗口"), windowRow,
                 rule(),
-                key("字体大小"), sizeRow);
+                key("字体大小"), sizeRow,
+                rule(),
+                key("外观"), lookRow);
 
         TextField jvm = field("例如 -XX:+UseZGC");
         jvm.setText(s.jvmArgs());

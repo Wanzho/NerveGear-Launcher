@@ -46,9 +46,9 @@ public final class SaoScreenShotTool {
     /// @param args the output folder
     /// @throws Exception on any failure
     private static void run(String[] args) throws Exception {
-        Path out = Path.of(args.length > 0 ? args[0] : "sao-shots");
+        Path base = Path.of(args.length > 0 ? args[0] : "sao-shots");
         int[][] sizes = {{1024, 576, 0}, {1920, 1080, 0}, {1920, 1080, 1}};
-        Files.createDirectories(out);
+        Files.createDirectories(base);
         Platform.setImplicitExit(false);
         CountDownLatch up = new CountDownLatch(1);
         Platform.startup(up::countDown);
@@ -58,7 +58,7 @@ public final class SaoScreenShotTool {
         // forms (James, 8 Nov, and again 9 Nov: "怎么又犯之前修好的错误"). No shot without it.
         fx(SaoCjkFont::install);
         if (!SaoCjkFont.active()) throw new IllegalStateException("SaoCjkFont.install() could not patch the fonts");
-        checkSimplified(out);
+        checkSimplified(base);
         // Never open a browser: About's link buttons go to an inert opener, and each must hand over its own link.
         java.util.List<String> opened = new java.util.ArrayList<>();
         SaoUi.linkOpener = opened::add;
@@ -66,13 +66,18 @@ public final class SaoScreenShotTool {
         if (!opened.equals(java.util.List.of(SaoUi.AFDIAN_URL, SaoUi.QUARK_URL)))
             throw new IllegalStateException("About links opened " + opened);
         System.out.println("About links OK: " + opened);
+        // Every shot twice: 浅色 into the folder, 深色 (James, 9 Nov) into dark/.
+        for (boolean dark : new boolean[]{false, true})
         for (int[] size : sizes) {
+            Path out = dark ? base.resolve("dark") : base;
+            Files.createDirectories(out);
             int w = size[0], h = size[1];
             boolean win = size[2] == 1, big = w > 1500 && !win;
             // The small size and the second big one show the Windows/Linux layout of the window buttons (top right),
             // the first big one the Mac's.
             System.setProperty("sao.windowButtons", big ? "left" : "right");
             SaoFakeService fake = new SaoFakeService();
+            if (dark) fake.setPreference("theme", "dark");
             SaoHelmetPage[] page = new SaoHelmetPage[1];
             Scene[] scene = new Scene[1];
             fx(() -> {
@@ -211,6 +216,10 @@ public final class SaoScreenShotTool {
                 write(img[0], out.resolve(p + "21-home-friends-more-clicked.png"));
                 fx(() -> page[0].forceApp(-1));
                 fx(() -> fake.forceFriends(2));
+                // 外观 switches live: the same page turned to the other look without a rebuild.
+                fx(() -> page[0].setDark(!dark));
+                shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "21-home-live-switched.png"));
+                fx(() -> page[0].setDark(dark));
                 fx(() -> fake.forceOath(false));
                 shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "22-home-verify-pending.png"));
                 SaoAccountApp.Page[] pages = {SaoAccountApp.Page.REGISTER, SaoAccountApp.Page.VERIFY, SaoAccountApp.Page.FORGOT, SaoAccountApp.Page.MANAGE};

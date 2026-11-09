@@ -275,6 +275,12 @@ public final class SaoHelmetPage extends StackPane {
         cover.setStyle("-fx-background-color: rgba(0,0,0,0.55);");
         cover.getStyleClass().add("theme-sao");
         cover.getStylesheets().add(css);
+        // 外观 浅色 / 深色 (James, 9 Nov: "你设计个深色的版本？"), saved; 浅色 until he picks.
+        sceneProperty().addListener((o, a, b) -> {
+            if (a != null) a.getRoot().getStyleClass().remove(DARK);
+            applyDark();
+        });
+        setDark("dark".equals(service.preference(THEME_KEY, "light")));
         coverDesign.getTransforms().addAll(coverShift, coverFit);
         coverDesign.setPickOnBounds(false);
         cover.getChildren().add(new Group(coverDesign));
@@ -1557,6 +1563,37 @@ public final class SaoHelmetPage extends StackPane {
             e.consume();
         });
         addEventHandler(MouseEvent.MOUSE_RELEASED, e -> moving = false);
+    }
+
+    /// The 外观 preference key and the dark theme's style class.
+    static final String THEME_KEY = "theme", DARK = "theme-sao-dark";
+    /// Whether the screen is in 深色.
+    private boolean dark;
+
+    /// Switches 外观 live: every window, the space, the cover and HMCL's own dialogs (on the scene root).
+    ///
+    /// @param on true for 深色
+    void setDark(boolean on) {
+        dark = on;
+        applyDark();
+    }
+
+    /// Whether the screen is in 深色.
+    boolean dark() {
+        return dark;
+    }
+
+    private void applyDark() {
+        for (javafx.scene.Node n : new javafx.scene.Node[]{this, space, cover, getScene() == null ? null : getScene().getRoot()}) {
+            if (n == null) continue;
+            n.getStyleClass().remove(DARK);
+            if (dark) n.getStyleClass().add(DARK);
+        }
+    }
+
+    /// The page on screen, for 设置's 外观 and the skin editor's cover.
+    static @Nullable SaoHelmetPage current() {
+        return current;
     }
 
     /// The page on screen, for the skin editor's cover.

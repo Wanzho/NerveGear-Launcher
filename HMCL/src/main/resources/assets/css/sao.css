@@ -336,3 +336,50 @@
 .vr-link { -fx-background-color: transparent; -fx-border-color: transparent; -fx-padding: 2 4 2 4; -fx-cursor: hand; -fx-text-fill: #8a8a90; }
 .vr-link:hover { -fx-text-fill: #f2a43a; -fx-underline: true; }
 .vr-link:pressed { -fx-text-fill: #df8f25; }
+
+/* ---- 深色 (James, 9 Nov: "你设计个深色的版本？"): the same SAO menu as smoked glass. Set with .theme-sao-dark beside
+   .theme-sao, so these rules come last and win. Translucent dark panels with a hairline edge, light ink, the same
+   orange for the main action, hover and the chosen dock item; the logo-49 lettering was drawn for dark grounds. */
+.theme-sao-dark .vr-window { -fx-background-color: linear-gradient(to bottom, rgba(40,42,49,0.90) 0%, rgba(26,27,32,0.90) 100%); -fx-border-color: rgba(255,255,255,0.13); -fx-border-width: 1; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.45), 26, 0, 0, 8); }
+.theme-sao-dark .vr-title, .theme-sao-dark .vr-ink, .theme-sao-dark .vr-big, .theme-sao-dark .vr-code { -fx-fill: #ececf0; }
+.theme-sao-dark .vr-dim, .theme-sao-dark .vr-key { -fx-fill: #9d9da6; }
+.theme-sao-dark .vr-icon { -fx-fill: #c9c9d0; }
+.theme-sao-dark .vr-warn { -fx-fill: #f5a95a; }
+.theme-sao-dark .vr-rule { -fx-background-color: rgba(255,255,255,0.11); }
+.theme-sao-dark .vr-button, .theme-sao-dark .vr-round, .theme-sao-dark .vr-chip { -fx-background-color: rgba(255,255,255,0.08); -fx-text-fill: #dedee3; }
+.theme-sao-dark .vr-round { -fx-background-color: rgba(255,255,255,0.13); }
+.theme-sao-dark .vr-button:hover, .theme-sao-dark .vr-round:hover, .theme-sao-dark .vr-chip:hover, .theme-sao-dark .vr-chip:selected { -fx-background-color: #f2a43a; -fx-border-color: #f2a43a; -fx-text-fill: #ffffff; }
+.theme-sao-dark .vr-button:pressed, .theme-sao-dark .vr-round:pressed, .theme-sao-dark .vr-accent:pressed { -fx-background-color: #df8f25; -fx-text-fill: #ffffff; }
+.theme-sao-dark .vr-dock-button { -fx-background-color: transparent; -fx-border-color: transparent; }
+.theme-sao-dark .vr-dock-on { -fx-background-color: #f2a43a; -fx-border-color: #f2a43a; }
+.theme-sao-dark .vr-accent, .theme-sao-dark .vr-start { -fx-background-color: #f2a43a; -fx-text-fill: #ffffff; }
+.theme-sao-dark .vr-accent:hover, .theme-sao-dark .vr-start:hover { -fx-background-color: #f7b75a; }
+.theme-sao-dark .vr-field, .theme-sao-dark .vr-field:focused { -fx-background-color: rgba(0,0,0,0.32); -fx-border-color: rgba(255,255,255,0.14); -fx-text-fill: #ececf0; -fx-prompt-text-fill: #7c7c85; -fx-highlight-fill: rgba(242,164,58,0.55); -fx-highlight-text-fill: #ffffff; }
+.theme-sao-dark .vr-field:focused { -fx-border-color: #f2a43a; }
+.theme-sao-dark .vr-tile { -fx-background-color: rgba(255,255,255,0.05); -fx-border-color: rgba(255,255,255,0.09); }
+.theme-sao-dark .vr-tile:hover { -fx-background-color: rgba(255,255,255,0.10); }
+.theme-sao-dark .vr-tile-warn { -fx-background-color: rgba(245,169,90,0.14); }
+.theme-sao-dark .vr-stage, .theme-sao-dark .vr-thumb { -fx-background-color: rgba(0,0,0,0.24); }
+.theme-sao-dark .vr-console { -fx-background-color: rgba(0,0,0,0.38); }
+.theme-sao-dark .vr-name { -fx-background-color: rgba(255,255,255,0.08); }
+.theme-sao-dark .vr-tip { -fx-background-color: rgba(36,38,44,0.97); -fx-border-color: rgba(255,255,255,0.14); }
+.theme-sao-dark .vr-track, .theme-sao-dark .vr-slider .track, .theme-sao-dark .vr-switch-track { -fx-background-color: rgba(255,255,255,0.16); }
+.theme-sao-dark .vr-fill, .theme-sao-dark .vr-switch:selected .vr-switch-track { -fx-background-color: #f2a43a; }
+.theme-sao-dark .vr-scroll .scroll-bar .thumb { -fx-background-color: rgba(255,255,255,0.22); }
+.theme-sao-dark .vr-pill { -fx-background-color: rgba(255,255,255,0.40); }
+.theme-sao-dark .vr-chip:selected:disabled { -fx-background-color: rgba(255,255,255,0.10); -fx-border-color: rgba(255,255,255,0.14); -fx-text-fill: #b4b4bb; }
+.theme-sao-dark .vr-danger { -fx-background-color: rgba(224,96,90,0.10); -fx-border-color: #e0605a; -fx-text-fill: #ff8a84; }
+.theme-sao-dark .vr-danger:hover { -fx-background-color: #e0605a; -fx-border-color: #e0605a; -fx-text-fill: #ffffff; }
+.theme-sao-dark .vr-swatch { -fx-border-color: rgba(255,255,255,0.28); }
+.theme-sao-dark .vr-check { -fx-background-color: rgba(0,0,0,0.30); -fx-border-color: #75757e; }
+.theme-sao-dark .vr-check:selected { -fx-background-color: #f2a43a; -fx-border-color: #f2a43a; }
+.theme-sao-dark .vr-row:hover { -fx-background-color: rgba(255,255,255,0.06); }
+.theme-sao-dark .vr-row-on, .theme-sao-dark .vr-row-on:hover { -fx-background-color: rgba(255,255,255,0.10); -fx-border-color: rgba(255,255,255,0.12); }
+.theme-sao-dark .vr-avatar { -fx-background-color: #3b3d45; }
+.theme-sao-dark .vr-dot-game, .theme-sao-dark .vr-dot-launcher { -fx-border-color: #26272d; }
+.theme-sao-dark .vr-request { -fx-background-color: rgba(242,164,58,0.14); }
+.theme-sao-dark .vr-bubble { -fx-background-color: rgba(255,255,255,0.08); -fx-border-color: rgba(255,255,255,0.10); }
+.theme-sao-dark .vr-part { -fx-background-color: #3a3c43; -fx-border-color: #55575f; }
+.theme-sao-dark .vr-part:selected { -fx-background-color: #f2a43a; -fx-border-color: #e0912a; }
+.theme-sao-dark .vr-link { -fx-text-fill: #a2a2ab; }
+.theme-sao-dark .vr-link:hover { -fx-text-fill: #f2a43a; }
