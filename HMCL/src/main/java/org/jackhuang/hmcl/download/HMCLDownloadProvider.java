@@ -144,9 +144,11 @@ public final class HMCLDownloadProvider extends DownloadProvider {
 
                 // https://github.com/mcmod-info-mirror/mcim-rust-api
                 new MirrorRule("https://api.modrinth.com", "https://mod.mcimirror.top/modrinth", true),
-                new MirrorRule("https://cdn.modrinth.com", "https://mod.mcimirror.top", true),
+                new MirrorRule("https://cdn.modrinth.com", "https://mod.mcimirror.top"),
                 new MirrorRule("https://api.curseforge.com", "https://mod.mcimirror.top/curseforge", true),
-                new MirrorRule("https://edge.forgecdn.net", "https://mod.mcimirror.top", true)
+                new MirrorRule("https://edge.forgecdn.net", "https://mod.mcimirror.top"),
+                // MCIM's /files/{id1}/{id2}/{name} route preserves both CurseForge CDN paths.
+                new MirrorRule("https://mediafilez.forgecdn.net", "https://mod.mcimirror.top")
         );
     }
 
@@ -232,6 +234,17 @@ public final class HMCLDownloadProvider extends DownloadProvider {
     @Override
     public DownloadCandidates getDownloadCandidates(List<String> urls) {
         return getCandidates(fileSource, rules, urls);
+    }
+
+    /// Pack dependencies always prefer MCIM, regardless of OS locale or Minecraft source settings.
+    /// Deduplicates the mirror shared by mediafilez/edge while retaining every original fallback.
+    public DownloadCandidates getPackDownloadCandidates(List<String> urls) {
+        var unique = new LinkedHashMap<String, DownloadCandidate>();
+        for (DownloadCandidate candidate : getCandidates(DownloadSource.MIRROR, rules, urls).getCandidates()) {
+            unique.putIfAbsent(candidate.displayUrl(), new DownloadCandidate(candidate.url(), candidate.rawUrl(), 2,
+                    java.time.Duration.ofSeconds(15), java.time.Duration.ofSeconds(45)));
+        }
+        return DownloadCandidates.of(List.copyOf(unique.values()));
     }
 
     @Override

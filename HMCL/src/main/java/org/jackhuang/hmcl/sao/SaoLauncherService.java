@@ -37,6 +37,12 @@ public interface SaoLauncherService {
     /// A short game-voice label for the running step (for example "下载 NeoForge"), empty when idle.
     ReadOnlyStringProperty stepLabel();
 
+    /// Measured install stage, verified file counts, bytes, speed and all terminal dependency failures.
+    /// Production changes on the UI publication thread; -1 totalBytes means HMCL has no known byte total.
+    default ReadOnlyObjectProperty<SaoInstallProgress> installProgress() {
+        return new SimpleObjectProperty<>(SaoInstallProgress.phase(SaoInstallProgress.Stage.IDLE, ""));
+    }
+
     /// Why the last operation failed, in the launcher's language, or null when nothing failed.
     ReadOnlyObjectProperty<@Nullable String> lastError();
 

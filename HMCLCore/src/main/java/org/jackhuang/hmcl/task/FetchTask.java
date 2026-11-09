@@ -75,6 +75,16 @@ public abstract class FetchTask<T extends @UnknownNullability Object> extends Ta
     protected void beforeDownload(WebURL url) throws IOException {
     }
 
+    /// Configures an HTTP attempt, including each redirected request, before it connects.
+    /// Subclasses may set a product User-Agent, pace requests, or reject a redirect destination.
+    protected void configureConnection(HttpURLConnection connection) throws IOException, InterruptedException { }
+
+    /// Observes each HTTP response, including redirects and throttling headers, before body consumption.
+    protected void receivedResponse(UrlResponseInfo response) throws IOException { }
+
+    /// Delay before the next retry of a candidate; subclasses may provide bounded exponential backoff.
+    protected long retryDelayMillis(int failedAttempt) { return 200; }
+
     protected abstract void useCachedResult(Path cachedFile) throws IOException;
 
     protected abstract EnumCheckETag shouldCheckETag();
@@ -85,6 +95,7 @@ public abstract class FetchTask<T extends @UnknownNullability Object> extends Ta
 
     protected abstract Context getContext(@Nullable UrlResponseInfo response, boolean checkETag, @Nullable String bmclapiHash) throws IOException;
 
+    /// Attempts candidates in order, propagates interruption, and retains each candidate's failure as context.
     @Override
     public void execute() throws Exception {
         boolean checkETag;
@@ -126,8 +137,9 @@ public abstract class FetchTask<T extends @UnknownNullability Object> extends Ta
                     exceptions.add(e);
                 }
             }
-        } catch (InterruptedException ignored) {
-            // Cancelled
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw interrupted;
         } finally {
             if (SEMAPHORE != null)
                 SEMAPHORE.release();
@@ -349,8 +361,10 @@ public abstract class FetchTask<T extends @UnknownNullability Object> extends Ta
                         boolean keepConnection = false;
                         try {
                             headers.forEach(connection::setRequestProperty);
+                            configureConnection(connection);
                             responseCode = connection.getResponseCode();
                             responseInfo = UrlResponseInfo.of(connection);
+                            receivedResponse(responseInfo);
 
                             bmclapiHash = responseInfo.headers().firstValue("x-bmclapi-hash").orElse(null);
                             if (DigestUtils.isSha1Digest(bmclapiHash)) {
@@ -421,6 +435,8 @@ public abstract class FetchTask<T extends @UnknownNullability Object> extends Ta
                                 attemptsLimit++;
                                 continue;
                             }
+                        } else if (responseCode == 429) {
+                            throw new ResponseCodeException(url, responseCode);
                         } else if (responseCode / 100 == 4) {
                             throw new FileNotFoundException(url.toString());
                         } else if (responseCode / 100 != 2) {
@@ -488,6 +504,9 @@ public abstract class FetchTask<T extends @UnknownNullability Object> extends Ta
                 } catch (FileNotFoundException ex) {
                     LOG.warning("Failed to download " + url + ", not found" + (redirects == null ? "" : ", redirects: " + redirects), ex);
                     throw toDownloadException(url, ex, exceptions); // we will not try this URL again
+                } catch (ChecksumMismatchException corrupt) {
+                    // Retrying identical corrupt content wastes mirror bandwidth; immediately use the next host.
+                    throw toDownloadException(url, corrupt, exceptions);
                 } catch (Exception ex) {
                     if (exceptions == null)
                         exceptions = new ArrayList<>();
@@ -498,7 +517,7 @@ public abstract class FetchTask<T extends @UnknownNullability Object> extends Ta
 
                     if (attempts < attemptsLimit - 1) {
                         // Wait for a while before retrying
-                        Thread.sleep(200);
+                        Thread.sleep(retryDelayMillis(attempts));
                     }
                 }
             }

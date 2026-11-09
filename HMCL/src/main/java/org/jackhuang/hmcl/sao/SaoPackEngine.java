@@ -41,6 +41,9 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     private final ReadOnlyDoubleWrapper progress = new ReadOnlyDoubleWrapper(-1);
     /// Current localized operation label.
     private final ReadOnlyStringWrapper step = new ReadOnlyStringWrapper("");
+    /// Detailed measured installation snapshot, additive to the existing label/fraction seam.
+    private final ReadOnlyObjectWrapper<SaoInstallProgress> installProgress = new ReadOnlyObjectWrapper<>(
+            SaoInstallProgress.phase(SaoInstallProgress.Stage.IDLE, ""));
     /// Last public operation failure, with no password or account token interpolation.
     private final ReadOnlyObjectWrapper<@Nullable String> error = new ReadOnlyObjectWrapper<>();
     /// Last successfully committed pack version.
@@ -264,6 +267,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
         try { settings = new SaoSettings(root); }
         catch (IOException failure) { throw new java.io.UncheckedIOException("Cannot read launcher settings", failure); }
         game = new SaoGameBridge(root, this::reportProgress);
+        game.observeInstallProgress(this::reportInstallProgress);
         productionUninstall = production;
         uninstallHelper = helper;
         uninstallShutdown = shutdown;
@@ -295,7 +299,12 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
                     account -> linkStart(account, null), message -> publish(() -> error.set(message)));
         } catch (IOException failure) { throw new java.io.UncheckedIOException("Cannot initialize protected account storage", failure); }
         remoteNews = online.cached();
-        installer = new SaoPackInstaller(game.instanceDir(), game::download, Map.of(), this::reportProgress);
+        installer = new SaoPackInstaller(game.instanceDir(), new SaoPackInstaller.Downloader() {
+            /// Downloads one dependency through the production mirror/hash path.
+            @Override public void download(SaoPackManifest.PackFile file, Path path) throws Exception { game.download(file, path); }
+            /// Preserves detailed counters and all-file failure reporting for the entire batch.
+            @Override public void downloadAll(Map<SaoPackManifest.PackFile, Path> files) throws Exception { game.downloadAll(files); }
+        }, Map.of(), this::reportProgress);
         skins = new SaoSkinStore(game.instanceDir());
         extras = new SaoExtras(root, game, settings, online, logs, installer, () -> source, this::embeddedVersion, gameRunning::get, production);
         if (versionMetadata != null) extras.updateQuark(versionMetadata.quark());
@@ -354,6 +363,8 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     @Override public ReadOnlyDoubleProperty progress() { return progress.getReadOnlyProperty(); }
     /// {@inheritDoc}
     @Override public ReadOnlyStringProperty stepLabel() { return step.getReadOnlyProperty(); }
+    /// {@inheritDoc}
+    @Override public ReadOnlyObjectProperty<SaoInstallProgress> installProgress() { return installProgress.getReadOnlyProperty(); }
     /// {@inheritDoc}
     @Override public ReadOnlyObjectProperty<@Nullable String> lastError() { return error.getReadOnlyProperty(); }
     /// {@inheritDoc}
@@ -1392,18 +1403,45 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     }
 
     /// Publishes the initial busy state before an operation starts.
-    private void working() { publish(() -> { state.set(SaoPackState.WORKING); error.set(null); progress.set(-1); }); }
+    private void working() { publish(() -> {
+        state.set(SaoPackState.WORKING); error.set(null); progress.set(-1);
+        installProgress.set(SaoInstallProgress.phase(SaoInstallProgress.Stage.PREPARING, "准备安装"));
+    }); }
+
+    /// Publishes measured batch counters and keeps the existing stepLabel/progress properties useful.
+    private void reportInstallProgress(SaoInstallProgress snapshot) {
+        publish(() -> {
+            if (closed.get()) return;
+            installProgress.set(snapshot); step.set(snapshot.label());
+            progress.set(snapshot.totalFiles() == 0 ? -1 : snapshot.completedFiles() / (double) snapshot.totalFiles());
+        });
+    }
     /// Publishes one short, sanitized phase label and progress value.
     private void reportProgress(String label, double fraction) {
         long now = System.nanoTime();
         if (fraction >= 0 && fraction < 1 && now - lastProgressNanos < 50_000_000L) return;
         lastProgressNanos = now;
-        publish(() -> { step.set(label); progress.set(fraction); });
+        publish(() -> {
+            step.set(label); progress.set(fraction);
+            SaoInstallProgress.Stage stage = label.startsWith("安装 NeoForge") ? SaoInstallProgress.Stage.INSTALL_NEOFORGE
+                    : label.startsWith("下载 Minecraft") || label.startsWith("安装 Minecraft") ? SaoInstallProgress.Stage.DOWNLOAD_MINECRAFT
+                    : label.startsWith("下载 Java") ? SaoInstallProgress.Stage.DOWNLOAD_JAVA
+                    : label.contains("Minecraft / NeoForge 依赖") ? SaoInstallProgress.Stage.CHECK_DEPENDENCIES
+                    : label.startsWith("检查整合包") ? SaoInstallProgress.Stage.CHECKING
+                    : label.startsWith("应用整合包") ? SaoInstallProgress.Stage.APPLY_PACK
+                    : label.equals("整合包已就绪") ? SaoInstallProgress.Stage.COMPLETE : SaoInstallProgress.Stage.PREPARING;
+            installProgress.set(SaoInstallProgress.phase(stage, label));
+        });
     }
     /// Publishes a public error without serializing secrets, account objects or process arguments.
     private void fail(String context, Exception failure) {
         String message = context + ": " + Objects.toString(failure.getMessage(), failure.getClass().getSimpleName());
-        publish(() -> { error.set(message); state.set(SaoPackState.FAILED); step.set(""); progress.set(-1); });
+        publish(() -> {
+            error.set(message); state.set(SaoPackState.FAILED); step.set(""); progress.set(-1);
+            SaoInstallProgress last = installProgress.get();
+            installProgress.set(new SaoInstallProgress(SaoInstallProgress.Stage.FAILED, context, last.completedFiles(), last.totalFiles(),
+                    last.bytesDone(), last.totalBytes(), last.networkBytes(), 0, last.failures()));
+        });
     }
     /// Uses the JavaFX thread in the app and a synchronous fallback only when no toolkit exists.
     private static void publish(Runnable action) {

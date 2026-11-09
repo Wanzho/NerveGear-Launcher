@@ -40,6 +40,12 @@ public final class SaoPackInstaller {
     public interface Downloader {
         /// Fetches a source with exact manifest identity into the supplied temporary destination.
         void download(SaoPackManifest.PackFile file, Path destination) throws Exception;
+
+        /// Fetches all dependencies with at most six workers, draining every failure before returning.
+        /// Implementations may publish richer transfer snapshots; destinations always belong to private staging.
+        default void downloadAll(Map<SaoPackManifest.PackFile, Path> files) throws Exception {
+            SaoModDownloads.runBatch(this, files);
+        }
     }
 
     /// Filesystem gate evaluated against the final composed inventory before committing a quick-update chain.
@@ -166,6 +172,7 @@ public final class SaoPackInstaller {
         boolean cleanStage = true;
         try (ZipFile archive = new ZipFile(source.zip().toFile(), StandardCharsets.UTF_8)) {
             int staged = 0;
+            Map<SaoPackManifest.PackFile, Path> remote = new LinkedHashMap<>();
             for (var file : changed) {
                 Path destination = SaoPackFiles.resolve(stage.resolve("new"), file.path());
                 Files.createDirectories(destination.getParent());
@@ -182,9 +189,18 @@ public final class SaoPackInstaller {
                         long copied = input.transferTo(new BoundedOutputStream(output, file.size()));
                         if (copied != file.size()) throw new IOException("Pack member size mismatch: " + file.path());
                     }
-                } else downloader.download(file, destination);
+                } else {
+                    remote.put(file, destination);
+                    continue;
+                }
                 if (!SaoPackFiles.matches(destination, file)) throw new IOException("Pack checksum mismatch: " + file.path());
                 staged++;
+            }
+            // All remote bytes stay in this transaction's stage until the entire batch verifies.
+            downloader.downloadAll(remote);
+            for (var item : remote.entrySet()) {
+                if (!SaoPackFiles.matches(item.getValue(), item.getKey()))
+                    throw new IOException("Pack checksum mismatch: " + item.getKey().path());
             }
             commit(stage, changed, removed, manifest);
             verified += changed.size();
