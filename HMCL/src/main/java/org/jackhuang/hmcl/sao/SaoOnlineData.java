@@ -31,12 +31,45 @@ final class SaoOnlineData implements AutoCloseable {
             .followRedirects(HttpClient.Redirect.NEVER).build();
     /// Cache file for the last valid remote document.
     private final Path cache;
+    /// Last-good fully validated release policy, separate from announcements.
+    private final Path versionCache;
+    /// Injectable request exchange; tests never contact external hosts.
+    private final Exchange exchange;
     /// DNS has a separate daemon so the complete ping has a three-second deadline.
     private final ThreadPoolExecutor resolver = new ThreadPoolExecutor(1, 1, 0, TimeUnit.SECONDS,
             new LinkedBlockingQueue<>(), task -> { Thread thread = new Thread(task, "sao-status-dns"); thread.setDaemon(true); return thread; });
 
     /// Keeps all cache files in the launcher's own data root.
-    SaoOnlineData(Path root) { cache = root.resolve("online-news.json"); }
+    SaoOnlineData(Path root) {
+        cache = root.resolve("online-news.json"); versionCache = root.resolve("online-version.json");
+        exchange = (request, limit) -> {
+            CompletableFuture<HttpResponse<byte[]>> pending = http.sendAsync(request, info -> new NewsSubscriber(limit));
+            try {
+                HttpResponse<byte[]> response = pending.get(request.timeout().orElseThrow().toNanos(), TimeUnit.NANOSECONDS);
+                return new Response(response.statusCode(), response.headers().firstValue("location").orElse(null), response.body());
+            } finally { pending.cancel(true); }
+        };
+    }
+
+    /// Supplies an entirely inert exchange for redirect/cache contract tests.
+    SaoOnlineData(Path root, Exchange exchange) {
+        cache = root.resolve("online-news.json"); versionCache = root.resolve("online-version.json"); this.exchange = exchange;
+    }
+
+    /// Bounded HTTP exchange result; redirect locations are never followed by the HTTP client itself.
+    /// @param status HTTP response status
+    /// @param location optional Location header
+    /// @param body bounded response bytes
+    @NotNullByDefault
+    record Response(int status, @Nullable String location, byte[] body) { }
+
+    /// Single-request transport seam, with redirect validation performed by the caller.
+    @NotNullByDefault
+    @FunctionalInterface
+    interface Exchange {
+        /// Executes one request with the caller's timeout and decoded-byte limit.
+        Response send(HttpRequest request, int limit) throws Exception;
+    }
 
     /// Validates a small news document, preserving source order, with no HTML rendering or synthetic entries.
     static @Unmodifiable List<SaoData.News> parseNews(String document) throws IOException {
@@ -67,17 +100,75 @@ final class SaoOnlineData implements AutoCloseable {
 
     /// Fetches an explicitly configured HTTPS document and commits it only after full validation.
     @Unmodifiable List<SaoData.News> fetch(String endpoint) throws Exception {
-        HttpRequest request = HttpRequest.newBuilder(URI.create(endpoint)).timeout(Duration.ofSeconds(3)).GET().build();
-        // A bounded subscriber avoids keeping an untrusted, arbitrarily large response in memory.
-        HttpResponse<byte[]> response = http.send(request, info -> new NewsSubscriber());
-        if (response.statusCode() != 200) throw new IOException("News HTTP " + response.statusCode());
-        String document = new String(response.body(), StandardCharsets.UTF_8);
+        String document = fetchDocument(endpoint, MAX_NEWS_BYTES);
         @Unmodifiable List<SaoData.News> news = parseNews(document);
-        Files.createDirectories(cache.getParent());
-        Path temporary = Files.createTempFile(cache.getParent(), "news-", ".tmp");
+        save(cache, document);
+        return news;
+    }
+
+    /// Loads only a valid last-good release policy; unavailable metadata does not disable play.
+    @Nullable SaoData.VersionMetadata cachedVersion() {
+        try { return Files.size(versionCache) <= SaoUpdates.MAX_VERSION_BYTES ? SaoUpdates.parse(Files.readString(versionCache)) : null; }
+        catch (IOException | RuntimeException ignored) { return null; }
+    }
+
+    /// Commits version metadata only after complete schema and value validation.
+    SaoData.VersionMetadata fetchVersion(String endpoint) throws Exception {
+        String document = fetchDocument(endpoint, SaoUpdates.MAX_VERSION_BYTES);
+        SaoData.VersionMetadata metadata = SaoUpdates.parse(document);
+        save(versionCache, document); return metadata;
+    }
+
+    /// Atomically replaces one last-good public cache after validation.
+    private static void save(Path cache, String document) throws IOException {
+        Path parent = Objects.requireNonNull(cache.getParent()); Files.createDirectories(parent);
+        Path temporary = Files.createTempFile(parent, "online-", ".tmp");
         try { Files.writeString(temporary, document); SaoPackFiles.atomicMove(temporary, cache); }
         finally { Files.deleteIfExists(temporary); }
-        return news;
+    }
+
+    /// Fetches a bounded document under one three-second deadline, permitting only Gitee's one raw-host redirect.
+    private String fetchDocument(String endpoint, int limit) throws Exception {
+        URI uri = checkedEndpoint(URI.create(endpoint));
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
+        Response response = exchange.send(request(uri, deadline), limit);
+        if (redirect(response.status())) {
+            uri = redirected(uri, response.location());
+            response = exchange.send(request(uri, deadline), limit);
+        }
+        if (response.status() != 200) throw new IOException("Metadata HTTP " + response.status());
+        if (System.nanoTime() >= deadline) throw new IOException("Metadata request timed out");
+        if (response.body().length > limit) throw new IOException("Metadata document is too large");
+        return StandardCharsets.UTF_8.newDecoder().onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+                .decode(java.nio.ByteBuffer.wrap(response.body())).toString();
+    }
+
+    /// Builds each hop from the remaining whole-operation timeout.
+    private static HttpRequest request(URI uri, long deadline) throws IOException {
+        long nanos = deadline - System.nanoTime();
+        if (nanos <= 0) throw new IOException("Metadata request timed out");
+        return HttpRequest.newBuilder(uri).timeout(Duration.ofNanos(nanos)).GET().build();
+    }
+
+    /// Recognizes HTTP redirect responses without enabling HttpClient's broad redirect behavior.
+    private static boolean redirect(int status) { return status == 301 || status == 302 || status == 303 || status == 307 || status == 308; }
+
+    /// Rejects user-info, downgrade URLs and nonstandard ports before creating a request.
+    private static URI checkedEndpoint(URI uri) throws IOException {
+        if (!"https".equals(uri.getScheme()) || uri.getHost() == null || uri.getRawUserInfo() != null
+                || uri.getPort() != -1 || uri.getFragment() != null) throw new IOException("Metadata requires an HTTPS endpoint");
+        return uri;
+    }
+
+    /// Allows exactly the trusted source/destination host pair; a second redirect is rejected by the fetcher.
+    static URI redirected(URI source, @Nullable String location) throws IOException {
+        checkedEndpoint(source);
+        if (!"gitee.com".equals(source.getHost()) || location == null) throw new IOException("Metadata redirect refused");
+        try {
+            URI target = checkedEndpoint(URI.create(location));
+            if (!"raw.giteeusercontent.com".equals(target.getHost())) throw new IOException("Metadata redirect refused");
+            return target;
+        } catch (IllegalArgumentException failure) { throw new IOException("Invalid metadata redirect", failure); }
     }
 
     /// Builds the mandatory embedded-version update entry from the archive's actual changelog, when present.
@@ -203,12 +294,18 @@ final class SaoOnlineData implements AutoCloseable {
     /// A demand-driven response accumulator that rejects oversized news before buffering the whole body.
     @NotNullByDefault
     static final class NewsSubscriber implements HttpResponse.BodySubscriber<byte[]> {
+        /// Per-document decoded response byte limit.
+        private final int limit;
         /// At most MAX_NEWS_BYTES accepted response bytes.
         private final ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         /// Completes with a validated-size response or the first transport/size error.
         private final CompletableFuture<byte[]> result = new CompletableFuture<>();
         /// Current publisher subscription, null before onSubscribe.
         private @Nullable java.util.concurrent.Flow.Subscription subscription;
+        /// Retains the historical news limit for existing callers and regression tests.
+        NewsSubscriber() { this(MAX_NEWS_BYTES); }
+        /// Uses the smaller version-document limit when fetching release metadata.
+        NewsSubscriber(int limit) { this.limit = limit; }
         /// Returns the completion observed by HttpClient.send.
         @Override public CompletionStage<byte[]> getBody() { return result; }
         /// Requests one chunk at a time, bounding buffering independently of upstream chunk count.
@@ -216,7 +313,7 @@ final class SaoOnlineData implements AutoCloseable {
         /// Cancels immediately when a chunk would exceed the document limit.
         @Override public void onNext(List<java.nio.ByteBuffer> chunks) {
             for (java.nio.ByteBuffer chunk : chunks) {
-                if (chunk.remaining() > MAX_NEWS_BYTES - bytes.size()) {
+                if (chunk.remaining() > limit - bytes.size()) {
                     if (subscription != null) subscription.cancel();
                     result.completeExceptionally(new IOException("News document is too large")); return;
                 }

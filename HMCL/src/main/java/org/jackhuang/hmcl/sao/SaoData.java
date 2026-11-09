@@ -20,6 +20,46 @@ public final class SaoData {
     private SaoData() {
     }
 
+    /// Exact public download identity; the archive is downloaded manually from Quark.
+    /// @param version numeric dotted pack version
+    /// @param quark validated HTTPS Quark share link
+    /// @param file exact ZIP basename in Downloads
+    /// @param size exact compressed byte count
+    /// @param sha256 lowercase SHA-256 of the entire ZIP
+    @NotNullByDefault
+    public record PackRelease(String version, String quark, String file, long size, String sha256) { }
+
+    /// Launcher compatibility policy, independent of the pack version.
+    /// @param latest newest launcher version
+    /// @param min oldest permitted launcher version
+    /// @param quark validated HTTPS Quark share link
+    @NotNullByDefault
+    public record LauncherRelease(String latest, String min, String quark) { }
+
+    /// A completely validated schema-1 version document.
+    /// @param schema supported schema number, always 1
+    /// @param pack public pack release identity
+    /// @param launcher public launcher compatibility policy
+    @NotNullByDefault
+    public record VersionMetadata(int schema, PackRelease pack, LauncherRelease launcher) { }
+
+    /// Startup/update comparison for the UI; missing metadata never blocks an installed pack.
+    /// @param metadata last-good metadata, or null before a valid document is available
+    /// @param packUpdateAvailable whether the advertised pack is newer or no pack is installed
+    /// @param launcherBlocked whether this launcher is below the mandatory minimum
+    /// @param launcherUpdateAvailable whether a newer optional launcher is advertised and not dismissed
+    /// @param message Chinese launcher compatibility message, empty when no note is needed
+    @NotNullByDefault
+    public record UpdateStatus(@Nullable VersionMetadata metadata, boolean packUpdateAvailable,
+                               boolean launcherBlocked, boolean launcherUpdateAvailable, String message) { }
+
+    /// State of the UI's cancellable Downloads polling prompt; finding never installs automatically.
+    /// @param watching whether polling is active
+    /// @param candidate exact-name and exact-size ZIP, or null while still waiting
+    /// @param message Chinese prompt text
+    @NotNullByDefault
+    public record DownloadPrompt(boolean watching, @Nullable Path candidate, String message) { }
+
     /// What a news entry is.
     @NotNullByDefault
     public enum NewsKind {

@@ -124,7 +124,18 @@ public final class Main {
         }
     }
 
+    /// Handles the filesystem-only pack hash command before all directory checks, dialogs and JavaFX patching.
     public static void main(String[] args) throws Throwable {
+        if (args.length > 0 && "--pack-hash".equals(args[0])) {
+            System.setProperty("java.awt.headless", "true");
+            Class<?> tool = Class.forName("org.jackhuang.hmcl.sao.SaoPackHash");
+            try {
+                tool.getMethod("main", String[].class).invoke(null, (Object) args);
+            } catch (java.lang.reflect.InvocationTargetException failure) {
+                throw failure.getCause();
+            }
+            return;
+        }
         checkDirectoryPath();
         if (getJavaFeatureVersion(System.getProperty("java.version")) >= MINIMUM_JAVA_VERSION) {
             EntryPoint.main(args);

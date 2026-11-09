@@ -97,6 +97,28 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     private final SaoInstanceFiles files;
     /// News cache and bounded server-list protocol client.
     private final SaoOnlineData online;
+    /// Explicit fixture engines never perform public metadata reads, including refreshOnline calls.
+    private final boolean productionUpdates;
+    /// Last-good public policy is read atomically at the launch boundary, independently of UI publication.
+    private volatile @Nullable SaoData.VersionMetadata versionMetadata;
+    /// Optional note dismissed during this launcher session, scoped to the advertised latest version.
+    private volatile @Nullable String dismissedLauncherVersion;
+    /// Read-only public update comparison for frontend listeners.
+    private final ReadOnlyObjectWrapper<SaoData.UpdateStatus> updateStatus = new ReadOnlyObjectWrapper<>(
+            new SaoData.UpdateStatus(null, false, false, false, ""));
+    /// Cancellable prompt state; candidates are never automatically installed.
+    private final ReadOnlyObjectWrapper<SaoData.DownloadPrompt> downloadPrompt = new ReadOnlyObjectWrapper<>(
+            new SaoData.DownloadPrompt(false, null, ""));
+    /// Coalesces metadata refreshes without delaying pack work.
+    private final AtomicBoolean updatesRefreshing = new AtomicBoolean();
+    /// Invalidates queued prompt callbacks after cancellation or a replacement policy.
+    private final java.util.concurrent.atomic.AtomicLong downloadGeneration = new java.util.concurrent.atomic.AtomicLong();
+    /// Active Downloads poll, cancelled when the prompt closes or the engine shuts down.
+    private volatile java.util.concurrent.@Nullable ScheduledFuture<?> downloadPoll;
+    /// Existing platform link opener, replaced by an inert recorder in tests.
+    private java.util.function.Consumer<String> linkOpener = org.jackhuang.hmcl.DesktopUtils::openLink;
+    /// Injected folders let headless tests exercise polling without inspecting the user's Downloads.
+    private Supplier<@Unmodifiable List<Path>> downloadDirectories = SaoDownloads::directories;
     /// Sanitized process output and support-export reader.
     private final SaoGameLogs logs;
     /// Embedded update note remains tied to this launcher rather than a subsequently dropped update.
@@ -247,6 +269,8 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
         publish(() -> org.jackhuang.hmcl.task.FetchTask.setDownloadExecutorConcurrency(downloadThreads()));
         files = new SaoInstanceFiles(game.instanceDir(), game);
         online = new SaoOnlineData(root);
+        productionUpdates = production;
+        versionMetadata = online.cachedVersion();
         logs = new SaoGameLogs(game.instanceDir());
         Path accountRoot = production ? Metadata.HMCL_USER_HOME : root;
         try {
@@ -280,7 +304,10 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
                 publish(() -> { gameLog.setAll(logs.snapshot()); crash.set(previousCrash); });
                 refreshState();
             } catch (Exception failure) { fail("读取整合包失败", failure); }
-            finally { packReady.complete(null); busy.set(false); refreshInstalledBytes(); }
+            finally {
+                packReady.complete(null); busy.set(false); refreshInstalledBytes();
+                if (production) refreshUpdates();
+            }
         });
     }
 
@@ -321,6 +348,10 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
             if (authPassword != null) Arrays.fill(authPassword, '\0');
             return;
         }
+        if (!launcherPermitted()) {
+            if (authPassword != null) Arrays.fill(authPassword, '\0');
+            return;
+        }
         char @Nullable [] password = authPassword == null ? null : authPassword.clone();
         if (authPassword != null) Arrays.fill(authPassword, '\0');
         SaoPackState current = state.get();
@@ -334,6 +365,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
         worker.execute(() -> {
             try {
                 if (closed.get()) throw new IOException("Launcher has closed");
+                if (!launcherPermitted()) { busy.set(false); refreshState(); return; }
                 // A prior ARGUS launch must not leak a handoff into dependency preparation or this run.
                 if (offline) game.clearOfflineTicket();
                 SaoPackArchive pack = requireSource();
@@ -342,6 +374,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
                 if (previous == null || VersionNumber.compare(pack.manifest().version(), previous.version()) > 0)
                     installer.apply(pack, false);
                 files.enforceRequiredResources();
+                if (!launcherPermitted()) { busy.set(false); refreshState(); return; }
                 publish(() -> { installedVersion.set(pack.manifest().version()); step.set("Link Start"); state.set(SaoPackState.RUNNING); });
                 if (closed.get()) throw new IOException("Launcher has closed");
                 long started = System.currentTimeMillis();
@@ -477,7 +510,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     /// {@inheritDoc}
     @Override public void oathLogout() { oath.logout(); }
     /// {@inheritDoc}
-    @Override public void linkStartOath() { if (!closed.get() && !uninstalling.get()) oath.linkStart(); }
+    @Override public void linkStartOath() { if (!closed.get() && !uninstalling.get() && launcherPermitted()) oath.linkStart(); }
     /// {@inheritDoc}
     @Override public @Nullable Path oathSkin() { return oath.skin(); }
     /// {@inheritDoc}
@@ -501,8 +534,17 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
 
     /// {@inheritDoc}
     @Override public void applyUpdateZip(Path zip) {
+        applyDownloadedPack(zip);
+    }
+
+    /// Routes all downloaded ZIPs through one preserving transaction, verifying the private copy.
+    private void applyPack(Path zip, SaoData.PackRelease expected) {
         submit(() -> {
-            SaoPackArchive update = SaoPackArchive.open(zip);
+            // Never install directly from a Downloads path that a browser or another process can still replace.
+            Path staging = SaoPackFiles.resolve(root, "pack-cache");
+            SaoPackArchive update = SaoUpdates.snapshot(zip, expected, staging);
+            Path snapshot = update.zip();
+            try {
             @Nullable SaoPackManifest previous = installer.installed();
             @Nullable SaoPackArchive currentSource = source;
             boolean recoveringSource = previous != null && update.manifest().version().equals(previous.version())
@@ -517,6 +559,102 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
             files.requiredResources(source);
             refreshLocalNow();
             refreshState();
+            cancelPackDownload();
+            } finally { Files.deleteIfExists(snapshot); }
+        });
+    }
+
+    /// {@inheritDoc}
+    @Override public void applyDownloadedPack(Path zip) {
+        @Nullable SaoData.VersionMetadata metadata = versionMetadata;
+        if (metadata == null) { windowFailure("无法校验整合包", new IOException("暂无有效版本信息，请稍后重试")); return; }
+        applyPack(zip, metadata.pack());
+    }
+
+    /// {@inheritDoc}
+    @Override public ReadOnlyObjectProperty<SaoData.UpdateStatus> updateStatus() { return updateStatus.getReadOnlyProperty(); }
+    /// {@inheritDoc}
+    @Override public ReadOnlyObjectProperty<SaoData.DownloadPrompt> downloadPrompt() { return downloadPrompt.getReadOnlyProperty(); }
+
+    /// Computes against the actual installed receipt; remote metadata never marks the local pack broken.
+    private void publishUpdates() {
+        SaoData.UpdateStatus value = SaoUpdates.status(versionMetadata, installedVersion.get(), Metadata.VERSION, dismissedLauncherVersion);
+        publish(() -> updateStatus.set(value));
+    }
+
+    /// Applies the mandatory launcher gate at both submission and execution, without a network wait.
+    boolean launcherPermitted() {
+        SaoData.UpdateStatus value = SaoUpdates.status(versionMetadata, installedVersion.get(), Metadata.VERSION, dismissedLauncherVersion);
+        if (value.launcherBlocked()) publish(() -> { updateStatus.set(value); error.set(value.message()); });
+        return !value.launcherBlocked();
+    }
+
+    /// {@inheritDoc}
+    @Override public void dismissLauncherUpdate() {
+        @Nullable SaoData.VersionMetadata metadata = versionMetadata;
+        if (metadata != null) { dismissedLauncherVersion = metadata.launcher().latest(); publishUpdates(); }
+    }
+
+    /// Overrides external link dispatch in isolated tests; validation always occurs before this seam.
+    void setLinkOpener(java.util.function.Consumer<String> opener) { linkOpener = Objects.requireNonNull(opener); }
+
+    /// Overrides Downloads discovery only in explicitly isolated fixture engines.
+    void setDownloadDirectories(Supplier<@Unmodifiable List<Path>> directories) { downloadDirectories = Objects.requireNonNull(directories); }
+
+    /// Validates even cached/injected links immediately before dispatch to the existing platform opener.
+    private void openQuark(boolean launcher) {
+        if (closed.get() || uninstalling.get()) return;
+        @Nullable SaoData.VersionMetadata metadata = versionMetadata;
+        if (metadata == null) { windowFailure("无法打开下载", new IOException("暂无有效版本信息，请稍后重试")); return; }
+        try { linkOpener.accept(SaoUpdates.checkedQuark(launcher ? metadata.launcher().quark() : metadata.pack().quark()).toString()); }
+        catch (Exception failure) { windowFailure("打开夸克失败", failure); }
+    }
+    /// {@inheritDoc}
+    @Override public void openPackDownload() { openQuark(false); }
+    /// {@inheritDoc}
+    @Override public void openLauncherDownload() { openQuark(true); }
+
+    /// {@inheritDoc}
+    @Override public synchronized void watchPackDownload() {
+        cancelPackDownload();
+        if (closed.get() || uninstalling.get()) return;
+        @Nullable SaoData.VersionMetadata metadata = versionMetadata;
+        if (metadata == null) { windowFailure("无法查找下载", new IOException("暂无有效版本信息，请稍后重试")); return; }
+        long generation = downloadGeneration.incrementAndGet();
+        publish(() -> downloadPrompt.set(new SaoData.DownloadPrompt(true, null, "请在夸克下载 " + metadata.pack().file() + "，也可手动选择文件")));
+        downloadPoll = publications.scheduleWithFixedDelay(() -> {
+            if (closed.get() || generation != downloadGeneration.get()) return;
+            try {
+                @Nullable Path candidate = SaoDownloads.find(downloadDirectories.get(), metadata.pack());
+                publish(() -> {
+                    if (generation == downloadGeneration.get()) downloadPrompt.set(new SaoData.DownloadPrompt(true, candidate,
+                            candidate == null ? "等待下载完成：" + metadata.pack().file() : "已找到下载文件，请确认安装"));
+                });
+            } catch (IOException failure) { windowFailure("查找下载失败", failure); }
+        }, 0, 3, TimeUnit.SECONDS);
+    }
+
+    /// {@inheritDoc}
+    @Override public synchronized void cancelPackDownload() {
+        downloadGeneration.incrementAndGet();
+        java.util.concurrent.@Nullable ScheduledFuture<?> poll = downloadPoll;
+        downloadPoll = null; if (poll != null) poll.cancel(false);
+        publish(() -> downloadPrompt.set(new SaoData.DownloadPrompt(false, null, "")));
+    }
+
+    /// {@inheritDoc}
+    @Override public void refreshUpdates() {
+        if (!productionUpdates || closed.get() || uninstalling.get() || !updatesRefreshing.compareAndSet(false, true)) return;
+        onlineWorker.execute(() -> {
+            try {
+                try { remoteNews = online.fetch(System.getProperty("sao.newsUrl", SaoUpdates.NEWS_URL)); publishNews(); }
+                catch (Exception ignored) { /* An outage retains last-good announcements. */ }
+                try {
+                    SaoData.VersionMetadata metadata = online.fetchVersion(System.getProperty("sao.versionUrl", SaoUpdates.VERSION_URL));
+                    if (!metadata.equals(versionMetadata)) cancelPackDownload();
+                    versionMetadata = metadata; publishUpdates();
+                } catch (Exception ignored) { /* Installed packs remain playable with their last-good policy. */ }
+            } finally { updatesRefreshing.set(false); }
         });
     }
 
@@ -647,15 +785,11 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     /// {@inheritDoc}
     @Override public void refreshOnline() {
         if (closed.get() || uninstalling.get() || !onlineRefreshing.compareAndSet(false, true)) return;
+        refreshUpdates();
         oath.refreshCard();
         onlineWorker.execute(() -> {
             try {
                 @Nullable SaoPackArchive pack = source;
-                String endpoint = pack == null ? "" : pack.manifest().newsUrl();
-                if (!endpoint.isEmpty()) {
-                    try { remoteNews = online.fetch(endpoint); publishNews(); }
-                    catch (Exception ignored) { /* Retain last-good launcher news during an outage. */ }
-                }
                 String address = pack == null ? "" : pack.manifest().server();
                 if (address.isEmpty()) publish(() -> serverStatus.set(null));
                 else {
@@ -1029,7 +1163,11 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
         @Nullable SaoPackArchive pack = source;
         SaoPackState next = pack == null || installed == null ? SaoPackState.NOT_INSTALLED
                 : VersionNumber.compare(pack.manifest().version(), installed.version()) > 0 ? SaoPackState.UPDATE_READY : SaoPackState.READY;
-        publish(() -> { installedVersion.set(installed == null ? null : installed.version()); state.set(next); progress.set(1); step.set(""); error.set(null); });
+        publish(() -> {
+            installedVersion.set(installed == null ? null : installed.version()); state.set(next); progress.set(1); step.set("");
+            SaoData.UpdateStatus updates = SaoUpdates.status(versionMetadata, installedVersion.get(), Metadata.VERSION, dismissedLauncherVersion);
+            updateStatus.set(updates); error.set(updates.launcherBlocked() ? updates.message() : null);
+        });
     }
 
     /// An exception-capable serialized background operation.
@@ -1073,6 +1211,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     /// Stops accepting backend work; does not terminate an already running Minecraft process.
     @Override public void close() {
         closed.set(true);
+        cancelPackDownload();
         packReady.complete(null);
         roomGeneration.incrementAndGet();
         char @Nullable [] password = activePassword;

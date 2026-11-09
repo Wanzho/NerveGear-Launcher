@@ -72,6 +72,38 @@ public interface SaoLauncherService {
     /// @param zip the dropped file
     void applyUpdateZip(Path zip);
 
+    /// Last-good remote pack/launcher comparison; listeners receive replacements on the UI publication thread.
+    /// A pack update is advisory; launcherBlocked is the mandatory Link Start gate.
+    default ReadOnlyObjectProperty<SaoData.UpdateStatus> updateStatus() {
+        return new SimpleObjectProperty<>(new SaoData.UpdateStatus(null, false, false, false, ""));
+    }
+
+    /// Downloads-prompt state; a candidate still requires explicit applyDownloadedPack and checksum verification.
+    default ReadOnlyObjectProperty<SaoData.DownloadPrompt> downloadPrompt() {
+        return new SimpleObjectProperty<>(new SaoData.DownloadPrompt(false, null, ""));
+    }
+
+    /// Refreshes Gitee announcements and version policy asynchronously, without account refresh or server ping.
+    default void refreshUpdates() { }
+
+    /// Dismisses the optional launcher note for this advertised latest version; cannot dismiss the minimum gate.
+    default void dismissLauncherUpdate() { }
+
+    /// Opens the validated pack Quark link through the system link opener; never downloads a package itself.
+    default void openPackDownload() { }
+
+    /// Opens the validated launcher Quark link through the system link opener.
+    default void openLauncherDownload() { }
+
+    /// Starts three-second Downloads polling while the UI update prompt is open; never installs automatically.
+    default void watchPackDownload() { }
+
+    /// Stops prompt polling and discards its candidate; call when the UI prompt closes or is cancelled.
+    default void cancelPackDownload() { }
+
+    /// Accepts a manually chosen or discovered ZIP, verifies size/SHA-256, then uses the preserving pack installer.
+    default void applyDownloadedPack(Path zip) { applyUpdateZip(zip); }
+
     /// Sets the skin the game sends to the server on join; copies it into the instance as `sao/skin.png`.
     ///
     /// @param png a 64×64 or 64×32 PNG, or null to go back to the default lookup
