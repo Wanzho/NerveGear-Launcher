@@ -430,4 +430,88 @@ public final class SaoData {
         /// logs and crash-reports
         LOGS
     }
+    /// Launcher behavior after the OS creates the game process; HIDE restores after every exit.
+    @NotNullByDefault
+    public enum LauncherBehavior {
+        /// 隐藏到后台, mapped to HMCL HIDE_AND_REOPEN.
+        HIDE,
+        /// 保持打开, mapped to HMCL KEEP.
+        KEEP,
+        /// 直接关闭, mapped to HMCL CLOSE.
+        CLOSE;
+
+        /// Reuses HMCL's existing visibility vocabulary without its non-restoring HIDE mode.
+        public org.jackhuang.hmcl.setting.LauncherVisibility visibility() {
+            return switch (this) {
+                case HIDE -> org.jackhuang.hmcl.setting.LauncherVisibility.HIDE_AND_REOPEN;
+                case KEEP -> org.jackhuang.hmcl.setting.LauncherVisibility.KEEP;
+                case CLOSE -> org.jackhuang.hmcl.setting.LauncherVisibility.CLOSE;
+            };
+        }
+    }
+
+    /// Presets own only the documented video keys; AUTO is resolved at the next launch.
+    @NotNullByDefault
+    public enum GraphicsPreset {
+        /// Suggest from total RAM and detected graphics hardware.
+        AUTO,
+        /// 流畅: short distances and shaders disabled.
+        FAST,
+        /// 均衡: medium distances and shaders disabled.
+        BALANCED,
+        /// 画质: longer distances and the pack's MakeUp shader.
+        QUALITY
+    }
+
+    /// One community action with a stable id and plain label; exactly one of url or copy is present.
+    /// @param id unique action identifier
+    /// @param label plain text shown by the UI
+    /// @param url HTTPS destination, or null for a copy-only action
+    /// @param copy ASCII digits to display and copy, or null for a URL action
+    @NotNullByDefault
+    public record CommunityLink(String id, String label, @Nullable String url, @Nullable String copy) {
+        /// Enforces exclusive actions and bounded digit-only clipboard values for every construction path.
+        public CommunityLink {
+            if ((url == null) == (copy == null)) throw new IllegalArgumentException("Expected exactly one link action");
+            if (copy != null && !copy.matches("[0-9]{1,32}")) throw new IllegalArgumentException("Invalid group number");
+        }
+        /// Preserves source compatibility for existing HTTPS link callers.
+        public CommunityLink(String id, String label, String url) { this(id, label, url, null); }
+    }
+
+    /// Completed feedback artifact; the UI may reveal path in the file manager after successful completion.
+    @NotNullByDefault
+    public record FeedbackZip(Path path, long size) { }
+
+    /// First-open check severity; BLOCK prevents installation, WARN permits continuing.
+    @NotNullByDefault
+    public enum CheckLevel {
+        /// Check passed.
+        OK,
+        /// Show a concise advisory.
+        WARN,
+        /// Installation cannot safely proceed.
+        BLOCK
+    }
+
+    /// One short Chinese first-open check result.
+    @NotNullByDefault
+    public record SystemCheck(CheckLevel level, String text) { }
+
+    /// Social notification categories consumed by the frontend's OS notification adapter.
+    @NotNullByDefault
+    public enum NotificationKind {
+        /// New incoming text.
+        MESSAGE,
+        /// A newly pending incoming friendship request.
+        FRIEND_REQUEST,
+        /// A new, unexpired play invitation.
+        INVITE
+    }
+
+    /// One ephemeral event; sequence is local and monotonic, chat is empty for friend requests.
+    /// Content is never persisted; the UI must not log it or interpret preview as a server destination.
+    @NotNullByDefault
+    public record Notification(long sequence, NotificationKind kind, String chat, String title, String preview, long time) { }
+
 }

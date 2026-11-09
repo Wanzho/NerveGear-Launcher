@@ -102,6 +102,31 @@ class SaoQuickUpdateTest {
         assertThrows(IOException.class, () -> policy(finalPack, List.of(first, third)));
     }
 
+    /// Extras capacity refusal sees the final inventory and leaves the old receipt and managed/player bytes intact.
+    @Test void composedCapacityGatePrecedesCommit() throws Exception {
+        Path old = pack("0.8", "capacity-old.zip", Map.of("mods/a.jar", "old", "options.txt", "seed"), false);
+        Path next = pack("0.8.1", "capacity-next.zip", Map.of("mods/a.jar", "new-longer", "config/new.txt", "added", "options.txt", "seed"), false);
+        SaoData.QuickRelease edge = delta(old, next, "capacity-delta.zip");
+        Path instance = temporary.resolve("capacity-instance");
+        SaoPackInstaller installer = installer(instance);
+        installer.apply(SaoPackArchive.open(old), false);
+        Files.writeString(instance.resolve("options.txt"), "player settings");
+        byte[] receipt = Files.readAllBytes(instance.resolve(SaoPackInstaller.RECEIPT));
+        AtomicBoolean checked = new AtomicBoolean();
+        IOException failure = assertThrows(IOException.class, () -> installer.applyQuick(
+                List.of(temporary.resolve(edge.file())), SaoPackArchive.open(old), temporary.resolve("capacity-cache"), complete -> {
+                    checked.set(true);
+                    assertEquals("0.8.1", complete.manifest().version());
+                    assertTrue(complete.manifest().files().stream().anyMatch(file -> file.path().equals("config/new.txt")));
+                    throw new IOException("capacity fixture refusal");
+                }));
+        assertEquals("capacity fixture refusal", failure.getMessage()); assertTrue(checked.get());
+        assertArrayEquals(receipt, Files.readAllBytes(instance.resolve(SaoPackInstaller.RECEIPT)));
+        assertEquals("old", Files.readString(instance.resolve("mods/a.jar")));
+        assertEquals("player settings", Files.readString(instance.resolve("options.txt")));
+        assertFalse(Files.exists(instance.resolve("config/new.txt")));
+    }
+
     /// Both source formats yield only added/changed payloads; unchanged player seeds remain inventory-only.
     @Test void builderSupportsBothFormatsAndOmitsUnchangedPlayerSeeds() throws Exception {
         for (boolean modrinth : List.of(false, true)) {

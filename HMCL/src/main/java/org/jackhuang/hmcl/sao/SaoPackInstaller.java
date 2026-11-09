@@ -42,6 +42,14 @@ public final class SaoPackInstaller {
         void download(SaoPackManifest.PackFile file, Path destination) throws Exception;
     }
 
+    /// Filesystem gate evaluated against the final composed inventory before committing a quick-update chain.
+    @NotNullByDefault
+    @FunctionalInterface
+    public interface CapacityCheck {
+        /// Refuses the transaction when the complete candidate cannot safely be installed.
+        void check(SaoPackArchive candidate) throws IOException;
+    }
+
     /// Reports verified content and the exact number of physical writes/removals for a completed operation.
     ///
     /// @param version applied pack version
@@ -86,6 +94,12 @@ public final class SaoPackInstaller {
     /// Verifies and composes all quick hops while holding the same lock as the single preserving commit.
     /// The complete resulting source is cached before writes, so repair survives restart without the original drops.
     public SaoPackArchive applyQuick(List<Path> archives, @Nullable SaoPackArchive pristine, Path cache) throws Exception {
+        return applyQuick(archives, pristine, cache, complete -> { });
+    }
+
+    /// Checks the composed archive's capacity before any installed mutation, under the chain's instance lock.
+    public SaoPackArchive applyQuick(List<Path> archives, @Nullable SaoPackArchive pristine, Path cache,
+                                    CapacityCheck capacity) throws Exception {
         SaoPackFiles.resolve(instance, "sao-pack-lock-check");
         Files.createDirectories(instance);
         Path lockPath = instance.resolve(".sao-pack.lock");
@@ -99,6 +113,7 @@ public final class SaoPackInstaller {
             Path work = Files.createTempDirectory(cache, "chain-");
             try {
                 SaoPackArchive composed = SaoQuickUpdate.compose(instance, installed, archives, pristine, work);
+                capacity.check(composed);
                 String key = SaoPackArchive.sha1(new ByteArrayInputStream(composed.manifest().toJson().getBytes(StandardCharsets.UTF_8)));
                 Path retained = cache.resolve(key + ".zip");
                 SaoPackFiles.atomicMove(composed.zip(), retained);

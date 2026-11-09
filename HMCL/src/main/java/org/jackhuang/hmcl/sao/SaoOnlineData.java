@@ -106,6 +106,21 @@ final class SaoOnlineData implements AutoCloseable {
         return news;
     }
 
+    /// Reads only fully validated cached links; an absent/damaged cache uses the built-in defaults.
+    @Unmodifiable List<SaoData.CommunityLink> cachedLinks() {
+        Path file = cache.resolveSibling("online-links.json");
+        try { return Files.size(file) <= SaoCommunityLinks.MAX_BYTES ? SaoCommunityLinks.parse(Files.readString(file)) : SaoCommunityLinks.DEFAULTS; }
+        catch (IOException | RuntimeException ignored) { return SaoCommunityLinks.DEFAULTS; }
+    }
+
+    /// Uses one ten-second total deadline and the same one-hop Gitee redirect and bounded-body transport as news.
+    @Unmodifiable List<SaoData.CommunityLink> fetchLinks() throws Exception {
+        String document = fetchDocument(SaoCommunityLinks.URL, SaoCommunityLinks.MAX_BYTES, 10);
+        @Unmodifiable List<SaoData.CommunityLink> result = SaoCommunityLinks.parse(document);
+        save(cache.resolveSibling("online-links.json"), document);
+        return result;
+    }
+
     /// Loads only a valid last-good release policy; unavailable metadata does not disable play.
     @Nullable SaoData.VersionMetadata cachedVersion() {
         try { return Files.size(versionCache) <= SaoUpdates.MAX_VERSION_BYTES ? SaoUpdates.parse(Files.readString(versionCache)) : null; }
@@ -129,8 +144,13 @@ final class SaoOnlineData implements AutoCloseable {
 
     /// Fetches a bounded document under one ten-second deadline, permitting only Gitee's one raw-host redirect.
     private String fetchDocument(String endpoint, int limit) throws Exception {
+        return fetchDocument(endpoint, limit, 10);
+    }
+
+    /// Shares redirect/body validation while allowing a caller-specific whole-operation deadline.
+    private String fetchDocument(String endpoint, int limit, int seconds) throws Exception {
         URI uri = checkedEndpoint(URI.create(endpoint));
-        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(seconds);
         Response response = exchange.send(request(uri, deadline), limit);
         if (redirect(response.status())) {
             uri = redirected(uri, response.location());
