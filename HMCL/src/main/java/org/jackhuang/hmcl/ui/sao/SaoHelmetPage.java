@@ -282,6 +282,8 @@ public final class SaoHelmetPage extends StackPane {
         sceneProperty().addListener((o, a, b) -> {
             if (a != null) a.getRoot().getStyleClass().remove(DARK);
             applyDark();
+            // HMCL's own dialogs in this window take the SAO face too.
+            if (b != null && !b.getStylesheets().contains(SaoDialogs.fontSheet())) b.getStylesheets().add(SaoDialogs.fontSheet());
             if (b != null) b.windowProperty().addListener((o2, w0, w) -> {
                 if (w != null) w.focusedProperty().addListener((o3, was, now) -> {
                     if (now) refreshTheme(true);
@@ -1635,6 +1637,7 @@ public final class SaoHelmetPage extends StackPane {
 
     private void applyDark() {
         SaoAssets.setLogoDark(dark);
+        SaoDialogs.setDark(dark);
         for (javafx.scene.Node n : new javafx.scene.Node[]{this, space, cover, getScene() == null ? null : getScene().getRoot()}) {
             if (n == null) continue;
             n.getStyleClass().remove(DARK);

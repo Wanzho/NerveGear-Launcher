@@ -581,7 +581,13 @@ final class SaoApps {
             detail.setWrappingWidth(430);
             Button report = button("查看报告");
             report.setOnAction(e -> s.openFile(c.report()));
-            HBox h = tile(icon(SVG.WARNING, 26), new VBox(3, key("崩溃原因"), why, detail), grow(), report);
+            // 一键反馈: logs and the crash report in one package for the QQ group, through the engine's
+            // buildFeedbackZip() once it is there (SaoDialogs.feedback is the hook); hidden until then.
+            Button feedback = SaoUiKit.accent("一键反馈");
+            feedback.setOnAction(e -> SaoDialogs.feedback(s));
+            feedback.setVisible(SaoDialogs.feedbackAvailable(s));
+            feedback.setManaged(feedback.isVisible());
+            HBox h = tile(icon(SVG.WARNING, 26), new VBox(3, key("崩溃原因"), why, detail), grow(), feedback, report);
             h.getStyleClass().add("vr-tile-warn");
             crashBox.getChildren().add(h);
         });

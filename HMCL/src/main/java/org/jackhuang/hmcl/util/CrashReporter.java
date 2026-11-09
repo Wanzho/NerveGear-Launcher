@@ -62,7 +62,7 @@ public final class CrashReporter implements Thread.UncaughtExceptionHandler {
                     String info = entry.getValue();
                     LOG.error(info);
                     try {
-                        Alert alert = new Alert(AlertType.INFORMATION, info);
+                        Alert alert = org.jackhuang.hmcl.ui.sao.SaoDialogs.style(new Alert(AlertType.INFORMATION, info));
                         alert.setTitle(i18n("message.info"));
                         alert.setHeaderText(i18n("message.info"));
                         alert.showAndWait();

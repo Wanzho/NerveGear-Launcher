@@ -341,7 +341,8 @@ public final class Controllers {
         }
 
         aprilFools:
-        if (AprilFools.isEnabled()) {
+        // Not in the SAO screen: it would switch the launcher to Classical Chinese.
+        if (AprilFools.isEnabled() && !org.jackhuang.hmcl.ui.sao.SaoUi.enabled()) {
             int currentYear = LocalDate.now().getYear();
             if (state().getShownTips().get(APRIL_FOOLS) instanceof Number year && year.intValue() >= currentYear)
                 break aprilFools;

@@ -67,6 +67,7 @@ public final class SaoScreenShotTool {
             throw new IllegalStateException("About links opened " + opened);
         System.out.println("About links OK: " + opened);
         checkThemes();
+        shootDialogs(base);
         // Every shot twice: 浅色 into the folder, 深色 (James, 9 Nov) into dark/.
         for (boolean dark : new boolean[]{false, true})
         for (int[] size : sizes) {
@@ -306,6 +307,123 @@ public final class SaoScreenShotTool {
                 throw new IllegalStateException(chars[c] + " is not drawn in PingFang SC (Simplified forms)");
         }
         System.out.println("font check OK: Simplified forms");
+    }
+
+    /// HMCL's own pop-ups (James, 9 Nov: "所有hmcl可能会跳的弹窗都restyle了吗"), each in 浅色 and 深色, as the real window
+    /// shows them: in-window dialogs through DialogUtils over the helmet with HMCL's root.css and sao-hmcl.css, and the
+    /// start-up alert's panel. Nothing here signs in, downloads or opens a window.
+    private static void shootDialogs(Path base) throws Exception {
+        Path out = base.resolve("dialogs");
+        Files.createDirectories(out);
+        for (boolean dark : new boolean[]{false, true}) {
+            SaoFakeService fake = new SaoFakeService();
+            fake.setPreference("theme", dark ? "dark" : "light");
+            fake.forceOath(true);
+            SaoHelmetPage[] page = new SaoHelmetPage[1];
+            Scene[] scene = new Scene[1];
+            fx(() -> {
+                page[0] = new SaoHelmetPage(fake);
+                scene[0] = new Scene(new javafx.scene.layout.StackPane(page[0]), 1920, 1080);
+                for (String css : new String[]{"/assets/css/font.css", "/assets/css/root.css", "/assets/css/sao-hmcl.css"})
+                    scene[0].getStylesheets().add(java.util.Objects.requireNonNull(SaoScreenShotTool.class.getResource(css)).toExternalForm());
+                scene[0].getStylesheets().add(SaoDialogs.fontSheet());
+                page[0].setDark(dark);
+            });
+            Thread.sleep(2000);
+            String tag = dark ? "dark-" : "light-";
+            java.util.List<Object[]> panes = new java.util.ArrayList<>();
+            fx(() -> {
+                try {
+                    panes.add(new Object[]{"agreement", agreementPane()});
+                    panes.add(new Object[]{"warning-software-rendering", new org.jackhuang.hmcl.ui.construct.MessageDialogPane.Builder(
+                            org.jackhuang.hmcl.util.i18n.I18n.i18n("warning.software_rendering"), org.jackhuang.hmcl.util.i18n.I18n.i18n("message.warning"),
+                            org.jackhuang.hmcl.ui.construct.MessageDialogPane.MessageType.WARNING).ok(null)
+                            .addCancel(org.jackhuang.hmcl.util.i18n.I18n.i18n("button.do_not_show_again"), () -> { }).build()});
+                    panes.add(new Object[]{"info-cache-directory", new org.jackhuang.hmcl.ui.construct.MessageDialogPane.Builder(
+                            org.jackhuang.hmcl.util.i18n.I18n.i18n("launcher.cache_directory.invalid"), null,
+                            org.jackhuang.hmcl.ui.construct.MessageDialogPane.MessageType.INFO).ok(null).build()});
+                    panes.add(new Object[]{"error", new org.jackhuang.hmcl.ui.construct.MessageDialogPane.Builder(
+                            "Microsoft 登录失败，请重试", org.jackhuang.hmcl.util.i18n.I18n.i18n("message.error"),
+                            org.jackhuang.hmcl.ui.construct.MessageDialogPane.MessageType.ERROR).ok(null).build()});
+                    panes.add(new Object[]{"question", new org.jackhuang.hmcl.ui.construct.MessageDialogPane.Builder(
+                            org.jackhuang.hmcl.util.i18n.I18n.i18n("fatal.unsupported_platform"), null,
+                            org.jackhuang.hmcl.ui.construct.MessageDialogPane.MessageType.QUESTION).yesOrNo(() -> { }, () -> { }).build()});
+                } catch (Throwable t) {
+                    System.out.println("dialog build FAILED: " + t);
+                }
+                // The Microsoft sign-in pane needs HMCL's loaded configuration to draw (AnimationUtils), which the
+                // tool must not load: it stays unverified here.
+                try {
+                    var task = new org.jackhuang.hmcl.ui.construct.TaskExecutorDialogPane(org.jackhuang.hmcl.util.TaskCancellationAction.NORMAL);
+                    task.setTitle("安装整合包");
+                    panes.add(new Object[]{"task", task});
+                } catch (Throwable t) {
+                    System.out.println("task pane FAILED (unverified): " + t);
+                }
+            });
+            for (Object[] pn : panes) {
+                javafx.scene.Node node = (javafx.scene.Node) pn[1];
+                javafx.scene.layout.StackPane[] root = new javafx.scene.layout.StackPane[1];
+                // DialogUtils needs HMCL's loaded configuration (AnimationUtils); the tool shows the pane the way the
+                // JFXDialog does instead: centred at its own size over a light dim.
+                fx(() -> {
+                    javafx.scene.layout.Region dim = new javafx.scene.layout.Region();
+                    dim.setStyle("-fx-background-color: rgba(0,0,0,0.1);");
+                    javafx.scene.layout.StackPane holder = new javafx.scene.layout.StackPane(node);
+                    holder.getStyleClass().add("jfx-dialog");
+                    if (node instanceof javafx.scene.layout.Region rg) rg.setMaxSize(javafx.scene.layout.Region.USE_PREF_SIZE, javafx.scene.layout.Region.USE_PREF_SIZE);
+                    root[0] = new javafx.scene.layout.StackPane(page[0], dim, holder);
+                    scene[0].setRoot(root[0]);
+                    page[0].setDark(dark);
+                });
+                Thread.sleep(pn == panes.get(0) ? 2500 : 1000);
+                WritableImage[] im = new WritableImage[1];
+                fx(() -> {
+                    try {
+                        im[0] = scene[0].snapshot(null);
+                    } catch (Throwable t) {
+                        System.out.println("dialog " + pn[0] + " could not be drawn (unverified): " + t);
+                    }
+                });
+                if (im[0] == null) continue;
+                write(im[0], out.resolve(tag + pn[0] + ".png"));
+                System.out.println("dialog shot: " + tag + pn[0]);
+            }
+            // A start-up alert (its own window in the launcher; here its panel over the helmet).
+            fx(() -> {
+                SaoDialogs.setDark(dark);
+                javafx.scene.control.Alert a = new javafx.scene.control.Alert(javafx.scene.control.Alert.AlertType.WARNING,
+                        org.jackhuang.hmcl.util.i18n.I18n.i18n("fatal.config_unsupported_version"));
+                a.setHeaderText(null);
+                a.setGraphic(null);
+                javafx.scene.control.DialogPane dp = a.getDialogPane();
+                SaoDialogs.stylePane(dp);
+                dp.setMaxSize(javafx.scene.layout.Region.USE_PREF_SIZE, javafx.scene.layout.Region.USE_PREF_SIZE);
+                javafx.scene.layout.StackPane r = new javafx.scene.layout.StackPane(page[0], dp);
+                scene[0].setRoot(r);
+                page[0].setDark(dark);
+            });
+            Thread.sleep(800);
+            WritableImage[] im = new WritableImage[1];
+            fx(() -> im[0] = scene[0].snapshot(null));
+            write(im[0], out.resolve(tag + "startup-alert.png"));
+            System.out.println("dialog shot: " + tag + "startup-alert");
+        }
+    }
+
+    /// The licence dialog exactly as Controllers.initialize builds it on the first start.
+    private static com.jfoenix.controls.JFXDialogLayout agreementPane() {
+        com.jfoenix.controls.JFXDialogLayout agreementPane = new com.jfoenix.controls.JFXDialogLayout();
+        agreementPane.setHeading(new javafx.scene.control.Label(org.jackhuang.hmcl.util.i18n.I18n.i18n("launcher.agreement")));
+        agreementPane.setBody(new javafx.scene.control.Label(org.jackhuang.hmcl.util.i18n.I18n.i18n("launcher.agreement.hint")));
+        org.jackhuang.hmcl.ui.construct.JFXHyperlink link = new org.jackhuang.hmcl.ui.construct.JFXHyperlink(
+                org.jackhuang.hmcl.util.i18n.I18n.i18n("launcher.agreement"));
+        com.jfoenix.controls.JFXButton yes = new com.jfoenix.controls.JFXButton(org.jackhuang.hmcl.util.i18n.I18n.i18n("launcher.agreement.accept"));
+        yes.getStyleClass().add("dialog-accept");
+        com.jfoenix.controls.JFXButton no = new com.jfoenix.controls.JFXButton(org.jackhuang.hmcl.util.i18n.I18n.i18n("launcher.agreement.decline"));
+        no.getStyleClass().add("dialog-cancel");
+        agreementPane.setActions(link, yes, no);
+        return agreementPane;
     }
 
     /// 外观 (James, 9 Nov: "按跟随系统/时间来定"): 跟随系统 follows the system, and 按时间 (19:00 to 07:00 dark) when

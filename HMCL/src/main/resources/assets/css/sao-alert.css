@@ -7,11 +7,21 @@
     -fx-padding: 18 20 14 20;
     -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.30), 20, 0, 0, 6);
 }
-.sao-alert > .content.label { -fx-text-fill: #474747; -fx-font-size: 14px; -fx-wrap-text: true; -fx-pref-width: 380; }
+.sao-alert > .content.label { -fx-text-fill: #474747; -fx-font-size: 15px; -fx-wrap-text: true; -fx-pref-width: 440; -fx-line-spacing: 3; }
 .sao-alert .button-bar .button {
     -fx-background-color: #ffffff; -fx-background-radius: 4; -fx-border-color: #d6d6d6; -fx-border-radius: 4;
-    -fx-text-fill: #555555; -fx-padding: 6 18 6 18;
+    -fx-text-fill: #555555; -fx-padding: 7 20 7 20; -fx-font-size: 15px;
 }
 .sao-alert .button-bar .button:default { -fx-background-color: #f2a43a; -fx-border-color: #f2a43a; -fx-text-fill: #ffffff; }
 .sao-alert .button-bar .button:hover { -fx-background-color: #f2a43a; -fx-border-color: #f2a43a; -fx-text-fill: #ffffff; }
 .sao-alert .button-bar .button:default:hover { -fx-background-color: #f7b75a; -fx-border-color: #f7b75a; }
+
+/* 深色 (James, 9 Nov): the same alert as the dark launcher windows. */
+.sao-alert.sao-dark {
+    -fx-background-color: rgba(30,31,37,0.97);
+    -fx-border-color: rgba(255,255,255,0.13);
+}
+.sao-alert.sao-dark > .content.label { -fx-text-fill: #ececf0; }
+.sao-alert.sao-dark .button-bar .button { -fx-background-color: rgba(255,255,255,0.08); -fx-border-color: rgba(255,255,255,0.14); -fx-text-fill: #dedee3; }
+.sao-alert.sao-dark .button-bar .button:default { -fx-background-color: #f2a43a; -fx-border-color: #f2a43a; -fx-text-fill: #ffffff; }
+.sao-alert.sao-dark .button-bar .button:hover { -fx-background-color: #f2a43a; -fx-border-color: #f2a43a; -fx-text-fill: #ffffff; }
