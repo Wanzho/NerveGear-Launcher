@@ -1,0 +1,12 @@
+// Keep every Gradle-managed JVM headless, including forked compilers and test workers.
+allprojects {
+    tasks.withType(JavaCompile).configureEach {
+        options.forkOptions.jvmArgs.add('-Djava.awt.headless=true')
+    }
+    tasks.withType(Test).configureEach {
+        systemProperty 'java.awt.headless', 'true'
+    }
+    tasks.withType(JavaExec).configureEach {
+        systemProperty 'java.awt.headless', 'true'
+    }
+}
