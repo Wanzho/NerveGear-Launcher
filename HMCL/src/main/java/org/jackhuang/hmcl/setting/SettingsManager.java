@@ -1125,7 +1125,7 @@ public final class SettingsManager {
         org.jackhuang.hmcl.util.i18n.SupportedLocale language = launcherSettings.languageProperty().get();
         // The SAO launcher speaks Chinese unless the player picked another language: HMCL's own dialogs (EULA,
         // Microsoft sign-in, warnings) followed the system language and came up in English (James, 8 Nov).
-        if (org.jackhuang.hmcl.ui.sao.SaoUi.enabled() && language == org.jackhuang.hmcl.util.i18n.SupportedLocale.DEFAULT)
+        if (org.jackhuang.hmcl.ui.sao.SaoUi.enabled())
             language = org.jackhuang.hmcl.util.i18n.SupportedLocale.getLocale(Locale.SIMPLIFIED_CHINESE);
         Locale.setDefault(language.getLocale());
         I18n.setLocale(language);

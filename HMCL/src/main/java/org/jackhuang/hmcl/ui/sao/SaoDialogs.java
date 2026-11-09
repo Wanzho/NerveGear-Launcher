@@ -75,6 +75,36 @@ public final class SaoDialogs {
         if (dark()) pane.getStyleClass().add("sao-dark");
     }
 
+    /// The SAO windows' scale (the helmet's 1280 x 720 design fitted to the window).
+    private static final javafx.beans.property.DoubleProperty SCALE = new javafx.beans.property.SimpleDoubleProperty(1);
+
+    /// Records the SAO windows' scale (the helmet page, on every resize).
+    ///
+    /// @param s the scale
+    static void setScale(double s) {
+        SCALE.set(s);
+    }
+
+    /// Draws HMCL's in-window dialogs at the SAO windows' scale (James, 9 Nov: the dialogs were tiny beside them):
+    /// every dialog that opens in `container` has its panel scaled about its centre.
+    ///
+    /// @param container the window's dialog container
+    public static void scaleDialogs(javafx.scene.layout.StackPane container) {
+        if (container.getProperties().put("sao-dialog-scale", Boolean.TRUE) != null) return;
+        javafx.collections.ListChangeListener<javafx.scene.Node> l = c -> {
+            while (c.next()) for (javafx.scene.Node n : c.getAddedSubList()) scale(n);
+        };
+        container.getChildren().addListener(l);
+        container.getChildren().forEach(SaoDialogs::scale);
+    }
+
+    private static void scale(javafx.scene.Node n) {
+        if (n instanceof com.jfoenix.controls.JFXDialog d && d.getContent() != null) {
+            d.getContent().scaleXProperty().bind(SCALE);
+            d.getContent().scaleYProperty().bind(SCALE);
+        }
+    }
+
     /// A stylesheet giving HMCL's in-window dialogs the SAO face (Chinese falls back to the Simplified face).
     ///
     /// @return a data URI

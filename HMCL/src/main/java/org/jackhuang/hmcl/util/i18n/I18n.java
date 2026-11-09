@@ -79,10 +79,17 @@ public final class I18n {
     private I18n() {
     }
 
-    private static volatile SupportedLocale locale = SupportedLocale.DEFAULT;
+    /// The SAO launcher always speaks Simplified Chinese (James, 9 Nov), from the first alert on and whatever the
+    /// system or an old config says; HMCL's own language choice applies only with `-Dsao.ui=false`.
+    private static volatile SupportedLocale locale = saoLocale(SupportedLocale.DEFAULT);
+
+    private static SupportedLocale saoLocale(SupportedLocale wanted) {
+        return org.jackhuang.hmcl.ui.sao.SaoUi.enabled()
+                ? SupportedLocale.getLocale(java.util.Locale.SIMPLIFIED_CHINESE) : wanted;
+    }
 
     public static void setLocale(SupportedLocale locale) {
-        I18n.locale = locale;
+        I18n.locale = saoLocale(locale);
     }
 
     public static SupportedLocale getLocale() {

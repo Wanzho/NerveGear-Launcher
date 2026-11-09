@@ -46,6 +46,22 @@ public final class SaoScreenShotTool {
     /// @param args the output folder
     /// @throws Exception on any failure
     private static void run(String[] args) throws Exception {
+        // A throwaway HMCL config (never ~/.sao-oath-launcher or ~/.hmcl), wiped each run so the first-start licence
+        // shows, and no Microsoft app id so the sign-in dialog can never start a real sign-in or open a browser.
+        Path dlgHome = Path.of(System.getProperty("user.home"), "Developer", "sao-launcher-runs", "logo45", "dlg-home");
+        if (Files.exists(dlgHome)) try (var walk = Files.walk(dlgHome)) {
+            walk.sorted(java.util.Comparator.reverseOrder()).forEach(f -> f.toFile().delete());
+        }
+        Files.createDirectories(dlgHome);
+        System.setProperty("sao.home", dlgHome.resolve("user").toString());
+        System.setProperty("sao.dir", dlgHome.resolve("local").toString());
+        System.setProperty("sao.dependencies.dir", dlgHome.resolve("deps").toString());
+        System.setProperty("hmcl.microsoft.auth.id", "");
+        org.jackhuang.hmcl.setting.SettingsManager.init();
+        if (!org.jackhuang.hmcl.Metadata.HMCL_USER_HOME.startsWith(dlgHome) || !org.jackhuang.hmcl.Metadata.HMCL_LOCAL_HOME.startsWith(dlgHome))
+            throw new IllegalStateException("config is not in the throwaway folder");
+        System.out.println("HMCL config in " + dlgHome + ", language " + org.jackhuang.hmcl.util.i18n.I18n.getLocale()
+                + ": " + org.jackhuang.hmcl.util.i18n.I18n.i18n("button.ok"));
         Path base = Path.of(args.length > 0 ? args[0] : "sao-shots");
         int[][] sizes = {{1024, 576, 0}, {1920, 1080, 0}, {1920, 1080, 1}};
         Files.createDirectories(base);
@@ -333,61 +349,72 @@ public final class SaoScreenShotTool {
             String tag = dark ? "dark-" : "light-";
             java.util.List<Object[]> panes = new java.util.ArrayList<>();
             fx(() -> {
-                try {
-                    panes.add(new Object[]{"agreement", agreementPane()});
-                    panes.add(new Object[]{"warning-software-rendering", new org.jackhuang.hmcl.ui.construct.MessageDialogPane.Builder(
-                            org.jackhuang.hmcl.util.i18n.I18n.i18n("warning.software_rendering"), org.jackhuang.hmcl.util.i18n.I18n.i18n("message.warning"),
-                            org.jackhuang.hmcl.ui.construct.MessageDialogPane.MessageType.WARNING).ok(null)
-                            .addCancel(org.jackhuang.hmcl.util.i18n.I18n.i18n("button.do_not_show_again"), () -> { }).build()});
-                    panes.add(new Object[]{"info-cache-directory", new org.jackhuang.hmcl.ui.construct.MessageDialogPane.Builder(
-                            org.jackhuang.hmcl.util.i18n.I18n.i18n("launcher.cache_directory.invalid"), null,
-                            org.jackhuang.hmcl.ui.construct.MessageDialogPane.MessageType.INFO).ok(null).build()});
-                    panes.add(new Object[]{"error", new org.jackhuang.hmcl.ui.construct.MessageDialogPane.Builder(
-                            "Microsoft 登录失败，请重试", org.jackhuang.hmcl.util.i18n.I18n.i18n("message.error"),
-                            org.jackhuang.hmcl.ui.construct.MessageDialogPane.MessageType.ERROR).ok(null).build()});
-                    panes.add(new Object[]{"question", new org.jackhuang.hmcl.ui.construct.MessageDialogPane.Builder(
-                            org.jackhuang.hmcl.util.i18n.I18n.i18n("fatal.unsupported_platform"), null,
-                            org.jackhuang.hmcl.ui.construct.MessageDialogPane.MessageType.QUESTION).yesOrNo(() -> { }, () -> { }).build()});
-                } catch (Throwable t) {
-                    System.out.println("dialog build FAILED: " + t);
+                panes.add(new Object[]{"agreement", agreementPane()});
+                panes.add(new Object[]{"warning-software-rendering", new org.jackhuang.hmcl.ui.construct.MessageDialogPane.Builder(
+                        org.jackhuang.hmcl.util.i18n.I18n.i18n("warning.software_rendering"), org.jackhuang.hmcl.util.i18n.I18n.i18n("message.warning"),
+                        org.jackhuang.hmcl.ui.construct.MessageDialogPane.MessageType.WARNING).ok(null)
+                        .addCancel(org.jackhuang.hmcl.util.i18n.I18n.i18n("button.do_not_show_again"), () -> { }).build()});
+                panes.add(new Object[]{"info-cache-directory", new org.jackhuang.hmcl.ui.construct.MessageDialogPane.Builder(
+                        org.jackhuang.hmcl.util.i18n.I18n.i18n("launcher.cache_directory.invalid"), null,
+                        org.jackhuang.hmcl.ui.construct.MessageDialogPane.MessageType.INFO).ok(null).build()});
+                panes.add(new Object[]{"error", new org.jackhuang.hmcl.ui.construct.MessageDialogPane.Builder(
+                        "Microsoft 登录失败，请重试", org.jackhuang.hmcl.util.i18n.I18n.i18n("message.error"),
+                        org.jackhuang.hmcl.ui.construct.MessageDialogPane.MessageType.ERROR).ok(null).build()});
+                panes.add(new Object[]{"question-unsupported-platform", new org.jackhuang.hmcl.ui.construct.MessageDialogPane.Builder(
+                        org.jackhuang.hmcl.util.i18n.I18n.i18n("fatal.unsupported_platform"), null,
+                        org.jackhuang.hmcl.ui.construct.MessageDialogPane.MessageType.WARNING).ok(null).build()});
+                // Microsoft sign-in: the first step, and the device-code step with a made-up code (no app id is set,
+                // so no sign-in task can start; the step is set directly).
+                // The pane is built with no app id (step Init, so no sign-in task can start); then a fake id is set
+                // only while the step is redrawn (an empty id draws an empty body), and cleared again at once.
+                for (String[] want : new String[][]{{"microsoft-login", "Init"}, {"microsoft-login-device-code", "WaitForScanQrCode"}}) {
+                    try {
+                        var ms = new org.jackhuang.hmcl.ui.account.MicrosoftAccountLoginPane(null, a -> { }, () -> { }, false);
+                        java.lang.reflect.Field f = ms.getClass().getDeclaredField("step");
+                        f.setAccessible(true);
+                        Class<?> k = Class.forName("org.jackhuang.hmcl.ui.account.MicrosoftAccountLoginPane$Step$" + want[1]);
+                        var ctor = k.getDeclaredConstructors()[0];
+                        ctor.setAccessible(true);
+                        Object st = ctor.getParameterCount() == 2
+                                ? ctor.newInstance("SAO-0807", "https://www.microsoft.com/link") : ctor.newInstance();
+                        @SuppressWarnings("unchecked")
+                        var step = (javafx.beans.property.ObjectProperty<Object>) f.get(ms);
+                        System.setProperty("hmcl.microsoft.auth.id", "sao-shot-fake-id");
+                        try {
+                            step.set(st);
+                        } finally {
+                            System.setProperty("hmcl.microsoft.auth.id", "");
+                        }
+                        panes.add(new Object[]{want[0], ms});
+                    } catch (ReflectiveOperationException e) {
+                        System.out.println(want[0] + " step FAILED (unverified): " + e);
+                    }
                 }
-                // The Microsoft sign-in pane needs HMCL's loaded configuration to draw (AnimationUtils), which the
-                // tool must not load: it stays unverified here.
-                try {
-                    var task = new org.jackhuang.hmcl.ui.construct.TaskExecutorDialogPane(org.jackhuang.hmcl.util.TaskCancellationAction.NORMAL);
-                    task.setTitle("安装整合包");
-                    panes.add(new Object[]{"task", task});
-                } catch (Throwable t) {
-                    System.out.println("task pane FAILED (unverified): " + t);
-                }
+                var task = new org.jackhuang.hmcl.ui.construct.TaskExecutorDialogPane(org.jackhuang.hmcl.util.TaskCancellationAction.NORMAL);
+                task.setTitle(org.jackhuang.hmcl.util.i18n.I18n.i18n("modpack.installing"));
+                panes.add(new Object[]{"task-progress", task});
             });
+            // The dialogs open through HMCL's own path (DialogUtils into the window's dialog container), scaled with
+            // the SAO windows as in the launcher.
+            javafx.scene.layout.StackPane[] root = new javafx.scene.layout.StackPane[1];
+            fx(() -> {
+                root[0] = (javafx.scene.layout.StackPane) scene[0].getRoot();
+                SaoDialogs.scaleDialogs(root[0]);
+            });
+            // Wait for the helmet's first frames before the first dialog (the licence comes first).
+            Thread.sleep(2500);
+            fx(() -> scene[0].snapshot(null));
+            Thread.sleep(800);
             for (Object[] pn : panes) {
                 javafx.scene.Node node = (javafx.scene.Node) pn[1];
-                javafx.scene.layout.StackPane[] root = new javafx.scene.layout.StackPane[1];
-                // DialogUtils needs HMCL's loaded configuration (AnimationUtils); the tool shows the pane the way the
-                // JFXDialog does instead: centred at its own size over a light dim.
-                fx(() -> {
-                    javafx.scene.layout.Region dim = new javafx.scene.layout.Region();
-                    dim.setStyle("-fx-background-color: rgba(0,0,0,0.1);");
-                    javafx.scene.layout.StackPane holder = new javafx.scene.layout.StackPane(node);
-                    holder.getStyleClass().add("jfx-dialog");
-                    if (node instanceof javafx.scene.layout.Region rg) rg.setMaxSize(javafx.scene.layout.Region.USE_PREF_SIZE, javafx.scene.layout.Region.USE_PREF_SIZE);
-                    root[0] = new javafx.scene.layout.StackPane(page[0], dim, holder);
-                    scene[0].setRoot(root[0]);
-                    page[0].setDark(dark);
-                });
-                Thread.sleep(pn == panes.get(0) ? 2500 : 1000);
+                fx(() -> org.jackhuang.hmcl.ui.DialogUtils.show(root[0], node));
+                Thread.sleep(1500);
                 WritableImage[] im = new WritableImage[1];
-                fx(() -> {
-                    try {
-                        im[0] = scene[0].snapshot(null);
-                    } catch (Throwable t) {
-                        System.out.println("dialog " + pn[0] + " could not be drawn (unverified): " + t);
-                    }
-                });
-                if (im[0] == null) continue;
+                fx(() -> im[0] = scene[0].snapshot(null));
                 write(im[0], out.resolve(tag + pn[0] + ".png"));
                 System.out.println("dialog shot: " + tag + pn[0]);
+                fx(() -> node.fireEvent(new org.jackhuang.hmcl.ui.construct.DialogCloseEvent()));
+                Thread.sleep(900);
             }
             // A start-up alert (its own window in the launcher; here its panel over the helmet).
             fx(() -> {

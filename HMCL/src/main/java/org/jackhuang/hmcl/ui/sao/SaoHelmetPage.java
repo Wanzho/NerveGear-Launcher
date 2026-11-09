@@ -284,6 +284,14 @@ public final class SaoHelmetPage extends StackPane {
             applyDark();
             // HMCL's own dialogs in this window take the SAO face too.
             if (b != null && !b.getStylesheets().contains(SaoDialogs.fontSheet())) b.getStylesheets().add(SaoDialogs.fontSheet());
+            // ... and are drawn at the SAO windows' scale.
+            if (b != null) {
+                try {
+                    SaoDialogs.scaleDialogs(Controllers.getDecorator().getDialogContainer());
+                } catch (NullPointerException noMainWindow) {
+                    // Off-screen tools: no main window, they scale their own container.
+                }
+            }
             if (b != null) b.windowProperty().addListener((o2, w0, w) -> {
                 if (w != null) w.focusedProperty().addListener((o3, was, now) -> {
                     if (now) refreshTheme(true);
@@ -1155,6 +1163,7 @@ public final class SaoHelmetPage extends StackPane {
         }
         double s = Math.min(w / EW, h / EH);
         SaoFloatWindow.fitScale = s;
+        SaoDialogs.setScale(s);
         fit.setX(s * k);
         fit.setY(s * k);
         fit.setZ(s * k);

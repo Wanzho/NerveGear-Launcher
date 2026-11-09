@@ -108,13 +108,12 @@
 .theme-sao-dark .dialog-error { -fx-text-fill: #ff8a84; }
 .theme-sao-dark .jfx-layout-actions .jfx-button:hover, .theme-sao-dark .dialog-cancel:hover { -fx-background-color: #f2a43a; -fx-border-color: #f2a43a; -fx-text-fill: #ffffff; }
 
-/* The main action stays orange inside the action bar too (the bar's button rule above outranked it), and HMCL's
-   dialogs a step larger so they sit with the scaled SAO windows (James, 9 Nov: "所有hmcl可能会跳的弹窗都restyle了吗"). */
+/* The main action stays orange inside the action bar too (the bar's button rule above outranked it), (James, 9 Nov: "所有hmcl可能会跳的弹窗都restyle了吗"). */
 .jfx-layout-actions .dialog-accept, .theme-sao-dark .jfx-layout-actions .dialog-accept, .theme-sao-dark .dialog-accept {
     -fx-background-color: #f2a43a; -fx-border-color: #f2a43a; -fx-text-fill: #ffffff;
 }
 .jfx-layout-actions .dialog-accept:hover, .theme-sao-dark .jfx-layout-actions .dialog-accept:hover { -fx-background-color: #f7b75a; -fx-border-color: #f7b75a; }
-.jfx-dialog-layout, .task-executor-dialog-layout { -fx-font-size: 15px; -fx-min-width: 420; }
-.jfx-layout-heading, .jfx-layout-heading .label { -fx-font-size: 20px; }
-.jfx-layout-body .label, .jfx-dialog-layout > * > .label { -fx-font-size: 15px; -fx-line-spacing: 3; }
-.jfx-layout-actions .jfx-button, .jfx-layout-actions .hyperlink, .dialog-accept, .dialog-cancel { -fx-font-size: 15px; -fx-padding: 7 20 7 20; }
+/* Size: the dialogs are scaled with the SAO windows (SaoDialogs.scaleDialogs), so HMCL's own sizes stay. */
+.jfx-layout-body .label { -fx-line-spacing: 3; }
+/* A gap between the action buttons, as in the SAO windows. */
+.jfx-layout-actions { -fx-spacing: 10; -fx-hgap: 10; }
