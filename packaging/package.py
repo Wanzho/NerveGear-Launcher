@@ -114,7 +114,8 @@ def build_jar(args, work, host):
     """Serialize the one full Gradle build and preserve all user-selected pack inputs."""
     if args.jar:
         return args.jar.resolve()
-    lockdir = args.output.parent / "build.lock"
+    lockdir = Path.home() / "Developer/sao-launcher-runs/build.lock"
+    lockdir.parent.mkdir(parents=True, exist_ok=True)
     while True:
         try:
             lockdir.mkdir()
