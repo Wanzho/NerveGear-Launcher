@@ -41,6 +41,9 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     private final ReadOnlyDoubleWrapper progress = new ReadOnlyDoubleWrapper(-1);
     /// Current localized operation label.
     private final ReadOnlyStringWrapper step = new ReadOnlyStringWrapper("");
+    /// Detailed measured installation snapshot, additive to the existing label/fraction seam.
+    private final ReadOnlyObjectWrapper<SaoInstallProgress> installProgress = new ReadOnlyObjectWrapper<>(
+            SaoInstallProgress.phase(SaoInstallProgress.Stage.IDLE, ""));
     /// Last public operation failure, with no password or account token interpolation.
     private final ReadOnlyObjectWrapper<@Nullable String> error = new ReadOnlyObjectWrapper<>();
     /// Last successfully committed pack version.
@@ -97,8 +100,41 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     private final SaoInstanceFiles files;
     /// News cache and bounded server-list protocol client.
     private final SaoOnlineData online;
+    /// Explicit fixture engines never perform public metadata reads, including refreshOnline calls.
+    private final boolean productionUpdates;
+    /// Last-good public policy is read atomically at the launch boundary, independently of UI publication.
+    private volatile @Nullable SaoData.VersionMetadata versionMetadata;
+    /// Optional note dismissed during this launcher session, scoped to the advertised latest version.
+    private volatile @Nullable String dismissedLauncherVersion;
+    /// Read-only public update comparison for frontend listeners.
+    private final ReadOnlyObjectWrapper<SaoData.UpdateStatus> updateStatus = new ReadOnlyObjectWrapper<>(
+            new SaoData.UpdateStatus(null, false, false, false, ""));
+    /// Cancellable prompt state; candidates are never automatically installed.
+    private final ReadOnlyObjectWrapper<SaoData.DownloadPrompt> downloadPrompt = new ReadOnlyObjectWrapper<>(
+            new SaoData.DownloadPrompt(false, null, ""));
+    /// Verified replacement state in per-user launcher data, separate from the signed native application.
+    private final SaoSelfUpdate selfUpdate;
+    /// Observable restart instruction or a persisted rollback report.
+    private final ReadOnlyObjectWrapper<SaoData.LauncherUpdate> launcherUpdate = new ReadOnlyObjectWrapper<>(
+            new SaoData.LauncherUpdate("", false, ""));
+    /// Worker-owned accumulated snapshots, invalidated by installed version or policy changes.
+    private @Nullable SaoDropSession dropSession;
+    /// Coalesces metadata refreshes without delaying pack work.
+    private final AtomicBoolean updatesRefreshing = new AtomicBoolean();
+    /// Invalidates queued prompt callbacks after cancellation or a replacement policy.
+    private final java.util.concurrent.atomic.AtomicLong downloadGeneration = new java.util.concurrent.atomic.AtomicLong();
+    /// Active Downloads poll, cancelled when the prompt closes or the engine shuts down.
+    private volatile java.util.concurrent.@Nullable ScheduledFuture<?> downloadPoll;
+    /// Existing platform link opener, replaced by an inert recorder in tests.
+    private java.util.function.Consumer<String> linkOpener = org.jackhuang.hmcl.DesktopUtils::openLink;
+    /// Injected folders let headless tests exercise polling without inspecting the user's Downloads.
+    private Supplier<@Unmodifiable List<Path>> downloadDirectories = SaoDownloads::directories;
     /// Sanitized process output and support-export reader.
     private final SaoGameLogs logs;
+    /// Additive common-feature worker keeps support/check/link operations away from pack transactions.
+    private final SaoExtras extras;
+    /// Captures each real process's visibility policy and restores the launcher after crash analysis.
+    private final SaoLauncherLifecycle lifecycle;
     /// Embedded update note remains tied to this launcher rather than a subsequently dropped update.
     private volatile SaoData.News embeddedNews = new SaoData.News(SaoData.NewsKind.UPDATE, "v未内置整合包", "", "");
     /// Independent online work cannot delay pack writes or game startup.
@@ -231,6 +267,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
         try { settings = new SaoSettings(root); }
         catch (IOException failure) { throw new java.io.UncheckedIOException("Cannot read launcher settings", failure); }
         game = new SaoGameBridge(root, this::reportProgress);
+        game.observeInstallProgress(this::reportInstallProgress);
         productionUninstall = production;
         uninstallHelper = helper;
         uninstallShutdown = shutdown;
@@ -247,6 +284,9 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
         publish(() -> org.jackhuang.hmcl.task.FetchTask.setDownloadExecutorConcurrency(downloadThreads()));
         files = new SaoInstanceFiles(game.instanceDir(), game);
         online = new SaoOnlineData(root);
+        productionUpdates = production;
+        selfUpdate = new SaoSelfUpdate(production ? SaoSelfUpdate.defaultRoot() : root.resolve("self-update"));
+        versionMetadata = online.cachedVersion();
         logs = new SaoGameLogs(game.instanceDir());
         Path accountRoot = production ? Metadata.HMCL_USER_HOME : root;
         try {
@@ -259,8 +299,36 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
                     account -> linkStart(account, null), message -> publish(() -> error.set(message)));
         } catch (IOException failure) { throw new java.io.UncheckedIOException("Cannot initialize protected account storage", failure); }
         remoteNews = online.cached();
-        installer = new SaoPackInstaller(game.instanceDir(), game::download, Map.of(), this::reportProgress);
+        installer = new SaoPackInstaller(game.instanceDir(), new SaoPackInstaller.Downloader() {
+            /// Downloads one dependency through the production mirror/hash path.
+            @Override public void download(SaoPackManifest.PackFile file, Path path) throws Exception { game.download(file, path); }
+            /// Preserves detailed counters and all-file failure reporting for the entire batch.
+            @Override public void downloadAll(Map<SaoPackManifest.PackFile, Path> files) throws Exception { game.downloadAll(files); }
+        }, Map.of(), this::reportProgress);
         skins = new SaoSkinStore(game.instanceDir());
+        extras = new SaoExtras(root, game, settings, online, logs, installer, () -> source, this::embeddedVersion, gameRunning::get, production);
+        if (versionMetadata != null) extras.updateQuark(versionMetadata.quark());
+        lifecycle = new SaoLauncherLifecycle(SaoPackEngine::publish, new SaoLauncherLifecycle.Window() {
+            /// Implicit-exit setting to restore after the hidden main window returns.
+            private boolean implicitExit;
+            /// Hides only in the production engine; fixture construction never initializes a stage or toolkit.
+            @Override public void hide() {
+                oath.friends.notifications.attention(false, false);
+                if (!production) return;
+                @Nullable javafx.stage.Stage stage = org.jackhuang.hmcl.ui.Controllers.getStage();
+                if (stage != null) { implicitExit = Platform.isImplicitExit(); Platform.setImplicitExit(false); stage.hide(); }
+            }
+            /// The crash property is already published before this operation is queued.
+            @Override public void show() {
+                if (closed.get()) return;
+                oath.friends.notifications.attention(true, false);
+                if (!production) return;
+                @Nullable javafx.stage.Stage stage = org.jackhuang.hmcl.ui.Controllers.getStage();
+                if (stage != null) { stage.setIconified(false); stage.show(); Platform.setImplicitExit(implicitExit); }
+            }
+            /// Uses HMCL's normal application shutdown after the protected launch handoff, never System.exit.
+            @Override public void close() { if (production) org.jackhuang.hmcl.Launcher.stopApplication(); }
+        });
         worker.execute(() -> {
             try {
                 @Nullable String developmentPack = System.getProperty("sao.pack");
@@ -279,8 +347,13 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
                 @Nullable SaoData.Crash previousCrash = logs.analyze(settings.flag("lastExitAbnormal", false), previousRunStarted());
                 publish(() -> { gameLog.setAll(logs.snapshot()); crash.set(previousCrash); });
                 refreshState();
+                try { SaoData.LauncherUpdate value = selfUpdate.status(); publish(() -> launcherUpdate.set(value)); }
+                catch (IOException ignored) { /* The immutable bundled launcher remains usable. */ }
             } catch (Exception failure) { fail("读取整合包失败", failure); }
-            finally { packReady.complete(null); busy.set(false); refreshInstalledBytes(); }
+            finally {
+                busy.set(false); packReady.complete(null); refreshInstalledBytes();
+                if (production) { refreshUpdates(); extras.refreshLinks(); }
+            }
         });
     }
 
@@ -291,11 +364,47 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     /// {@inheritDoc}
     @Override public ReadOnlyStringProperty stepLabel() { return step.getReadOnlyProperty(); }
     /// {@inheritDoc}
+    @Override public ReadOnlyObjectProperty<SaoInstallProgress> installProgress() { return installProgress.getReadOnlyProperty(); }
+    /// {@inheritDoc}
     @Override public ReadOnlyObjectProperty<@Nullable String> lastError() { return error.getReadOnlyProperty(); }
     /// {@inheritDoc}
     @Override public ReadOnlyObjectProperty<@Nullable String> installedVersion() { return installedVersion.getReadOnlyProperty(); }
     /// {@inheritDoc}
     @Override public String embeddedVersion() { return embeddedVersion; }
+
+    /// Persisted next-run visibility, mapped through HMCL's existing LauncherVisibility enum.
+    @Override public SaoData.LauncherBehavior launcherBehavior() { return extras.behavior(); }
+    /// Does not mutate the captured policy of an already running process.
+    @Override public void setLauncherBehavior(SaoData.LauncherBehavior behavior) {
+        if (!closed.get() && !uninstalling.get()) extras.behavior(behavior);
+    }
+    /// Atomically builds a sanitized Downloads ZIP and completes on the publication thread.
+    @Override public CompletableFuture<SaoData.FeedbackZip> buildFeedbackZip() { return extras.feedback(); }
+    /// Stable read-only last-good public links.
+    @Override public @UnmodifiableView ObservableList<SaoData.CommunityLink> links() { return extras.links(); }
+    /// Explicit independent refresh; no account calls or server ping.
+    @Override public void refreshLinks() { extras.refreshLinks(); }
+    /// Selected next-launch preset.
+    @Override public SaoData.GraphicsPreset graphicsPreset() { return extras.preset(); }
+    /// Stores a pending selection even while playing, leaving game files untouched until the next launch.
+    @Override public void setGraphicsPreset(SaoData.GraphicsPreset preset) {
+        if (!closed.get() && !uninstalling.get()) extras.preset(preset);
+    }
+    /// Headless HMCL RAM/GPU suggestion, without creating an OpenGL context.
+    @Override public CompletableFuture<SaoData.GraphicsPreset> suggestedGraphicsPreset() { return extras.suggestion(); }
+    /// Asynchronous first-open checks, including compatible Java discovery without downloads.
+    @Override public CompletableFuture<@Unmodifiable List<SaoData.SystemCheck>> systemCheck() { return extras.systemCheck(); }
+    /// Version shared by the UI's notice/licence bundle and persisted acceptance preference.
+    @Override public String userNoticeVersion() { return SaoLauncherService.super.userNoticeVersion(); }
+    /// Old acceptance versions do not satisfy the current notice bundle.
+    @Override public boolean userNoticeAccepted() { return SaoLauncherService.super.userNoticeAccepted(); }
+    /// Records only an explicit acceptance of the exact currently displayed version.
+    @Override public void acceptUserNotice(String version) { SaoLauncherService.super.acceptUserNotice(version); }
+    /// Explicit frontend visibility/focus changes gate ephemeral social notifications.
+    @Override public void setLauncherAttention(boolean visible, boolean focused) { oath.friends.notifications.attention(visible, focused); }
+    /// Stable event stream driven exclusively by authenticated live/poll deliveries and request transitions.
+    @Override public ReadOnlyObjectProperty<SaoData.@Nullable Notification> notification() { return oath.friends.notifications.event(); }
+
 
     /// {@inheritDoc}
     @Override public void linkStart(Account account, char @Nullable [] authPassword) {
@@ -321,6 +430,10 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
             if (authPassword != null) Arrays.fill(authPassword, '\0');
             return;
         }
+        if (!launcherPermitted()) {
+            if (authPassword != null) Arrays.fill(authPassword, '\0');
+            return;
+        }
         char @Nullable [] password = authPassword == null ? null : authPassword.clone();
         if (authPassword != null) Arrays.fill(authPassword, '\0');
         SaoPackState current = state.get();
@@ -334,14 +447,18 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
         worker.execute(() -> {
             try {
                 if (closed.get()) throw new IOException("Launcher has closed");
+                if (!launcherPermitted()) { busy.set(false); refreshState(); return; }
                 // A prior ARGUS launch must not leak a handoff into dependency preparation or this run.
                 if (offline) game.clearOfflineTicket();
                 SaoPackArchive pack = requireSource();
-                game.ensureInstalled(false);
                 @Nullable SaoPackManifest previous = installer.installed();
+                if (previous == null || VersionNumber.compare(pack.manifest().version(), previous.version()) > 0) extras.checkInstallCapacity();
+                game.ensureInstalled(false);
                 if (previous == null || VersionNumber.compare(pack.manifest().version(), previous.version()) > 0)
                     installer.apply(pack, false);
                 files.enforceRequiredResources();
+                extras.beforeLaunch();
+                if (!launcherPermitted()) { busy.set(false); refreshState(); return; }
                 publish(() -> { installedVersion.set(pack.manifest().version()); step.set("Link Start"); state.set(SaoPackState.RUNNING); });
                 if (closed.get()) throw new IOException("Launcher has closed");
                 long started = System.currentTimeMillis();
@@ -349,11 +466,13 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
                 saveSetting("lastExitAbnormal", false);
                 logs.clear();
                 publish(() -> { gameLog.clear(); crash.set(null); });
+                lifecycle.begin(launcherBehavior());
                 gameRunning.set(true);
                 game.launch(account, pack.manifest(), launchMemoryMiB(), gameWindow(), jvmArgs(), password, offline, closed::get, new ProcessListener() {
                     /// Starts accounting after the OS process exists and before HMCL starts its exit monitor.
                     @Override public void setProcess(org.jackhuang.hmcl.util.platform.ManagedProcess process) {
                         if (account instanceof SaoOathLaunchAccount launched) oath.gameStarted(launched);
+                        lifecycle.started();
                     }
                     /// Captures sanitized output only; handoff and authentication lines are filtered first.
                     @Override public void onLog(String line, boolean stderr) { appendGameLog(line); }
@@ -369,13 +488,15 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
                                 publish(() -> crash.set(result));
                                 refreshLocalNow(); refreshState();
                             } catch (Exception failure) { windowFailure("读取游戏退出信息失败", failure); }
-                            finally { busy.set(false); }
+                            finally { busy.set(false); lifecycle.exited(); }
                         });
                     }
                 });
+                lifecycle.handedOff();
                 // Busy remains true for the running process; its monitor releases it on exit.
             } catch (Exception failure) {
                 gameRunning.set(false);
+                lifecycle.exited();
                 busy.set(false);
                 if (offline) publish(() -> { error.set("离线启动失败，请检查整合包和 Java 17 设置");
                     state.set(SaoPackState.FAILED); step.set(""); progress.set(-1); });
@@ -460,6 +581,24 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     @Override public CompletableFuture<Void> leaveGroup(String id){return oath.friends.operation("leave",SaoFriends.object("chat",id)).thenApply(value->null);}
     /// Shows pending immediately and reconciles the server-assigned message ID after delivery.
     @Override public CompletableFuture<Void> sendMessage(String id,String text){return oath.friends.send(id,text);}
+    /// Sends a reply with the authoritative same-chat source ID.
+    @Override public CompletableFuture<Void> sendMessage(String id,String text,long replyTo){return oath.friends.send(id,text,replyTo,false);}
+    /// Sends a presence-derived Link Start invitation.
+    @Override public CompletableFuture<Void> sendPlayInvite(String id){return oath.friends.send(id,"",0,true);}
+    /// Resolves a validated destination, leaving the actual launch to the screen's explicit action.
+    @Override public CompletableFuture<String> acceptInvite(SaoData.ChatMessage message){return oath.friends.acceptInvite(message,knownServers());}
+    /// Erases one own message and refreshes its stable observable list.
+    @Override public CompletableFuture<Void> recallMessage(SaoData.ChatMessage message){var body=SaoFriends.object("chat",message.chat());body.addProperty("message",message.id());return oath.friends.operation("recall",body).thenApply(v->null);}
+    /// Emits locally coalesced ephemeral typing.
+    @Override public CompletableFuture<Void> typing(String id){return oath.friends.typing(id);}
+    /// Persists the current user's conversation flags.
+    @Override public CompletableFuture<Void> setChatPreferences(String id,boolean muted,boolean pinned){var body=SaoFriends.object("chat",id);body.addProperty("muted",muted);body.addProperty("pinned",pinned);return oath.friends.operation("preferences",body).thenApply(v->null);}
+    /// Persists a private friend remark without renaming the friend.
+    @Override public CompletableFuture<Void> setFriendRemark(String name,String remark){return oath.friends.operation("remark",SaoFriends.object("name",name,"remark",remark)).thenApply(v->null);}
+    /// Searches retained visible text independently of history/read/delivery state.
+    @Override public CompletableFuture<@org.jetbrains.annotations.Unmodifiable List<SaoData.ChatMessage>> searchMessages(String text,String chat,int limit){return oath.friends.search(text,chat,limit);}
+    /// Explicit older-page callback for a scrolling conversation.
+    @Override public void loadOlderMessages(String id){oath.friends.loadOlder(id);}
     /// Advances read status through messages actually applied to this open conversation.
     @Override public void markRead(String id){oath.friends.markRead(id);}
     /// Current server card merged with this account's local process history.
@@ -469,6 +608,8 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
         @Nullable SaoPackArchive pack = source;
         return pack != null && !pack.manifest().server().isEmpty() ? pack.manifest().server() : SaoLauncherService.super.serverAddress();
     }
+    /// Preserves the existing canonical invite-target construction while explicitly implementing the screen seam.
+    @Override public @Unmodifiable List<String> knownServers() { return SaoLauncherService.super.knownServers(); }
     /// {@inheritDoc}
     @Override public @org.jetbrains.annotations.Unmodifiable List<String> serverNodes() {
         @Nullable SaoPackArchive pack = source;
@@ -477,7 +618,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     /// {@inheritDoc}
     @Override public void oathLogout() { oath.logout(); }
     /// {@inheritDoc}
-    @Override public void linkStartOath() { if (!closed.get() && !uninstalling.get()) oath.linkStart(); }
+    @Override public void linkStartOath() { if (!closed.get() && !uninstalling.get() && launcherPermitted()) oath.linkStart(); }
     /// {@inheritDoc}
     @Override public @Nullable Path oathSkin() { return oath.skin(); }
     /// {@inheritDoc}
@@ -493,6 +634,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     @Override public void repair() {
         submit(() -> {
             SaoPackArchive pack = requireSource();
+            extras.checkInstallCapacity();
             game.ensureInstalled(true);
             installer.apply(pack, true);
             refreshState();
@@ -501,22 +643,223 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
 
     /// {@inheritDoc}
     @Override public void applyUpdateZip(Path zip) {
-        submit(() -> {
-            SaoPackArchive update = SaoPackArchive.open(zip);
-            @Nullable SaoPackManifest previous = installer.installed();
-            @Nullable SaoPackArchive currentSource = source;
-            boolean recoveringSource = previous != null && update.manifest().version().equals(previous.version())
-                    && (currentSource == null || VersionNumber.compare(currentSource.manifest().version(), previous.version()) < 0);
-            if (previous != null && VersionNumber.compare(update.manifest().version(), previous.version()) <= 0 && !recoveringSource)
-                throw new IOException("更新包版本必须高于已安装版本 " + previous.version());
-            SaoPackArchive cached = cacheSource(update);
-            game.ensureInstalled(false);
-            installer.apply(cached, recoveringSource);
-            persistAcceptedSource(cached);
-            source = cached;
-            files.requiredResources(source);
-            refreshLocalNow();
-            refreshState();
+        applyDownloadedPack(zip);
+    }
+
+    /// Applies an already private verified complete pack through the existing preserving installer.
+    private void applyPackNow(SaoPackArchive update) throws Exception {
+        @Nullable SaoPackManifest previous = installer.installed();
+        if (previous != null && VersionNumber.compare(update.manifest().version(), previous.version()) < 0)
+            throw new IOException("不会降级已安装整合包 " + previous.version());
+        extras.checkInstallCapacity(update);
+        SaoPackArchive cached = cacheSource(update);
+        game.ensureInstalled(false);
+        installer.apply(cached, true);
+        acceptSource(cached);
+    }
+
+    /// Updates repair/restart source only after the complete instance transaction has committed.
+    private void acceptSource(SaoPackArchive cached) throws IOException {
+        source = cached;
+        persistAcceptedSource(cached);
+        files.requiredResources(source);
+        refreshLocalNow();
+        refreshState();
+    }
+
+    /// Every file-picker, Downloads confirmation and older single-ZIP drop uses the accumulated drop path.
+    @Override public void applyDownloadedPack(Path zip) { acceptDroppedFiles(List.of(zip)); }
+
+    /// Exposes the persisted restart instruction and a bootstrap failure report independently of pack state.
+    @Override public ReadOnlyObjectProperty<SaoData.LauncherUpdate> launcherUpdate() { return launcherUpdate.getReadOnlyProperty(); }
+
+    /// Accumulates good snapshots even when a batch also contains a wrong file; full packs supersede quick hops.
+    @Override public CompletableFuture<Void> acceptDroppedFiles(List<Path> paths) {
+        @Unmodifiable List<Path> dropped = List.copyOf(paths);
+        if (!packReady.isDone()) return packReady.thenCompose(ignored -> acceptDroppedFiles(dropped));
+        CompletableFuture<Void> result = new CompletableFuture<>();
+        @Nullable SaoData.VersionMetadata metadata = versionMetadata;
+        if (metadata == null) {
+            IOException failure = new IOException("暂无有效版本信息，请稍后重试");
+            windowFailure("无法校验整合包", failure); result.completeExceptionally(failure); return result;
+        }
+        if (closed.get() || uninstalling.get() || !busy.compareAndSet(false, true)) {
+            result.completeExceptionally(new IOException("请等待当前任务完成")); return result;
+        }
+        working();
+        worker.execute(() -> {
+            @Nullable SaoPackArchive full = null;
+            @Nullable IOException rejected = null;
+            boolean accepted = false;
+            try {
+                SaoDropSession session = currentDropSession(metadata);
+                for (Path path : dropped) {
+                    try {
+                        if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) throw new IOException(SaoUpdates.INVALID_ARCHIVE);
+                        long size = Files.size(path);
+                        String hash = SaoUpdates.sha256(path);
+                        if (size == metadata.pack().size() && hash.equals(metadata.pack().sha256())) {
+                            if (full == null) full = SaoUpdates.snapshot(path, metadata.pack(), root.resolve("pack-cache"));
+                            accepted = true;
+                        } else if (metadata.launcher().artifact() != null && size == metadata.launcher().artifact().size()
+                                && hash.equals(metadata.launcher().artifact().sha256())) {
+                            SaoData.LauncherUpdate value = selfUpdate.stage(path, metadata, Metadata.VERSION);
+                            publish(() -> launcherUpdate.set(value)); accepted = true;
+                        } else if (session.acceptQuick(path)) accepted = true;
+                        else throw new IOException(SaoUpdates.INVALID_ARCHIVE);
+                    } catch (IOException failure) { rejected = failure; }
+                }
+                if (!metadata.equals(versionMetadata)) throw new IOException("版本信息已更新，请重新拖入文件");
+                if (full != null) {
+                    applyPackNow(full); session.close(); dropSession = null;
+                } else if (!session.ready().isEmpty()) {
+                    try {
+                        SaoPackArchive complete = installer.applyQuick(session.ready(), source, root.resolve("pack-cache"), extras::checkInstallCapacity);
+                        acceptSource(complete); session.close(); dropSession = null;
+                    } catch (IOException failure) {
+                        if (SaoQuickUpdate.FULL_REQUIRED.equals(failure.getMessage())) {
+                            session.requireFull(); refreshState(); publishDropPrompt(true, null);
+                            publish(() -> error.set(SaoQuickUpdate.FULL_REQUIRED + SaoUpdates.prompt(List.of())));
+                            busy.set(false); result.completeExceptionally(failure); return;
+                        }
+                        throw failure;
+                    }
+                }
+                refreshState(); publishDropPrompt(downloadPrompt.get().watching(), null);
+                if (rejected != null) {
+                    IOException failure = rejected;
+                    if (!accepted) { fail("文件校验失败", failure); busy.set(false); result.completeExceptionally(failure); return; }
+                    publish(() -> error.set(failure.getMessage()));
+                }
+                busy.set(false); result.complete(null);
+            } catch (Exception failure) {
+                fail("整合包操作失败", failure); busy.set(false); result.completeExceptionally(failure);
+            } finally {
+                if (full != null) try { Files.deleteIfExists(full.zip()); } catch (IOException ignored) { }
+                busy.set(false);
+            }
+        });
+        return result;
+    }
+
+    /// Replaces obsolete retained drops on the worker, using the real receipt rather than delayed UI publication.
+    private SaoDropSession currentDropSession(SaoData.VersionMetadata metadata) throws IOException {
+        @Nullable SaoPackManifest installed = installer.installed();
+        @Nullable String version = installed == null ? null : installed.version();
+        @Nullable SaoDropSession session = dropSession;
+        if (session == null || !session.metadata.equals(metadata) || !Objects.equals(session.installedVersion, version)) {
+            if (session != null) session.close();
+            session = new SaoDropSession(metadata, version, root.resolve("pack-cache")); dropSession = session;
+        }
+        return session;
+    }
+
+    /// Publishes exact no-pack/full-pack or ordered quick-hop text with immutable present/missing lists.
+    private void publishDropPrompt(boolean watching, @Nullable Path candidate) throws IOException {
+        @Nullable SaoData.VersionMetadata metadata = versionMetadata;
+        SaoData.DownloadPrompt value = metadata == null ? new SaoData.DownloadPrompt(watching, candidate, SaoUpdates.prompt(List.of()))
+                : currentDropSession(metadata).prompt(watching, candidate);
+        publish(() -> downloadPrompt.set(value));
+    }
+
+    /// {@inheritDoc}
+    @Override public ReadOnlyObjectProperty<SaoData.UpdateStatus> updateStatus() { return updateStatus.getReadOnlyProperty(); }
+    /// {@inheritDoc}
+    @Override public ReadOnlyObjectProperty<SaoData.DownloadPrompt> downloadPrompt() { return downloadPrompt.getReadOnlyProperty(); }
+
+    /// Computes against the actual installed receipt; remote metadata never marks the local pack broken.
+    private void publishUpdates() {
+        SaoData.UpdateStatus value = SaoUpdates.status(versionMetadata, installedVersion.get(), Metadata.VERSION, dismissedLauncherVersion);
+        publish(() -> updateStatus.set(value));
+    }
+
+    /// Applies the mandatory launcher gate at both submission and execution, without a network wait.
+    boolean launcherPermitted() {
+        SaoData.UpdateStatus value = SaoUpdates.status(versionMetadata, installedVersion.get(), Metadata.VERSION, dismissedLauncherVersion);
+        if (value.launcherBlocked()) publish(() -> { updateStatus.set(value); error.set(value.message()); });
+        return !value.launcherBlocked();
+    }
+
+    /// {@inheritDoc}
+    @Override public void dismissLauncherUpdate() {
+        @Nullable SaoData.VersionMetadata metadata = versionMetadata;
+        if (metadata != null) { dismissedLauncherVersion = metadata.launcher().latest(); publishUpdates(); }
+    }
+
+    /// Overrides external link dispatch in isolated tests; validation always occurs before this seam.
+    void setLinkOpener(java.util.function.Consumer<String> opener) { linkOpener = Objects.requireNonNull(opener); }
+
+    /// Overrides Downloads discovery only in explicitly isolated fixture engines.
+    void setDownloadDirectories(Supplier<@Unmodifiable List<Path>> directories) { downloadDirectories = Objects.requireNonNull(directories); }
+
+    /// Validates even cached/injected links immediately before dispatch to the existing platform opener.
+    private void openQuark(boolean launcher) {
+        if (closed.get() || uninstalling.get()) return;
+        @Nullable SaoData.VersionMetadata metadata = versionMetadata;
+        if (metadata == null) { windowFailure("无法打开下载", new IOException("暂无有效版本信息，请稍后重试")); return; }
+        try { linkOpener.accept(SaoUpdates.checkedQuark(metadata.quark()).toString()); }
+        catch (Exception failure) { windowFailure("打开夸克失败", failure); }
+    }
+    /// {@inheritDoc}
+    @Override public void openPackDownload() { openQuark(false); }
+    /// {@inheritDoc}
+    @Override public void openLauncherDownload() { openQuark(true); }
+
+    /// {@inheritDoc}
+    @Override public synchronized void watchPackDownload() {
+        cancelPackDownload();
+        if (closed.get() || uninstalling.get()) return;
+        @Nullable SaoData.VersionMetadata metadata = versionMetadata;
+        if (metadata == null) { windowFailure("无法查找下载", new IOException("暂无有效版本信息，请稍后重试")); return; }
+        long generation = downloadGeneration.incrementAndGet();
+        worker.execute(() -> {
+            try { publishDropPrompt(true, null); } catch (IOException failure) { windowFailure("读取更新状态失败", failure); }
+        });
+        downloadPoll = publications.scheduleWithFixedDelay(() -> {
+            if (closed.get() || generation != downloadGeneration.get()) return;
+            try {
+                @Nullable Path candidate = SaoDownloads.find(downloadDirectories.get(), metadata.pack());
+                if (candidate == null) for (var quick : metadata.updates()) {
+                    candidate = SaoDownloads.find(downloadDirectories.get(), new SaoData.PackRelease(quick.to(), quick.file(), quick.size(), quick.sha256()));
+                    if (candidate != null) break;
+                }
+                @Nullable Path found = candidate;
+                publish(() -> {
+                    if (generation == downloadGeneration.get()) {
+                        SaoData.DownloadPrompt current = downloadPrompt.get();
+                        downloadPrompt.set(new SaoData.DownloadPrompt(true, found, current.message(), current.required(),
+                                current.present(), current.missing(), current.fullPackRequired()));
+                    }
+                });
+            } catch (IOException failure) { windowFailure("查找下载失败", failure); }
+        }, 0, 3, TimeUnit.SECONDS);
+    }
+
+    /// {@inheritDoc}
+    @Override public synchronized void cancelPackDownload() {
+        downloadGeneration.incrementAndGet();
+        java.util.concurrent.@Nullable ScheduledFuture<?> poll = downloadPoll;
+        downloadPoll = null; if (poll != null) poll.cancel(false);
+        publish(() -> downloadPrompt.set(new SaoData.DownloadPrompt(false, null, "")));
+        if (!worker.isShutdown()) worker.execute(() -> {
+            @Nullable SaoDropSession session = dropSession; dropSession = null;
+            if (session != null) try { session.close(); } catch (IOException ignored) { }
+        });
+    }
+
+    /// {@inheritDoc}
+    @Override public void refreshUpdates() {
+        if (!productionUpdates || closed.get() || uninstalling.get() || !updatesRefreshing.compareAndSet(false, true)) return;
+        onlineWorker.execute(() -> {
+            try {
+                try { remoteNews = online.fetch(System.getProperty("sao.newsUrl", SaoUpdates.NEWS_URL)); publishNews(); }
+                catch (Exception ignored) { /* An outage retains last-good announcements. */ }
+                try {
+                    SaoData.VersionMetadata metadata = online.fetchVersion(System.getProperty("sao.versionUrl", SaoUpdates.VERSION_URL));
+                    if (!metadata.equals(versionMetadata)) cancelPackDownload();
+                    versionMetadata = metadata; extras.updateQuark(metadata.quark()); publishUpdates();
+                } catch (Exception ignored) { /* Installed packs remain playable with their last-good policy. */ }
+            } finally { updatesRefreshing.set(false); }
         });
     }
 
@@ -588,6 +931,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
                 closed.set(true);
                 terminal = true;
                 roomGeneration.incrementAndGet();
+                extras.close();
                 online.close();
                 onlineWorker.shutdownNow();
                 if (!onlineWorker.awaitTermination(5, TimeUnit.SECONDS)) throw new IOException("后台联网任务未结束，未移除启动器数据");
@@ -647,15 +991,11 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     /// {@inheritDoc}
     @Override public void refreshOnline() {
         if (closed.get() || uninstalling.get() || !onlineRefreshing.compareAndSet(false, true)) return;
+        refreshUpdates();
         oath.refreshCard();
         onlineWorker.execute(() -> {
             try {
                 @Nullable SaoPackArchive pack = source;
-                String endpoint = pack == null ? "" : pack.manifest().newsUrl();
-                if (!endpoint.isEmpty()) {
-                    try { remoteNews = online.fetch(endpoint); publishNews(); }
-                    catch (Exception ignored) { /* Retain last-good launcher news during an outage. */ }
-                }
                 String address = pack == null ? "" : pack.manifest().server();
                 if (address.isEmpty()) publish(() -> serverStatus.set(null));
                 else {
@@ -973,10 +1313,10 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     /// Returns the available release or a clear missing-pack error for a launcher built without -PsaoPack.
     SaoPackArchive requireSource() throws IOException {
         @Nullable SaoPackArchive pack = source;
-        if (pack == null) throw new IOException("此启动器未内置整合包。请使用包含整合包的 SAO Oath 启动器（构建参数 -PsaoPack=<zip>），或拖入有效整合包。");
+        if (pack == null || !Files.isRegularFile(pack.zip(), LinkOption.NOFOLLOW_LINKS)) throw new IOException(SaoUpdates.prompt(List.of()));
         @Nullable SaoPackManifest installed = installer.installed();
         if (installed != null && VersionNumber.compare(pack.manifest().version(), installed.version()) < 0)
-            throw new IOException("已安装整合包版本较新，请重新提供当前版本整合包后修复；不会降级玩家文件。");
+            throw new IOException("已安装整合包版本较新。" + SaoUpdates.prompt(List.of()));
         return pack;
     }
 
@@ -1010,6 +1350,12 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     /// Restores the last accepted release so restart never repairs or launches with an older embedded manifest.
     private @Nullable SaoPackArchive readAcceptedSource() throws IOException {
         Path cache = root.resolve("pack-cache");
+        @Nullable SaoPackManifest installed = installer.installed();
+        if (installed != null) {
+            String key = SaoPackArchive.sha1(new java.io.ByteArrayInputStream(installed.toJson().getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+            Path retained = SaoPackFiles.resolve(cache, key + ".zip");
+            if (Files.isRegularFile(retained, LinkOption.NOFOLLOW_LINKS)) return new SaoPackArchive(retained, installed);
+        }
         Path active = cache.resolve("active.json");
         if (!Files.isRegularFile(active, LinkOption.NOFOLLOW_LINKS)) return null;
         try (java.io.Reader reader = Files.newBufferedReader(active, java.nio.charset.StandardCharsets.UTF_8)) {
@@ -1017,7 +1363,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
             String filename = json.get("archive").getAsString();
             if (!filename.matches("[0-9a-f]{40}\\.zip")) throw new IOException("Invalid cached pack filename");
             Path archive = SaoPackFiles.resolve(cache, filename);
-            if (!Files.isRegularFile(archive, LinkOption.NOFOLLOW_LINKS)) throw new IOException("Accepted update archive is missing");
+            if (!Files.isRegularFile(archive, LinkOption.NOFOLLOW_LINKS)) throw new IOException(SaoUpdates.prompt(List.of()));
             SaoPackManifest manifest = SaoPackManifest.read(new java.io.StringReader(json.get("manifest").toString()));
             return new SaoPackArchive(archive, manifest);
         } catch (RuntimeException failure) { throw new IOException("Invalid accepted update metadata", failure); }
@@ -1029,7 +1375,12 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
         @Nullable SaoPackArchive pack = source;
         SaoPackState next = pack == null || installed == null ? SaoPackState.NOT_INSTALLED
                 : VersionNumber.compare(pack.manifest().version(), installed.version()) > 0 ? SaoPackState.UPDATE_READY : SaoPackState.READY;
-        publish(() -> { installedVersion.set(installed == null ? null : installed.version()); state.set(next); progress.set(1); step.set(""); error.set(null); });
+        publish(() -> {
+            installedVersion.set(installed == null ? null : installed.version()); state.set(next); progress.set(1); step.set("");
+            SaoData.UpdateStatus updates = SaoUpdates.status(versionMetadata, installedVersion.get(), Metadata.VERSION, dismissedLauncherVersion);
+            updateStatus.set(updates); error.set(updates.launcherBlocked() ? updates.message() : null);
+        });
+        publishDropPrompt(downloadPrompt.get().watching(), downloadPrompt.get().candidate());
     }
 
     /// An exception-capable serialized background operation.
@@ -1052,18 +1403,45 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     }
 
     /// Publishes the initial busy state before an operation starts.
-    private void working() { publish(() -> { state.set(SaoPackState.WORKING); error.set(null); progress.set(-1); }); }
+    private void working() { publish(() -> {
+        state.set(SaoPackState.WORKING); error.set(null); progress.set(-1);
+        installProgress.set(SaoInstallProgress.phase(SaoInstallProgress.Stage.PREPARING, "准备安装"));
+    }); }
+
+    /// Publishes measured batch counters and keeps the existing stepLabel/progress properties useful.
+    private void reportInstallProgress(SaoInstallProgress snapshot) {
+        publish(() -> {
+            if (closed.get()) return;
+            installProgress.set(snapshot); step.set(snapshot.label());
+            progress.set(snapshot.totalFiles() == 0 ? -1 : snapshot.completedFiles() / (double) snapshot.totalFiles());
+        });
+    }
     /// Publishes one short, sanitized phase label and progress value.
     private void reportProgress(String label, double fraction) {
         long now = System.nanoTime();
         if (fraction >= 0 && fraction < 1 && now - lastProgressNanos < 50_000_000L) return;
         lastProgressNanos = now;
-        publish(() -> { step.set(label); progress.set(fraction); });
+        publish(() -> {
+            step.set(label); progress.set(fraction);
+            SaoInstallProgress.Stage stage = label.startsWith("安装 NeoForge") ? SaoInstallProgress.Stage.INSTALL_NEOFORGE
+                    : label.startsWith("下载 Minecraft") || label.startsWith("安装 Minecraft") ? SaoInstallProgress.Stage.DOWNLOAD_MINECRAFT
+                    : label.startsWith("下载 Java") ? SaoInstallProgress.Stage.DOWNLOAD_JAVA
+                    : label.contains("Minecraft / NeoForge 依赖") ? SaoInstallProgress.Stage.CHECK_DEPENDENCIES
+                    : label.startsWith("检查整合包") ? SaoInstallProgress.Stage.CHECKING
+                    : label.startsWith("应用整合包") ? SaoInstallProgress.Stage.APPLY_PACK
+                    : label.equals("整合包已就绪") ? SaoInstallProgress.Stage.COMPLETE : SaoInstallProgress.Stage.PREPARING;
+            installProgress.set(SaoInstallProgress.phase(stage, label));
+        });
     }
     /// Publishes a public error without serializing secrets, account objects or process arguments.
     private void fail(String context, Exception failure) {
         String message = context + ": " + Objects.toString(failure.getMessage(), failure.getClass().getSimpleName());
-        publish(() -> { error.set(message); state.set(SaoPackState.FAILED); step.set(""); progress.set(-1); });
+        publish(() -> {
+            error.set(message); state.set(SaoPackState.FAILED); step.set(""); progress.set(-1);
+            SaoInstallProgress last = installProgress.get();
+            installProgress.set(new SaoInstallProgress(SaoInstallProgress.Stage.FAILED, context, last.completedFiles(), last.totalFiles(),
+                    last.bytesDone(), last.totalBytes(), last.networkBytes(), 0, last.failures()));
+        });
     }
     /// Uses the JavaFX thread in the app and a synchronous fallback only when no toolkit exists.
     private static void publish(Runnable action) {
@@ -1073,6 +1451,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     /// Stops accepting backend work; does not terminate an already running Minecraft process.
     @Override public void close() {
         closed.set(true);
+        cancelPackDownload();
         packReady.complete(null);
         roomGeneration.incrementAndGet();
         char @Nullable [] password = activePassword;
@@ -1081,7 +1460,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
         oath.close();
         game.close();
         org.jackhuang.hmcl.terracotta.TerracottaManager.stopRoom();
-        online.close(); onlineWorker.shutdownNow(); publications.shutdownNow();
+        extras.close(); online.close(); onlineWorker.shutdownNow(); publications.shutdownNow();
         worker.shutdownNow();
     }
 }

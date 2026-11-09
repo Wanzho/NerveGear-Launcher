@@ -84,9 +84,9 @@ public final class Main {
     /// Explains the Java requirement without invoking any HMCL download or upgrade link.
     static void showErrorAndExit(String[] args) {
         SwingUtils.initLookAndFeel();
-        String message = "SAO Oath Launcher requires Java 17 or later. Install a supported Java runtime and reopen the launcher.";
+        String message = "NerveGear Launcher requires Java 17 or later. Install a supported Java runtime and reopen the launcher.";
         System.err.println(message);
-        SwingUtils.showErrorDialog(message, "SAO Oath Launcher");
+        SwingUtils.showErrorDialog(message, "NerveGear Launcher");
         System.exit(1);
     }
 
@@ -124,7 +124,20 @@ public final class Main {
         }
     }
 
+    /// Handles headless pack tools before directory checks, dialogs and JavaFX initialization.
     public static void main(String[] args) throws Throwable {
+        if (args.length > 0 && ("--pack-hash".equals(args[0]) || "--make-update".equals(args[0]) || "--bundle-allowed".equals(args[0]))) {
+            System.setProperty("java.awt.headless", "true");
+            Class<?> tool = Class.forName("--make-update".equals(args[0])
+                    ? "org.jackhuang.hmcl.sao.SaoUpdateBuilder" : "--bundle-allowed".equals(args[0])
+                    ? "org.jackhuang.hmcl.sao.SaoPackBundler" : "org.jackhuang.hmcl.sao.SaoPackHash");
+            try {
+                tool.getMethod("main", String[].class).invoke(null, (Object) args);
+            } catch (java.lang.reflect.InvocationTargetException failure) {
+                throw failure.getCause();
+            }
+            return;
+        }
         checkDirectoryPath();
         if (getJavaFeatureVersion(System.getProperty("java.version")) >= MINIMUM_JAVA_VERSION) {
             EntryPoint.main(args);

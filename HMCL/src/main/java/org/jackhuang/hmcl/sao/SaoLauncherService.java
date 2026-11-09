@@ -37,6 +37,12 @@ public interface SaoLauncherService {
     /// A short game-voice label for the running step (for example "下载 NeoForge"), empty when idle.
     ReadOnlyStringProperty stepLabel();
 
+    /// Measured install stage, verified file counts, bytes, speed and all terminal dependency failures.
+    /// Production changes on the UI publication thread; -1 totalBytes means HMCL has no known byte total.
+    default ReadOnlyObjectProperty<SaoInstallProgress> installProgress() {
+        return new SimpleObjectProperty<>(SaoInstallProgress.phase(SaoInstallProgress.Stage.IDLE, ""));
+    }
+
     /// Why the last operation failed, in the launcher's language, or null when nothing failed.
     ReadOnlyObjectProperty<@Nullable String> lastError();
 
@@ -72,6 +78,50 @@ public interface SaoLauncherService {
     /// @param zip the dropped file
     void applyUpdateZip(Path zip);
 
+    /// Last-good remote pack/launcher comparison; listeners receive replacements on the UI publication thread.
+    /// A pack update is advisory; launcherBlocked is the mandatory Link Start gate.
+    default ReadOnlyObjectProperty<SaoData.UpdateStatus> updateStatus() {
+        return new SimpleObjectProperty<>(new SaoData.UpdateStatus(null, false, false, false, ""));
+    }
+
+    /// Downloads-prompt state; a candidate still requires explicit applyDownloadedPack and checksum verification.
+    default ReadOnlyObjectProperty<SaoData.DownloadPrompt> downloadPrompt() {
+        return new SimpleObjectProperty<>(new SaoData.DownloadPrompt(false, null, ""));
+    }
+
+    /// Refreshes Gitee announcements and version policy asynchronously, without account refresh or server ping.
+    default void refreshUpdates() { }
+
+    /// Dismisses the optional launcher note for this advertised latest version; cannot dismiss the minimum gate.
+    default void dismissLauncherUpdate() { }
+
+    /// Opens the validated pack Quark link through the system link opener; never downloads a package itself.
+    default void openPackDownload() { }
+
+    /// Opens the validated launcher Quark link through the system link opener.
+    default void openLauncherDownload() { }
+
+    /// Starts three-second Downloads polling while the UI update prompt is open; never installs automatically.
+    default void watchPackDownload() { }
+
+    /// Stops prompt polling and discards its candidate; call when the UI prompt closes or is cancelled.
+    default void cancelPackDownload() { }
+
+    /// Accepts a manually chosen or discovered ZIP, verifies size/SHA-256, then uses the preserving pack installer.
+    default void applyDownloadedPack(Path zip) { applyUpdateZip(zip); }
+
+    /// Accepts full packs, accumulated quick hops or verified launcher JARs in any drop order.
+    /// Files are snapshotted privately; completion and public errors are also exposed through observable state.
+    default CompletableFuture<Void> acceptDroppedFiles(List<Path> paths) {
+        for (Path path : paths) applyUpdateZip(path);
+        return CompletableFuture.completedFuture(null);
+    }
+
+    /// Staged launcher replacement and last bootstrap rollback result; restarting uses the native shell.
+    default ReadOnlyObjectProperty<SaoData.LauncherUpdate> launcherUpdate() {
+        return new SimpleObjectProperty<>(new SaoData.LauncherUpdate("", false, ""));
+    }
+
     /// Sets the skin the game sends to the server on join; copies it into the instance as `sao/skin.png`.
     ///
     /// @param png a 64×64 or 64×32 PNG, or null to go back to the default lookup
@@ -95,6 +145,55 @@ public interface SaoLauncherService {
 
     /// The fixed instance folder (opened from the settings sheet).
     Path instanceDir();
+
+    /// What happens to the launcher when the game process starts; defaults to 隐藏到后台.
+    default SaoData.LauncherBehavior launcherBehavior() { return SaoData.LauncherBehavior.HIDE; }
+
+    /// Persists behavior for the next launch; a running game's captured policy does not change.
+    default void setLauncherBehavior(SaoData.LauncherBehavior behavior) { }
+
+    /// Builds a scrubbed feedback ZIP asynchronously in Downloads; failures complete exceptionally.
+    /// Never opens a file manager itself. The result includes the actual committed file size.
+    default CompletableFuture<SaoData.FeedbackZip> buildFeedbackZip() { return unsupported(); }
+
+    /// Stable, read-only, last-good community actions; defaults are 爱发电, the shared 夸克网盘 and QQ群.
+    /// Render non-null copy values as numbers with a copy button; only non-null URLs are browser actions.
+    default @org.jetbrains.annotations.UnmodifiableView ObservableList<SaoData.CommunityLink> links() { return javafx.collections.FXCollections.emptyObservableList(); }
+
+    /// Refreshes links asynchronously; a failed fetch preserves the last-good list and disk cache.
+    default void refreshLinks() { }
+
+    /// Selected preset, initially AUTO. Merely reading it does not edit game files.
+    default SaoData.GraphicsPreset graphicsPreset() { return SaoData.GraphicsPreset.AUTO; }
+
+    /// Queues the preset for the next launch; never edits options or mod configs while a game is running.
+    default void setGraphicsPreset(SaoData.GraphicsPreset preset) { }
+
+    /// RAM/GPU-based suggestion, asynchronously detected through HMCL; returns a concrete preset.
+    default CompletableFuture<SaoData.GraphicsPreset> suggestedGraphicsPreset() { return unsupported(); }
+
+    /// First-open RAM, disk, Java/architecture and actual write checks, without installing or downloading.
+    default CompletableFuture<@org.jetbrains.annotations.Unmodifiable List<SaoData.SystemCheck>> systemCheck() { return unsupported(); }
+
+    /// Version of the 用户须知 and licences bundle the UI must present before recording acceptance.
+    default String userNoticeVersion() { return "2026-11-09.1"; }
+
+    /// Whether the user explicitly accepted this exact notice version.
+    default boolean userNoticeAccepted() { return userNoticeVersion().equals(preference("notice.accepted", "")); }
+
+    /// Records explicit acceptance only for the displayed current version; stale versions are refused.
+    default void acceptUserNotice(String version) {
+        if (!userNoticeVersion().equals(version)) throw new IllegalArgumentException("用户须知已更新，请重新阅读");
+        setPreference("notice.accepted", version);
+    }
+
+    /// Reports actual window visibility/focus, initially visible and focused to avoid unsolicited notifications.
+    /// The UI calls this whenever either changes; hidden launch policy also updates it automatically.
+    default void setLauncherAttention(boolean visible, boolean focused) { }
+
+    /// Stable read-only event property. Listen for replacements; no replay, no durable notification history.
+    /// New incoming messages/requests/invites emit only while hidden or unfocused and respect protocol-2 mute.
+    default ReadOnlyObjectProperty<SaoData.@Nullable Notification> notification() { return new SimpleObjectProperty<>(); }
 
     // ---------------------------------------------------------------- windows (added 6 Nov, defaults until built)
     //
@@ -465,6 +564,37 @@ public interface SaoLauncherService {
     default CompletableFuture<Void> sendMessage(String chatId, String text) {
         return unsupported();
     }
+
+    /// Sends text quoting a confirmed message in the same conversation; zero means ordinary text.
+    default CompletableFuture<Void> sendMessage(String chatId,String text,long replyTo) { return unsupported(); }
+
+    /// Sends a ten-minute Link Start invitation using authoritative sender presence, with no caller-supplied host.
+    default CompletableFuture<Void> sendPlayInvite(String chatId) { return unsupported(); }
+
+    /// Revalidates this card with the authority and returns a known target for the UI's Link Start action.
+    /// This method never launches a game automatically.
+    default CompletableFuture<String> acceptInvite(SaoData.ChatMessage message) { return unsupported(); }
+
+    /// Erases a confirmed own message if it is at most two minutes old; replaces it with a recall notice.
+    default CompletableFuture<Void> recallMessage(SaoData.ChatMessage message) { return unsupported(); }
+
+    /// Emits a transient typing lease; callers may invoke on keystrokes, the service coalesces to three seconds.
+    default CompletableFuture<Void> typing(String chatId) { return unsupported(); }
+
+    /// Stores both private per-conversation flags; mute keeps unread/mentions but suppresses notify.
+    default CompletableFuture<Void> setChatPreferences(String chatId,boolean muted,boolean pinned) { return unsupported(); }
+
+    /// Sets a private friend remark of at most twelve Unicode scalar values; empty clears it.
+    default CompletableFuture<Void> setFriendRemark(String name,String remark) { return unsupported(); }
+
+    /// Searches visible stored text, case-insensitive, newest first, at most 100 results; empty chatId searches all.
+    default CompletableFuture<@org.jetbrains.annotations.Unmodifiable List<SaoData.ChatMessage>> searchMessages(String text,String chatId,int limit) { return unsupported(); }
+
+    /// Explicit scroll callback; messages(chatId) remains source-compatible with the old paging seam.
+    default void loadOlderMessages(String chatId) { }
+
+    /// Exact destinations currently offered by this launcher; invitations never add arbitrary hosts.
+    default @org.jetbrains.annotations.Unmodifiable List<String> knownServers() { var result=new java.util.ArrayList<String>();result.add(serverAddress());result.addAll(serverNodes());return List.copyOf(result); }
 
     /// Marks a conversation read (it is open on screen).
     default void markRead(String chatId) {

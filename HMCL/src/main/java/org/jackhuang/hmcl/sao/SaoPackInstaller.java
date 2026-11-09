@@ -40,6 +40,20 @@ public final class SaoPackInstaller {
     public interface Downloader {
         /// Fetches a source with exact manifest identity into the supplied temporary destination.
         void download(SaoPackManifest.PackFile file, Path destination) throws Exception;
+
+        /// Fetches all dependencies with at most six workers, draining every failure before returning.
+        /// Implementations may publish richer transfer snapshots; destinations always belong to private staging.
+        default void downloadAll(Map<SaoPackManifest.PackFile, Path> files) throws Exception {
+            SaoModDownloads.runBatch(this, files);
+        }
+    }
+
+    /// Filesystem gate evaluated against the final composed inventory before committing a quick-update chain.
+    @NotNullByDefault
+    @FunctionalInterface
+    public interface CapacityCheck {
+        /// Refuses the transaction when the complete candidate cannot safely be installed.
+        void check(SaoPackArchive candidate) throws IOException;
     }
 
     /// Reports verified content and the exact number of physical writes/removals for a completed operation.
@@ -80,6 +94,39 @@ public final class SaoPackInstaller {
              var lock = channel.tryLock()) {
             if (lock == null) throw new IOException("Another SAO launcher is updating this instance");
             return applyLocked(source, repair);
+        }
+    }
+
+    /// Verifies and composes all quick hops while holding the same lock as the single preserving commit.
+    /// The complete resulting source is cached before writes, so repair survives restart without the original drops.
+    public SaoPackArchive applyQuick(List<Path> archives, @Nullable SaoPackArchive pristine, Path cache) throws Exception {
+        return applyQuick(archives, pristine, cache, complete -> { });
+    }
+
+    /// Checks the composed archive's capacity before any installed mutation, under the chain's instance lock.
+    public SaoPackArchive applyQuick(List<Path> archives, @Nullable SaoPackArchive pristine, Path cache,
+                                    CapacityCheck capacity) throws Exception {
+        SaoPackFiles.resolve(instance, "sao-pack-lock-check");
+        Files.createDirectories(instance);
+        Path lockPath = instance.resolve(".sao-pack.lock");
+        if (Files.isSymbolicLink(lockPath)) throw new IOException("Invalid pack lock file");
+        try (FileChannel channel = FileChannel.open(lockPath, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
+             var lock = channel.tryLock()) {
+            if (lock == null) throw new IOException("Another SAO launcher is updating this instance");
+            @Nullable SaoPackManifest installed = installed();
+            if (installed == null) throw new IOException(SaoQuickUpdate.FULL_REQUIRED);
+            Files.createDirectories(cache);
+            Path work = Files.createTempDirectory(cache, "chain-");
+            try {
+                SaoPackArchive composed = SaoQuickUpdate.compose(instance, installed, archives, pristine, work);
+                capacity.check(composed);
+                String key = SaoPackArchive.sha1(new ByteArrayInputStream(composed.manifest().toJson().getBytes(StandardCharsets.UTF_8)));
+                Path retained = cache.resolve(key + ".zip");
+                SaoPackFiles.atomicMove(composed.zip(), retained);
+                SaoPackArchive complete = new SaoPackArchive(retained, composed.manifest());
+                applyLocked(complete, true);
+                return complete;
+            } finally { SaoPackFiles.deleteTree(work); }
         }
     }
 
@@ -125,6 +172,7 @@ public final class SaoPackInstaller {
         boolean cleanStage = true;
         try (ZipFile archive = new ZipFile(source.zip().toFile(), StandardCharsets.UTF_8)) {
             int staged = 0;
+            Map<SaoPackManifest.PackFile, Path> remote = new LinkedHashMap<>();
             for (var file : changed) {
                 Path destination = SaoPackFiles.resolve(stage.resolve("new"), file.path());
                 Files.createDirectories(destination.getParent());
@@ -141,9 +189,18 @@ public final class SaoPackInstaller {
                         long copied = input.transferTo(new BoundedOutputStream(output, file.size()));
                         if (copied != file.size()) throw new IOException("Pack member size mismatch: " + file.path());
                     }
-                } else downloader.download(file, destination);
+                } else {
+                    remote.put(file, destination);
+                    continue;
+                }
                 if (!SaoPackFiles.matches(destination, file)) throw new IOException("Pack checksum mismatch: " + file.path());
                 staged++;
+            }
+            // All remote bytes stay in this transaction's stage until the entire batch verifies.
+            downloader.downloadAll(remote);
+            for (var item : remote.entrySet()) {
+                if (!SaoPackFiles.matches(item.getValue(), item.getKey()))
+                    throw new IOException("Pack checksum mismatch: " + item.getKey().path());
             }
             commit(stage, changed, removed, manifest);
             verified += changed.size();

@@ -139,8 +139,11 @@ public final class SaoDialogs {
         }
     }
 
+    /// Reveals the backend's committed feedback archive while retaining the older path-only service seam.
     private static void show(SaoLauncherService s, @Nullable Object result) {
-        if (result instanceof Path p) s.openFile(p);
+        if (result instanceof org.jackhuang.hmcl.sao.SaoData.FeedbackZip zip)
+            org.jackhuang.hmcl.ui.FXUtils.showFileInExplorer(zip.path());
+        else if (result instanceof Path p) s.openFile(p);
     }
 
     private static @Nullable Method feedbackMethod(SaoLauncherService s) {

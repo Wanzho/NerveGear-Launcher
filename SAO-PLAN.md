@@ -1,4 +1,4 @@
-# 刀剑神域·誓约 启动器 (SAO Oath Launcher) — plan
+# NerveGear启动器 (NerveGear Launcher) — plan
 
 Fork of HMCL **v3.17.0.361** (19 Oct 2026), the last release before HMCL disabled game downloads in mainland China (#7017, 20 Oct). Branch `sao/main`. GPLv3 + HMCL's additional terms: new name and version, HMCL copyright notice kept (About page), source public.
 

@@ -1,0 +1,14 @@
+version:3465
+renderDistance:12
+simulationDistance:12
+graphicsMode:1
+particles:0
+renderClouds:"true"
+entityDistanceScaling:0.75
+mipmapLevels:2
+ao:true
+lang:zh_cn
+mouseSensitivity:0.5
+key_key.forward:key.keyboard.w
+resourcePacks:["file/required.zip"]
+unknownFutureKey:keep-this

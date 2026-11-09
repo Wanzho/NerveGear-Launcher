@@ -1,0 +1,4 @@
+# Preserve the original pack's exact CRLF fixture bytes across checkout and platforms.
+*.properties binary
+*.toml binary
+options.txt binary

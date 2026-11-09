@@ -151,6 +151,14 @@ tasks.compileJava {
     options.compilerArgs.addAll(addOpens.map { "--add-exports=$it=ALL-UNNAMED" })
 }
 
+// Existing UI probes inspect scene peers; compile them without starting a JavaFX toolkit.
+tasks.compileTestJava {
+    options.compilerArgs.addAll(listOf(
+        "--add-exports=javafx.graphics/com.sun.javafx.scene=ALL-UNNAMED",
+        "--add-exports=javafx.graphics/com.sun.javafx.sg.prism=ALL-UNNAMED",
+    ))
+}
+
 val hmclProperties = buildList {
     add("hmcl.version" to project.version.toString())
     add("hmcl.add-opens" to addOpens.joinToString(" "))
@@ -181,7 +189,7 @@ val createPropertiesFile = tasks.register("createPropertiesFile") {
 }
 
 tasks.jar {
-    archiveBaseName.set("SAO-Oath-Launcher")
+    archiveBaseName.set("NerveGear-Launcher")
     enabled = false
     dependsOn(tasks["shadowJar"])
 }
@@ -192,7 +200,7 @@ tasks.shadowJar {
     dependsOn(createPropertiesFile)
 
     archiveClassifier.set(null as String?)
-    archiveBaseName.set("SAO-Oath-Launcher")
+    archiveBaseName.set("NerveGear-Launcher")
 
     exclude("**/package-info.class")
     exclude("META-INF/maven/**")

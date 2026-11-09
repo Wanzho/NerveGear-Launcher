@@ -33,7 +33,7 @@ class SaoPackEngineTest {
             awaitCheck(engine);
             assertEquals(SaoPackState.NOT_INSTALLED, engine.state().get());
             IOException failure = assertThrows(IOException.class, engine::requireSource);
-            assertTrue(failure.getMessage().contains("-PsaoPack"));
+            assertEquals("请把在夸克里下载的模组文件拖进来", failure.getMessage());
             assertNull(engine.installedVersion().get());
         }
     }

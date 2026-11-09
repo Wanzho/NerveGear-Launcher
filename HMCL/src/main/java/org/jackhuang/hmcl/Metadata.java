@@ -25,16 +25,16 @@ import org.jetbrains.annotations.Nullable;
 
 import java.nio.file.Path;
 
-/// Product identity and isolated storage for SAO Oath Launcher; HMCL names remain internal API aliases.
+/// Product identity for NerveGear Launcher; storage names remain pinned for existing installations.
 @NotNullByDefault
 public final class Metadata {
     /// Prevents construction.
     private Metadata() { }
 
     /// Localized product name, distinct from the upstream launcher.
-    public static final String NAME = "刀剑神域·誓约 启动器";
+    public static final String NAME = "NerveGear启动器";
     /// English product name.
-    public static final String FULL_NAME = "SAO Oath Launcher";
+    public static final String FULL_NAME = "NerveGear Launcher";
     /// Independent launcher version; pack versions are tracked separately.
     public static final String VERSION = JarUtils.getAttribute("hmcl.version", "0.1.0");
     /// Windows taskbar identity owned by this fork.

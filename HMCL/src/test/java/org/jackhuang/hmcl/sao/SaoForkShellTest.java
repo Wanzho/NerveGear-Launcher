@@ -23,8 +23,9 @@ final class SaoForkShellTest {
     /// Default storage and runtime caches belong to the fork, independently of the process directory.
     @Test
     void forkOwnsItsDataAndIdentity() {
-        assertEquals("刀剑神域·誓约 启动器", Metadata.NAME);
-        assertEquals("SAO Oath Launcher", Metadata.FULL_NAME);
+        assertEquals("NerveGear启动器", Metadata.NAME);
+        assertEquals("NerveGear Launcher", Metadata.FULL_NAME);
+        assertEquals("NerveGear Launcher v" + Metadata.VERSION, Metadata.FULL_TITLE);
         assertEquals("0.1.0", Metadata.VERSION);
         assertEquals("org.saooath.launcher", Metadata.WINDOWS_APP_USER_MODEL_ID);
         assertEquals(".sao-oath-launcher", Metadata.HMCL_LOCAL_HOME.getFileName().toString());

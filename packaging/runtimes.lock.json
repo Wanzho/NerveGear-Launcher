@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "vendor": "BellSoft Liberica Full",
+  "version": "21.0.10+10",
+  "javafx_version": "21.0.10",
+  "source": "https://api.github.com/repos/bell-sw/Liberica/releases/tags/21.0.10%2B10",
+  "targets": {
+    "macos-arm64": {
+      "filename": "bellsoft-jdk21.0.10+10-macos-aarch64-full.tar.gz",
+      "url": "https://github.com/bell-sw/Liberica/releases/download/21.0.10%2B10/bellsoft-jdk21.0.10%2B10-macos-aarch64-full.tar.gz",
+      "sha256": "8eafd40f0996c3b5c2ab31fa75a767c10aa36f51757e5984e7de47d54dd92daf",
+      "size": 318340621
+    },
+    "macos-x64": {
+      "filename": "bellsoft-jdk21.0.10+10-macos-amd64-full.tar.gz",
+      "url": "https://github.com/bell-sw/Liberica/releases/download/21.0.10%2B10/bellsoft-jdk21.0.10%2B10-macos-amd64-full.tar.gz",
+      "sha256": "85a33f93611aee538abb70ba1a5078c765101fa7b6d42a4c1a4221ad0644c861",
+      "size": 327860175
+    },
+    "windows-x64": {
+      "filename": "bellsoft-jdk21.0.10+10-windows-amd64-full.zip",
+      "url": "https://github.com/bell-sw/Liberica/releases/download/21.0.10%2B10/bellsoft-jdk21.0.10%2B10-windows-amd64-full.zip",
+      "sha256": "18f6cc3052021ea6fee96dfb95f973e09322a3abf3fb8a13d673bc8492ff5a27",
+      "size": 312400018
+    },
+    "linux-x64": {
+      "filename": "bellsoft-jdk21.0.10+10-linux-amd64-full.tar.gz",
+      "url": "https://github.com/bell-sw/Liberica/releases/download/21.0.10%2B10/bellsoft-jdk21.0.10%2B10-linux-amd64-full.tar.gz",
+      "sha256": "e4b75d5182dce8abca78067134813ad3292a081f761c419a1490a377f616f287",
+      "size": 368375468
+    }
+  }
+}

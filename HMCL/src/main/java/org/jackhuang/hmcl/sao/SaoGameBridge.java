@@ -5,6 +5,7 @@
  */
 package org.jackhuang.hmcl.sao;
 
+import org.jackhuang.hmcl.Metadata;
 import org.jackhuang.hmcl.auth.Account;
 import org.jackhuang.hmcl.auth.AuthInfo;
 import org.jackhuang.hmcl.auth.microsoft.MicrosoftAccount;
@@ -22,7 +23,6 @@ import org.jackhuang.hmcl.java.JavaInfoUtils;
 import org.jackhuang.hmcl.java.JavaRuntime;
 import org.jackhuang.hmcl.launch.ProcessListener;
 import org.jackhuang.hmcl.setting.DownloadSource;
-import org.jackhuang.hmcl.task.FileDownloadTask;
 import org.jackhuang.hmcl.task.Task;
 import org.jackhuang.hmcl.task.TaskListener;
 import org.jetbrains.annotations.Unmodifiable;
@@ -62,6 +62,10 @@ final class SaoGameBridge {
     private BiConsumer<Task<?>, Boolean> taskObserver = (task, done) -> { };
     /// Owns task start/cancel ordering, including shutdown races before a graph starts.
     private final SaoTaskRunner taskRunner = new SaoTaskRunner();
+    /// Independent bounded pack transfers avoid sharing the single Minecraft task-graph owner.
+    private final SaoModDownloads modDownloads;
+    /// Detailed operation callback, replaced by the engine before any install starts.
+    private java.util.function.Consumer<SaoInstallProgress> installProgress = snapshot -> { };
 
 
     /// Creates the bridge without network, toolkit startup, account login or game launch.
@@ -73,6 +77,7 @@ final class SaoGameBridge {
         DownloadSource source = org.jackhuang.hmcl.util.i18n.LocaleUtils.IS_CHINA_MAINLAND ? DownloadSource.MIRROR : DownloadSource.DEFAULT;
         provider.setFileSource(source);
         provider.setVersionListSource(source);
+        modDownloads = new SaoModDownloads(provider, snapshot -> installProgress.accept(snapshot));
         dependencies = new DefaultDependencyManager(repository, provider, new DefaultCacheRepository(root.resolve("dependencies")));
     }
 
@@ -111,7 +116,7 @@ final class SaoGameBridge {
         repository.refresh();
         @Nullable DefaultGameInstance installed = repository.getSnapshot().findInstance(INSTANCE_ID);
         if (installed == null) {
-            progress.accept("安装 Minecraft 1.20.1 / NeoForge 47.1.106", -1.0);
+            progress.accept("下载 Minecraft 1.20.1", -1.0);
             // Supplying the exact remote avoids accepting another loader or version-list ambiguity.
             NeoForgeRemoteVersion loader = new NeoForgeRemoteVersion(GameVersionNumber.asGameVersion(SaoPackManifest.MINECRAFT),
                     SaoPackManifest.NEOFORGE, "1.20.1-47.1.106",
@@ -129,16 +134,14 @@ final class SaoGameBridge {
 
     /// Downloads pack dependencies through HMCL's mirror and checksum-aware transfer code.
     void download(SaoPackManifest.PackFile file, Path destination) throws Exception {
-        // Full distribution builds carry external Modrinth dependencies as content-addressed resources.
-        try (@Nullable java.io.InputStream bundled = SaoGameBridge.class.getResourceAsStream("/assets/sao/files/" + file.sha1())) {
-            if (bundled != null) {
-                Files.copy(bundled, destination, StandardCopyOption.REPLACE_EXISTING);
-                return;
-            }
-        }
-        runTask(new FileDownloadTask(provider.getDownloadCandidates(file.downloads()), destination,
-                new FileDownloadTask.IntegrityCheck("SHA-1", file.sha1())));
+        modDownloads.download(file, destination);
     }
+
+    /// Downloads the exact missing remote inventory with six workers and checksum-verified publication.
+    void downloadAll(Map<SaoPackManifest.PackFile, Path> files) throws Exception { modDownloads.downloadAll(files); }
+
+    /// Connects detailed install snapshots before worker operations begin.
+    void observeInstallProgress(java.util.function.Consumer<SaoInstallProgress> observer) { installProgress = observer; }
 
     /// Authenticates an existing supported HMCL account, starts the fixed instance and hands off stdin once.
     /// Password ownership transfers to this method; it is wiped even when authentication or process creation fails.
@@ -186,6 +189,9 @@ final class SaoGameBridge {
 
     /// Builds the production launch plan using the same memory, runtime, window and JVM settings in both modes.
     /// Offline identities must be plain HMCL accounts without a custom skin, preventing injector/API side effects.
+    /// The version name is the storage id: NeoForge expands it in `ignoreList` to exclude the primary client jar.
+    /// Pack release labels remain presentation metadata and must not participate in jar resolution.
+    /// Minecraft's launcher profile and version type use the product title; account identity remains in AuthInfo.
     static LaunchPlan launchPlan(Account account, SaoPackManifest manifest, int memoryMiB, SaoData.GameWindow window,
                                  String jvmArgs, JavaRuntime runtime, Path instance, boolean offline) throws Exception {
         if (offline && (account.getClass() != OfflineAccount.class || ((OfflineAccount) account).getSkin() != null))
@@ -193,8 +199,8 @@ final class SaoGameBridge {
         AuthInfo auth = account.logIn();
         LaunchOptions.Builder options = new LaunchOptions.Builder().setInstanceId(INSTANCE_ID)
                 .setGameDir(instance).setJava(runtime).setMaxMemory(memoryMiB)
-                .setVersionName("SAO Oath " + manifest.version()).setVersionType("SAO Oath")
-                .setProfileName(account.getProfileName()).setDisableAutoGameOptions(true)
+                .setVersionName(INSTANCE_ID.toString()).setVersionType(Metadata.TITLE)
+                .setProfileName(Metadata.TITLE).setDisableAutoGameOptions(true)
                 .setWidth(window.width()).setHeight(window.height()).setFullscreen(window.fullscreen())
                 .setJavaArguments(org.jackhuang.hmcl.util.StringUtils.tokenize(jvmArgs));
         String server = offline ? "" : manifest.server().isEmpty() && account instanceof SaoOathLaunchAccount
@@ -307,7 +313,7 @@ final class SaoGameBridge {
     void observeTasks(BiConsumer<Task<?>, Boolean> observer) { taskObserver = observer; }
 
     /// Cancels a graph still running when the launcher is closed.
-    void close() { taskRunner.close(); }
+    void close() { modDownloads.close(); taskRunner.close(); }
 
     /// Runs HMCL's complete task graph, including pre/post execution, and propagates failures to the engine.
     <T> @Nullable T runTask(Task<T> task) throws Exception {
@@ -315,6 +321,12 @@ final class SaoGameBridge {
         TaskListener observer = new TaskListener() {
             /// Observes actual progress changes from each HMCL task, without creating fake transfer records.
             @Override public void onRunning(Task<?> running) {
+                @Nullable String stage = running.getStage() != null ? running.getStage() : running.getInheritedStage();
+                if (stage != null && stage.startsWith("hmcl.install.")) {
+                    if (stage.contains("neoforge")) progress.accept("安装 NeoForge " + SaoPackManifest.NEOFORGE, -1.0);
+                    else if (stage.contains("game") || stage.contains("assets") || stage.contains("libraries"))
+                        progress.accept("下载 Minecraft " + SaoPackManifest.MINECRAFT, -1.0);
+                }
                 if (!(running instanceof org.jackhuang.hmcl.task.FetchTask)) return;
                 javafx.beans.value.ChangeListener<Number> listener = (observable, oldValue, newValue) -> taskObserver.accept(running, false);
                 listeners.put(running, listener); running.progressProperty().addListener(listener);

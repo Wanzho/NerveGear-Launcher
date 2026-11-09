@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd" xmlns="http://maven.apache.org/POM/4.0.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>org.glavo</groupId>
+  <artifactId>uuid-tools</artifactId>
+  <version>0.2.0</version>
+  <name>uuid-tools</name>
+  <description>A lightweight Java UUID utility library for generating, parsing, formatting, and comparing UUIDs.</description>
+  <url>https://github.com/Glavo/uuid-tools</url>
+  <licenses>
+    <license>
+      <name>Mozilla Public License 2.0</name>
+      <url>https://www.mozilla.org/en-US/MPL/2.0/</url>
+    </license>
+  </licenses>
+  <developers>
+    <developer>
+      <id>Glavo</id>
+      <name>Glavo</name>
+      <email>zjx001202@gmail.com</email>
+    </developer>
+  </developers>
+  <scm>
+    <url>https://github.com/Glavo/uuid-tools</url>
+  </scm>
+</project>
