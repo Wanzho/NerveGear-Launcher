@@ -11,11 +11,9 @@ import org.jackhuang.hmcl.sao.SaoLauncherService;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 
-import java.lang.reflect.Method;
 import java.nio.file.Path;
 import java.time.LocalTime;
 import java.util.Objects;
-import java.util.concurrent.CompletionStage;
 
 import static org.jackhuang.hmcl.util.logging.Logger.LOG;
 
@@ -114,29 +112,21 @@ public final class SaoDialogs {
         return "data:text/css;charset=UTF-8;base64," + java.util.Base64.getEncoder().encodeToString(css.getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
 
-    /// HOOK for 一键反馈 on the crash card: calls the engine's `buildFeedbackZip()` when the service has it (the
-    /// backend adds it on sao/backend; nothing here needs changing when it lands), then shows the zip.
+    /// 一键反馈 on the crash card: the engine's `buildFeedbackZip()`, then the zip shown in the file manager.
     ///
-    /// @param s the engine
-    /// @return true when the engine has the method
-    static boolean feedbackAvailable(SaoLauncherService s) {
-        return feedbackMethod(s) != null;
-    }
-
-    /// HOOK: builds the feedback zip (logs and crash report in one package) and shows it in the file manager.
-    ///
-    /// @param s the engine
-    static void feedback(SaoLauncherService s) {
-        @Nullable Method m = feedbackMethod(s);
-        if (m == null) return;
-        try {
-            Object r = m.invoke(s);
-            if (r instanceof CompletionStage<?> stage)
-                stage.thenAccept(p -> javafx.application.Platform.runLater(() -> show(s, p)));
-            else show(s, r);
-        } catch (ReflectiveOperationException e) {
-            LOG.warning("SAO: feedback zip failed", e);
-        }
+    /// @param s    the engine
+    /// @param done gets null when the zip is there, else the reason it failed (on the FX thread)
+    static void feedback(SaoLauncherService s, java.util.function.Consumer<@Nullable String> done) {
+        s.buildFeedbackZip().whenComplete((zip, err) -> javafx.application.Platform.runLater(() -> {
+            if (err == null) {
+                show(s, zip);
+                done.accept(null);
+                return;
+            }
+            Throwable t = err instanceof java.util.concurrent.CompletionException && err.getCause() != null ? err.getCause() : err;
+            LOG.warning("SAO: feedback zip failed", t);
+            done.accept(t.getMessage() != null && !t.getMessage().isBlank() ? t.getMessage() : t.getClass().getSimpleName());
+        }));
     }
 
     /// Reveals the backend's committed feedback archive while retaining the older path-only service seam.
@@ -144,13 +134,5 @@ public final class SaoDialogs {
         if (result instanceof org.jackhuang.hmcl.sao.SaoData.FeedbackZip zip)
             org.jackhuang.hmcl.ui.FXUtils.showFileInExplorer(zip.path());
         else if (result instanceof Path p) s.openFile(p);
-    }
-
-    private static @Nullable Method feedbackMethod(SaoLauncherService s) {
-        try {
-            return s.getClass().getMethod("buildFeedbackZip");
-        } catch (NoSuchMethodException e) {
-            return null;
-        }
     }
 }

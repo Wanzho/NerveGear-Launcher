@@ -24,10 +24,12 @@ import org.jackhuang.hmcl.sao.SaoPackState;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 
+import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -64,6 +66,9 @@ public final class SaoFakeService implements SaoLauncherService {
     /// @param label    the step label
     /// @param err      the error, or null
     public void force(SaoPackState s, double p, String label, @Nullable String err) {
+        // A pretend pack is installed in every state but NOT_INSTALLED.
+        if (s == SaoPackState.NOT_INSTALLED) installed.set(null);
+        else if (installed.get() == null) installed.set("0.8");
         state.set(s);
         progress.set(p);
         step.set(label);
@@ -151,6 +156,81 @@ public final class SaoFakeService implements SaoLauncherService {
     /// {@inheritDoc}
     @Override
     public void applyUpdateZip(Path zip) {
+    }
+
+    // ---------------------------------------------------------------- updates (wire1, 10 Nov): pretend backend states
+
+    private final SimpleObjectProperty<SaoData.UpdateStatus> updates = new SimpleObjectProperty<>(
+            new SaoData.UpdateStatus(null, false, false, false, ""));
+    private final SimpleObjectProperty<SaoData.DownloadPrompt> prompt = new SimpleObjectProperty<>(
+            new SaoData.DownloadPrompt(false, null, ""));
+    private final SimpleObjectProperty<SaoData.LauncherUpdate> launcherUpdate = new SimpleObjectProperty<>(
+            new SaoData.LauncherUpdate("", false, ""));
+    private final SimpleObjectProperty<org.jackhuang.hmcl.sao.SaoInstallProgress> install = new SimpleObjectProperty<>(
+            org.jackhuang.hmcl.sao.SaoInstallProgress.phase(org.jackhuang.hmcl.sao.SaoInstallProgress.Stage.IDLE, ""));
+    /// What the next drop does: null finishes it, a text fails it with that text, "pending" never finishes.
+    @Nullable String dropOutcome;
+    /// The pending drop, when [#dropOutcome] is "pending".
+    @Nullable CompletableFuture<Void> pendingDrop;
+    /// The files dropped so far (tools read it).
+    final List<List<Path>> drops = new ArrayList<>();
+    /// Links opened (Quark), so nothing reaches a browser.
+    final List<String> opened = new ArrayList<>();
+
+    /// Pretend release metadata: pack 0.8.2 via 0.8.1, launcher latest/min.
+    static SaoData.VersionMetadata meta(String pack, String launcherLatest, String launcherMin, boolean jar) {
+        return new SaoData.VersionMetadata(2, "https://pan.quark.cn/s/1a81ea41915c",
+                new SaoData.PackRelease(pack, "SAO OATH" + pack + ".zip", 1, "0".repeat(64)),
+                List.of(new SaoData.QuickRelease("0.8", "0.8.1", "SAO-0.8-to-0.8.1.zip", 1, "0".repeat(64)),
+                        new SaoData.QuickRelease("0.8.1", "0.8.2", "SAO-0.8.1-to-0.8.2.zip", 1, "0".repeat(64))),
+                new SaoData.LauncherRelease(launcherLatest, launcherMin, jar ? new SaoData.LauncherArtifact(
+                        "NerveGear-Launcher-" + launcherLatest + ".jar", 1, "0".repeat(64)) : null, false));
+    }
+
+    /// Sets the update states directly (screenshots).
+    public void forceUpdates(SaoData.UpdateStatus u, SaoData.DownloadPrompt p, SaoData.LauncherUpdate l) {
+        updates.set(u);
+        prompt.set(p);
+        launcherUpdate.set(l);
+    }
+
+    /// Sets the installed version directly.
+    public void forceInstalled(@Nullable String v) {
+        installed.set(v);
+    }
+
+    /// Sets the measured install snapshot directly.
+    public void forceInstall(org.jackhuang.hmcl.sao.SaoInstallProgress p) {
+        install.set(p);
+    }
+
+    @Override public ReadOnlyObjectProperty<SaoData.UpdateStatus> updateStatus() { return updates; }
+    @Override public ReadOnlyObjectProperty<SaoData.DownloadPrompt> downloadPrompt() { return prompt; }
+    @Override public ReadOnlyObjectProperty<SaoData.LauncherUpdate> launcherUpdate() { return launcherUpdate; }
+    @Override public ReadOnlyObjectProperty<org.jackhuang.hmcl.sao.SaoInstallProgress> installProgress() { return install; }
+    @Override public void openPackDownload() { opened.add("pack"); }
+    @Override public void openLauncherDownload() { opened.add("launcher"); }
+    @Override public void watchPackDownload() {
+        SaoData.DownloadPrompt p = prompt.get();
+        prompt.set(new SaoData.DownloadPrompt(true, p.candidate(), p.message(), p.required(), p.present(), p.missing(), p.fullPackRequired()));
+    }
+    @Override public void cancelPackDownload() {
+        SaoData.DownloadPrompt p = prompt.get();
+        prompt.set(new SaoData.DownloadPrompt(false, null, p.message(), p.required(), List.of(), p.required(), p.fullPackRequired()));
+    }
+    @Override public void dismissLauncherUpdate() {
+        SaoData.UpdateStatus u = updates.get();
+        updates.set(new SaoData.UpdateStatus(u.metadata(), u.packUpdateAvailable(), u.launcherBlocked(), false, u.launcherBlocked() ? u.message() : ""));
+    }
+    @Override public CompletableFuture<Void> acceptDroppedFiles(List<Path> paths) {
+        drops.add(List.copyOf(paths));
+        if ("pending".equals(dropOutcome)) return pendingDrop = new CompletableFuture<>();
+        if (dropOutcome != null) {
+            error.set(dropOutcome);
+            return CompletableFuture.failedFuture(new IOException(dropOutcome));
+        }
+        error.set(null);
+        return CompletableFuture.completedFuture(null);
     }
 
     /// {@inheritDoc}
@@ -285,7 +365,7 @@ public final class SaoFakeService implements SaoLauncherService {
                         shots.add(f);
                     }
                 }
-            } catch (java.io.IOException ignored) {
+            } catch (IOException ignored) {
                 // No shots then.
             }
         }
@@ -349,7 +429,7 @@ public final class SaoFakeService implements SaoLauncherService {
     /// @param n how many
     void forceFriends(int n) {
         String[] names = {"Asuna", "Klein", "Agil", "Silica", "Lisbeth", "Leafa", "Sinon", "Yui", "Eugeo", "Alice"};
-        List<String> online = new java.util.ArrayList<>();
+        List<String> online = new ArrayList<>();
         for (int i = 0; i < n; i++) online.add(i < names.length ? names[i] : "Player" + (i + 1));
         SaoData.PlayerCard c = card.get();
         card.set(new SaoData.PlayerCard(24, 1, 12_400, c == null ? System.currentTimeMillis() - 20 * 3600_000L : c.lastPlayed(),
@@ -439,7 +519,7 @@ public final class SaoFakeService implements SaoLauncherService {
     @Override
     public CompletableFuture<String> createGroup(String title, List<String> members) {
         String id = "g-" + System.nanoTime();
-        List<String> all = new java.util.ArrayList<>(members);
+        List<String> all = new ArrayList<>(members);
         all.add(0, "Kirito_07");
         chats.add(0, new SaoData.Chat(id, title, true, all, 0, "", System.currentTimeMillis()));
         return CompletableFuture.completedFuture(id);
@@ -615,7 +695,7 @@ public final class SaoFakeService implements SaoLauncherService {
             SaoData.SavedSkin k = new SaoData.SavedSkin(name, f, slim, System.currentTimeMillis());
             library.add(0, k);
             return k;
-        } catch (java.io.IOException e) {
+        } catch (IOException e) {
             throw new IllegalArgumentException(e);
         }
     }

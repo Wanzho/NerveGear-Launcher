@@ -84,6 +84,7 @@ public final class SaoScreenShotTool {
         System.out.println("About links OK: " + opened);
         checkThemes();
         shootDialogs(base);
+        shootWire(base);
         // Every shot twice: 浅色 into the folder, 深色 (James, 9 Nov) into dark/.
         for (boolean dark : new boolean[]{false, true})
         for (int[] size : sizes) {
@@ -569,5 +570,149 @@ public final class SaoScreenShotTool {
             updateProgress(progress);
             Thread.sleep(120_000);
         }
+    }
+
+    /// wire1 (10 Nov): the backend's pack, quick-update, launcher and progress states through the real screens, each
+    /// in 浅色 and 深色, 1920 × 1080, into `wire/`. The fake stands in for the backend; nothing installs, downloads
+    /// or opens a browser.
+    private static void shootWire(Path base) throws Exception {
+        Path out = base.resolve("wire");
+        Files.createDirectories(out);
+        String first = "请把在夸克里下载的模组文件拖进来";
+        Path cand = Path.of(System.getProperty("user.home"), "Downloads", "SAO OATH0.8.2.zip");
+        for (boolean dark : new boolean[]{false, true}) {
+            String tag = dark ? "dark-" : "light-";
+            System.setProperty("sao.windowButtons", "left");
+            SaoFakeService fake = new SaoFakeService();
+            fake.setPreference("theme", dark ? "dark" : "light");
+            org.jackhuang.hmcl.sao.SaoLauncherService svc = org.jackhuang.hmcl.sao.SaoExtrasSamples.decorate(fake);
+            SaoHelmetPage[] page = new SaoHelmetPage[1];
+            Scene[] scene = new Scene[1];
+            fx(() -> {
+                fake.forceOath(true);
+                page[0] = new SaoHelmetPage(svc);
+                scene[0] = new Scene(page[0], 1920, 1080);
+            });
+            Thread.sleep(2500);
+            fx(() -> scene[0].snapshot(null));
+            Thread.sleep(600);
+            var noMeta = new org.jackhuang.hmcl.sao.SaoData.UpdateStatus(null, false, false, false, "");
+            var noLauncher = new org.jackhuang.hmcl.sao.SaoData.LauncherUpdate("", false, "");
+            var meta82 = SaoFakeService.meta("0.8.2", "0.1.0", "0.1.0", false);
+            var idle = org.jackhuang.hmcl.sao.SaoInstallProgress.phase(org.jackhuang.hmcl.sao.SaoInstallProgress.Stage.IDLE, "");
+
+            // 1-4: first run, a Downloads find, checking a drop, a drop that failed.
+            Object[][] packShots = {
+                    {"01-first-run", null, null},
+                    {"02-candidate-found", cand, null},
+                    {"03-verifying", cand, "pending"},
+                    {"04-verify-failed", null, "文件不完整或不是这个版本，请重新下载"}};
+            for (Object[] ps : packShots) {
+                fx(() -> {
+                    page[0].forceApp(-1);
+                    fake.force(org.jackhuang.hmcl.sao.SaoPackState.NOT_INSTALLED, -1, "", null);
+                    fake.forceInstall(idle);
+                    fake.forceUpdates(new org.jackhuang.hmcl.sao.SaoData.UpdateStatus(meta82, true, false, false, ""),
+                            new org.jackhuang.hmcl.sao.SaoData.DownloadPrompt(true, (Path) ps[1], first, java.util.List.of(),
+                                    java.util.List.of(), java.util.List.of(), true), noLauncher);
+                    fake.dropOutcome = (String) ps[2];
+                });
+                Thread.sleep(300);
+                fx(() -> page[0].openPack(SaoPackApp.Mode.PACK));
+                Thread.sleep(900);
+                if (ps[2] != null) fx(() -> SaoPackApp.accept(svc, java.util.List.of(cand)));
+                wireShot(scene[0], out.resolve(tag + ps[0] + ".png"));
+                if (fake.pendingDrop != null) fx(() -> {
+                    fake.pendingDrop.complete(null);
+                    fake.pendingDrop = null;
+                });
+            }
+            // 5: quick updates, [0.8.1] in, [0.8.2] and [0.8.3] still missing.
+            fx(() -> {
+                page[0].forceApp(-1);
+                fake.dropOutcome = null;
+                fake.force(org.jackhuang.hmcl.sao.SaoPackState.READY, 1, "", null);
+                fake.forceInstalled("0.8");
+                fake.forceUpdates(new org.jackhuang.hmcl.sao.SaoData.UpdateStatus(SaoFakeService.meta("0.8.3", "0.1.0", "0.1.0", false), true, false, false, ""),
+                        new org.jackhuang.hmcl.sao.SaoData.DownloadPrompt(true, null, "请把 [0.8.2] 和 [0.8.3] 的快速更新包拖进来",
+                                java.util.List.of("0.8.1", "0.8.2", "0.8.3"), java.util.List.of("0.8.1"), java.util.List.of("0.8.2", "0.8.3"), false),
+                        noLauncher);
+            });
+            wireShot(scene[0], out.resolve(tag + "05-home-pack-update.png"));
+            fx(() -> page[0].openPack(SaoPackApp.Mode.PACK));
+            Thread.sleep(900);
+            fx(() -> fake.forceUpdates(fake.updateStatus().get(), new org.jackhuang.hmcl.sao.SaoData.DownloadPrompt(true, null,
+                    "请把 [0.8.2] 和 [0.8.3] 的快速更新包拖进来", java.util.List.of("0.8.1", "0.8.2", "0.8.3"),
+                    java.util.List.of("0.8.1"), java.util.List.of("0.8.2", "0.8.3"), false), noLauncher));
+            wireShot(scene[0], out.resolve(tag + "06-quick-update-1-of-3.png"));
+            // 7-8: launcher below the minimum: the home row, then Link Start pressed (the gate's window, display on).
+            var blockedMeta = SaoFakeService.meta("0.8.2", "0.1.1", "0.1.1", true);
+            fx(() -> {
+                page[0].forceApp(-1);
+                fake.forceInstalled("0.8.2");
+                fake.forceUpdates(new org.jackhuang.hmcl.sao.SaoData.UpdateStatus(blockedMeta, false, true, true,
+                        "启动器版本过低，请先从夸克下载完整启动器后再 Link Start（最低版本 0.1.1）"),
+                        new org.jackhuang.hmcl.sao.SaoData.DownloadPrompt(false, null, ""), noLauncher);
+            });
+            wireShot(scene[0], out.resolve(tag + "07-launcher-blocked-home.png"));
+            fx(() -> page[0].forceLinkStart());
+            Thread.sleep(600);
+            wireShot(scene[0], out.resolve(tag + "08-launcher-blocked-link-start.png"));
+            fx(() -> System.out.println("blocked Link Start: state " + fake.state().get() + ", display on " + page[0].isAwakeForTools()));
+            // 9: an optional newer launcher with a JAR; 10: the verified JAR waiting for a restart.
+            fx(() -> {
+                page[0].forceApp(-1);
+                fake.forceUpdates(new org.jackhuang.hmcl.sao.SaoData.UpdateStatus(SaoFakeService.meta("0.8.2", "0.1.1", "0.1.0", true), false, false, true,
+                        "请把 [NerveGear启动器 0.1.1] 的更新包拖进来"), new org.jackhuang.hmcl.sao.SaoData.DownloadPrompt(false, null, ""), noLauncher);
+                page[0].openPack(SaoPackApp.Mode.LAUNCHER);
+            });
+            wireShot(scene[0], out.resolve(tag + "09-launcher-update-optional.png"));
+            fx(() -> {
+                page[0].forceApp(-1);
+                fake.forceUpdates(new org.jackhuang.hmcl.sao.SaoData.UpdateStatus(SaoFakeService.meta("0.8.2", "0.1.1", "0.1.0", true), false, false, false, ""),
+                        new org.jackhuang.hmcl.sao.SaoData.DownloadPrompt(false, null, ""),
+                        new org.jackhuang.hmcl.sao.SaoData.LauncherUpdate("0.1.1", true, "启动器更新已校验，重新打开启动器后生效"));
+                page[0].openPack(SaoPackApp.Mode.LAUNCHER);
+            });
+            wireShot(scene[0], out.resolve(tag + "10-self-update-ready.png"));
+            // 11-12: downloading mods 37/178 with measured bytes and speed: the Link row, then 下载 with one failure.
+            fx(() -> {
+                page[0].forceApp(-1);
+                fake.forceUpdates(noMeta, new org.jackhuang.hmcl.sao.SaoData.DownloadPrompt(false, null, ""), noLauncher);
+                fake.force(org.jackhuang.hmcl.sao.SaoPackState.WORKING, 37 / 178.0, "下载模组 37/178", null);
+                fake.forceInstall(new org.jackhuang.hmcl.sao.SaoInstallProgress(org.jackhuang.hmcl.sao.SaoInstallProgress.Stage.DOWNLOAD_MODS,
+                        "下载模组 37/178", 37, 178, 412L << 20, 1946L << 20, 430L << 20, 6.3 * (1 << 20), java.util.List.of(
+                        new org.jackhuang.hmcl.sao.SaoInstallProgress.Failure("mods/example-mod-1.2.jar", java.util.List.of(
+                                new org.jackhuang.hmcl.sao.SaoInstallProgress.Attempt("https://mod.mcimirror.top/x", "mod.mcimirror.top", 404),
+                                new org.jackhuang.hmcl.sao.SaoInstallProgress.Attempt("https://cdn.modrinth.com/x", "cdn.modrinth.com", 0)),
+                                "校验失败"))));
+            });
+            wireShot(scene[0], out.resolve(tag + "11-downloading-37-of-178.png"));
+            fx(() -> page[0].forceApp(9));
+            Thread.sleep(500);
+            wireShot(scene[0], out.resolve(tag + "12-downloads-window.png"));
+            // 13: 关于 with QQ群 from links(); 14: 设置 with 画质 and 游戏启动后.
+            fx(() -> {
+                page[0].forceApp(-1);
+                fake.forceInstall(idle);
+                fake.force(org.jackhuang.hmcl.sao.SaoPackState.READY, 1, "", null);
+                page[0].forceApp(10);
+            });
+            wireShot(scene[0], out.resolve(tag + "13-about-qq.png"));
+            fx(() -> page[0].forceApp(0));
+            wireShot(scene[0], out.resolve(tag + "14-settings.png"));
+            fx(() -> page[0].forceApp(-1));
+            System.out.println("wire " + tag + "drops " + fake.drops.size() + ", opened " + fake.opened);
+        }
+    }
+
+    /// Waits for the windows to settle and writes one wire shot (Simplified glyphs are patched for every shot).
+    private static void wireShot(Scene scene, Path file) throws Exception {
+        Thread.sleep(1300);
+        if (!SaoCjkFont.active()) throw new IllegalStateException("Simplified font patch lost before " + file);
+        WritableImage[] im = new WritableImage[1];
+        fx(() -> im[0] = scene.snapshot(null));
+        write(im[0], file);
+        System.out.println("wire shot: " + file.getFileName());
     }
 }

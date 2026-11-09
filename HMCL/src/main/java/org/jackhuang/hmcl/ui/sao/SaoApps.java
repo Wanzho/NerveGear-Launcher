@@ -274,10 +274,46 @@ final class SaoApps {
         where.setWrappingWidth(318);
         Button uninstall = button("一键卸载");
         uninstall.getStyleClass().add("vr-danger");
+
+        // 画质 (James approved: "除了可选模组外全做"): the backend writes the game's settings at the next safe launch.
+        ToggleGroup presets = new ToggleGroup();
+        HBox presetRow = new HBox(6);
+        String[][] presetNames = {{"AUTO", "自动"}, {"FAST", "流畅"}, {"BALANCED", "均衡"}, {"QUALITY", "画质"}};
+        for (String[] pn : presetNames) {
+            SaoData.GraphicsPreset gp = SaoData.GraphicsPreset.valueOf(pn[0]);
+            ToggleButton c = chip(pn[1], presets);
+            c.getStyleClass().add("vr-chip-tight");
+            c.setSelected(s.graphicsPreset() == gp);
+            c.setOnAction(e -> s.setGraphicsPreset(gp));
+            presetRow.getChildren().add(c);
+        }
+        keepOne(presets);
+        Text suggested = dim("", 11.5);
+        s.suggestedGraphicsPreset().whenComplete((gp, err) -> javafx.application.Platform.runLater(() -> {
+            if (err == null && gp != null) for (String[] pn : presetNames)
+                if (pn[0].equals(gp.name()) && gp != SaoData.GraphicsPreset.AUTO) suggested.setText("推荐 " + pn[1]);
+        }));
+        // 游戏启动后: what the launcher does while the game runs.
+        ToggleGroup behaviours = new ToggleGroup();
+        HBox behaviourRow = new HBox(6);
+        String[][] behaviourNames = {{"HIDE", "隐藏到后台"}, {"KEEP", "保持打开"}, {"CLOSE", "直接关闭"}};
+        for (String[] bn : behaviourNames) {
+            SaoData.LauncherBehavior lb = SaoData.LauncherBehavior.valueOf(bn[0]);
+            ToggleButton c = chip(bn[1], behaviours);
+            c.getStyleClass().add("vr-chip-tight");
+            c.setSelected(s.launcherBehavior() == lb);
+            c.setOnAction(e -> s.setLauncherBehavior(lb));
+            behaviourRow.getChildren().add(c);
+        }
+        keepOne(behaviours);
+        @Nullable String installedPack = s.installedVersion().get();
         VBox right = column(318,
+                row(key("画质"), suggested), presetRow,
+                key("游戏启动后"), behaviourRow,
+                rule(),
                 key("启动参数（高级）"), jvm,
                 rule(),
-                key("整合包 v" + s.embeddedVersion()),
+                key(installedPack != null ? "整合包 v" + installedPack : "整合包 · 未安装"),
                 new HBox(8, repair, folder),
                 rule(),
                 uninstall,
@@ -584,10 +620,22 @@ final class SaoApps {
             // 一键反馈: logs and the crash report in one package for the QQ group, through the engine's
             // buildFeedbackZip() once it is there (SaoDialogs.feedback is the hook); hidden until then.
             Button feedback = SaoUiKit.accent("一键反馈");
-            feedback.setOnAction(e -> SaoDialogs.feedback(s));
-            feedback.setVisible(SaoDialogs.feedbackAvailable(s));
-            feedback.setManaged(feedback.isVisible());
-            HBox h = tile(icon(SVG.WARNING, 26), new VBox(3, key("崩溃原因"), why, detail), grow(), feedback, report);
+            Text packed = dim("", 11.5);
+            packed.setWrappingWidth(430);
+            feedback.setOnAction(e -> {
+                feedback.setDisable(true);
+                packed.getStyleClass().setAll("vr-dim");
+                packed.setText("打包中");
+                SaoDialogs.feedback(s, err -> {
+                    feedback.setDisable(false);
+                    if (err == null) packed.setText("已打包");
+                    else {
+                        packed.getStyleClass().setAll("vr-warn");
+                        packed.setText("! 打包失败 · " + err);
+                    }
+                });
+            });
+            HBox h = tile(icon(SVG.WARNING, 26), new VBox(3, key("崩溃原因"), why, detail, packed), grow(), feedback, report);
             h.getStyleClass().add("vr-tile-warn");
             crashBox.getChildren().add(h);
         });
@@ -687,7 +735,40 @@ final class SaoApps {
             HBox.setHgrow(mid, Priority.ALWAYS);
             return tile(icon(t.done() ? SVG.CHECK_CIRCLE : SVG.DOWNLOAD, 22), mid, pct);
         }, empty(SVG.DOWNLOAD, "现在没有下载任务"));
-        return new SaoFloatWindow("下载", W, H, close).add(scroll(list));
+        // The backend's measured install snapshot on top: stage, verified counts, bytes, real speed, every failure.
+        VBox summary = new VBox(6);
+        Runnable sum = () -> {
+            org.jackhuang.hmcl.sao.SaoInstallProgress ip = s.installProgress().get();
+            summary.getChildren().clear();
+            if (ip.stage() == org.jackhuang.hmcl.sao.SaoInstallProgress.Stage.IDLE) return;
+            boolean failed = ip.stage() == org.jackhuang.hmcl.sao.SaoInstallProgress.Stage.FAILED;
+            double amount = ip.totalBytes() > 0 ? (double) ip.bytesDone() / ip.totalBytes()
+                    : ip.totalFiles() > 0 ? (double) ip.completedFiles() / ip.totalFiles() : -1;
+            List<String> facts = new ArrayList<>();
+            if (ip.totalBytes() > 0) facts.add(size(ip.bytesDone()) + " / " + size(ip.totalBytes()));
+            else if (ip.bytesDone() > 0) facts.add(size(ip.bytesDone()));
+            if (ip.bytesPerSecond() > 0) facts.add(size((long) ip.bytesPerSecond()) + "/s");
+            if (!ip.failures().isEmpty()) facts.add("失败 " + ip.failures().size());
+            Text label = ink(ip.label().isBlank() ? (failed ? "失败" : "进行中") : ip.label(), 14);
+            if (failed) label.getStyleClass().setAll("vr-warn");
+            VBox mid = new VBox(5, row(label, dim(String.join(" · ", facts), 11.5)), bar(560, amount));
+            HBox.setHgrow(mid, Priority.ALWAYS);
+            HBox top = tile(icon(failed ? SVG.WARNING : SVG.DOWNLOAD, 22), mid,
+                    sao(amount >= 0 ? Math.round(amount * 100) + "%" : "...", 13, true));
+            if (failed) top.getStyleClass().add("vr-tile-warn");
+            summary.getChildren().add(top);
+            for (org.jackhuang.hmcl.sao.SaoInstallProgress.Failure f : ip.failures()) {
+                List<String> hosts = new ArrayList<>();
+                for (org.jackhuang.hmcl.sao.SaoInstallProgress.Attempt a : f.attempts())
+                    hosts.add(a.host() + (a.status() > 0 ? " " + a.status() : " 无响应"));
+                Text why = dim(f.reason() + (hosts.isEmpty() ? "" : " · " + String.join(" · ", hosts)), 11.5);
+                why.setWrappingWidth(560);
+                summary.getChildren().add(tile(icon(SVG.ERROR, 18), new VBox(3, ink(f.path(), 12.5), why)));
+            }
+        };
+        s.installProgress().addListener((o, a, b) -> sum.run());
+        sum.run();
+        return new SaoFloatWindow("下载", W, H, close).add(scroll(new VBox(6, summary, list)));
     }
 
     // ------------------------------------------------------------------ about
@@ -695,6 +776,48 @@ final class SaoApps {
     /// The two link buttons under About's title (James, 9 Nov: "内置一下 爱发电 还有那个夸克链接 ... 两个button").
     ///
     /// @return the row
+    static javafx.scene.layout.FlowPane aboutLinks(SaoLauncherService s) {
+        // Wraps inside the left column (three buttons do not fit on one line there).
+        javafx.scene.layout.FlowPane row = new javafx.scene.layout.FlowPane(10, 8);
+        row.setAlignment(Pos.CENTER);
+        row.setPrefWrapLength(262);
+        row.setMaxWidth(270);
+        row.setPadding(new Insets(10, 0, 0, 0));
+        // links(): the backend's last-good community actions (爱发电, Quark from the release metadata, QQ群). A link
+        // opens the browser; QQ群 has no link, only its number to copy.
+        Runnable fill = () -> {
+            row.getChildren().clear();
+            for (SaoData.CommunityLink l : s.links()) {
+                Button b = button(l.copy() != null ? l.label() + " " + l.copy() : l.label());
+                if (l.url() != null) {
+                    if ("quark".equals(l.id())) b.setGraphic(icon(SVG.DOWNLOAD, 15));
+                    String url = l.url();
+                    b.setOnAction(e -> SaoUi.linkOpener.accept(url));
+                } else {
+                    String number = java.util.Objects.requireNonNull(l.copy());
+                    b.setGraphic(icon(SVG.CONTENT_COPY, 15));
+                    String label = b.getText();
+                    b.setOnAction(e -> {
+                        ClipboardContent c = new ClipboardContent();
+                        c.putString(number);
+                        Clipboard.getSystemClipboard().setContent(c);
+                        b.setText("已复制");
+                        javafx.animation.PauseTransition back = new javafx.animation.PauseTransition(javafx.util.Duration.seconds(1.5));
+                        back.setOnFinished(x -> b.setText(label));
+                        back.play();
+                    });
+                }
+                row.getChildren().add(b);
+            }
+            if (row.getChildren().isEmpty()) row.getChildren().setAll(aboutLinks().getChildren());
+        };
+        s.links().addListener((ListChangeListener<SaoData.CommunityLink>) c -> fill.run());
+        fill.run();
+        s.refreshLinks();
+        return row;
+    }
+
+    /// The fixed buttons, for an engine that has no links().
     static HBox aboutLinks() {
         Button afdian = button("爱发电");
         afdian.setOnAction(e -> SaoUi.linkOpener.accept(SaoUi.AFDIAN_URL));
@@ -713,9 +836,10 @@ final class SaoApps {
         ImageView logo = SaoAssets.logo(240, 170);
         VBox left = column(270, logo,
                 ink(SaoUi.LAUNCHER_NAME, 15),
-                dim("版本 " + Metadata.VERSION + " · 整合包 v" + s.embeddedVersion(), 12),
+                dim("版本 " + Metadata.VERSION + " · " + (s.installedVersion().get() != null
+                        ? "整合包 v" + s.installedVersion().get() : "整合包未安装"), 12),
                 dim("刀剑神域·誓约 是免费的非商业整合包。", 12),
-                aboutLinks());
+                aboutLinks(s));
         left.setAlignment(Pos.TOP_CENTER);
         Text hmcl = dim("本启动器基于 Hello Minecraft! Launcher (HMCL) 3.17，"
                 + "Copyright © huangyuhui 及贡献者，按 GNU GPL v3 开源，源代码公开。", 12);

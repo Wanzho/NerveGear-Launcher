@@ -155,6 +155,14 @@ public final class SaoHelmetPage extends StackPane {
     private final SaoFloatWindow news, player, server, dock;
     /// The app window open in front, or null.
     private @Nullable SaoFloatWindow app;
+    /// The 整合包 / 启动器更新 window while it is the app in front.
+    private @Nullable SaoFloatWindow packWin;
+    /// Whether the first-run 安装整合包 window has been shown (once per start).
+    private boolean firstRunShown;
+    /// The launch waiting for RUNNING, so the display powers down only when the game is really up.
+    private javafx.beans.value.@Nullable ChangeListener<SaoPackState> pendingLaunch;
+    /// The status line text last set from a state, cleared when that state ends.
+    private @Nullable String autoProblem;
     /// The dock button of the open app.
     private @Nullable Button appButton;
     /// The dock's buttons.
@@ -324,6 +332,26 @@ public final class SaoHelmetPage extends StackPane {
         service.progress().addListener((o, a, b) -> refreshState());
         service.stepLabel().addListener((o, a, b) -> refreshState());
         service.lastError().addListener((o, a, b) -> refreshState());
+        service.updateStatus().addListener((o, a, b) -> refreshState());
+        service.launcherUpdate().addListener((o, a, b) -> refreshState());
+        service.installProgress().addListener((o, a, b) -> refreshState());
+        service.installedVersion().addListener((o, a, b) -> refreshState());
+        SaoPackApp.checks().addListener((o, a, b) -> refreshState());
+        SaoPackApp.runChecks(service);
+        // Files dropped anywhere on the page go to the backend (packs, quick updates, launcher files; any order, any
+        // batch); the 整合包 window comes up to show what happened. Windows with their own drops (光影) keep theirs.
+        addEventHandler(javafx.scene.input.DragEvent.DRAG_OVER, e -> {
+            if (e.getDragboard().hasFiles() && !SaoPackApp.blocked()) e.acceptTransferModes(javafx.scene.input.TransferMode.COPY);
+        });
+        addEventHandler(javafx.scene.input.DragEvent.DRAG_DROPPED, e -> {
+            List<Path> files = SaoPackApp.files(e);
+            if (files.isEmpty() || SaoPackApp.blocked()) return;
+            boolean jars = files.stream().allMatch(f -> f.getFileName().toString().toLowerCase(java.util.Locale.ROOT).endsWith(".jar"));
+            if (app == null || app != packWin) openPack(jars ? SaoPackApp.Mode.LAUNCHER : SaoPackApp.Mode.PACK);
+            SaoPackApp.accept(service, files);
+            e.setDropCompleted(true);
+            e.consume();
+        });
         refreshState();
         Timeline ping = new Timeline(new KeyFrame(Duration.seconds(60), e -> service.refreshOnline()));
         ping.setCycleCount(Timeline.INDEFINITE);
@@ -691,8 +719,8 @@ public final class SaoHelmetPage extends StackPane {
         fill.setMaxWidth(Region.USE_PREF_SIZE);
         fill.prefWidthProperty().bind(Bindings.createDoubleBinding(() -> {
             SaoPackState s = service.state().get();
-            return s == SaoPackState.WORKING ? bw * Math.max(0.03, service.progress().get()) : 0.0;
-        }, service.state(), service.progress()));
+            return s == SaoPackState.WORKING ? bw * Math.max(0.03, fraction()) : 0.0;
+        }, service.state(), service.progress(), service.installProgress()));
         StackPane track2 = new StackPane(track, fill);
         track2.setAlignment(Pos.CENTER_LEFT);
         track2.setMaxWidth(bw);
@@ -710,10 +738,19 @@ public final class SaoHelmetPage extends StackPane {
         bar.setAlignment(Pos.CENTER_LEFT);
         Runnable words = () -> {
             SaoPackState s = service.state().get();
-            double p = service.progress().get();
-            String label = service.stepLabel().get();
+            double p = fraction();
+            org.jackhuang.hmcl.sao.SaoInstallProgress ip = service.installProgress().get();
+            boolean measured = ip.stage() != org.jackhuang.hmcl.sao.SaoInstallProgress.Stage.IDLE;
+            String label = measured && !ip.label().isBlank() ? ip.label() : service.stepLabel().get();
             step.setText(s == SaoPackState.CHECKING ? "检查文件" : label.isEmpty() ? "准备中" : label);
             percent.setText(p >= 0 ? Math.round(p * 100) + "%" : "");
+            if (measured && (ip.totalFiles() > 0 || ip.bytesDone() > 0)) {
+                // The backend's measured numbers: real throughput, bytes against the index total when it is known.
+                speed.setText(ip.bytesPerSecond() > 0 ? speedText((long) ip.bytesPerSecond()) : "");
+                left.setText(ip.totalBytes() > 0 ? size(ip.bytesDone()) + " / " + size(ip.totalBytes())
+                        : ip.bytesDone() > 0 ? size(ip.bytesDone()) : "");
+                return;
+            }
             long bps = 0;
             int open = 0;
             for (SaoData.Task t : service.tasks()) {
@@ -727,6 +764,7 @@ public final class SaoHelmetPage extends StackPane {
         service.state().addListener((o, a, b) -> words.run());
         service.progress().addListener((o, a, b) -> words.run());
         service.stepLabel().addListener((o, a, b) -> words.run());
+        service.installProgress().addListener((o, a, b) -> words.run());
         service.tasks().addListener((ListChangeListener<SaoData.Task>) c -> words.run());
         words.run();
         start.getStyleClass().add("vr-start");
@@ -736,8 +774,15 @@ public final class SaoHelmetPage extends StackPane {
         start.defaultButtonProperty().bind(signedIn.visibleProperty());
         // Installed: only the version beside Link Start ("安装完了那个进度条也删了，只剩v0.x").
         Text version = dim("", 14);
-        StackPane.setAlignment(version, Pos.CENTER_LEFT);
-        StackPane slot = new StackPane(bar, version, start);
+        // What needs doing before Link Start, as one small button beside the version: import the pack, a pack update,
+        // a launcher update (mandatory or not) or one waiting for a restart.
+        Button notice = SaoUiKit.button("");
+        notice.getStyleClass().add("vr-chip-tight");
+        HBox versionBox = new HBox(10, version, notice);
+        versionBox.setAlignment(Pos.CENTER_LEFT);
+        versionBox.setPickOnBounds(false);
+        StackPane.setAlignment(versionBox, Pos.CENTER_LEFT);
+        StackPane slot = new StackPane(bar, versionBox, start);
         StackPane.setAlignment(start, Pos.CENTER_RIGHT);
         slot.setMinHeight(48);
         HBox.setHgrow(slot, Priority.ALWAYS);
@@ -747,11 +792,35 @@ public final class SaoHelmetPage extends StackPane {
             bar.setVisible(busy);
             start.setVisible(!busy);
             @Nullable String v = service.installedVersion().get();
-            version.setText("v" + (v != null ? v : service.embeddedVersion()));
-            version.setVisible(!busy);
+            // installedVersion() only: a thin launcher has no pack of its own ("v未内置整合包" never shows).
+            version.setText(v != null ? "v" + v : "未安装");
+            versionBox.setVisible(!busy);
+            SaoData.UpdateStatus u = service.updateStatus().get();
+            SaoData.LauncherUpdate lu = service.launcherUpdate().get();
+            String what = "";
+            SaoPackApp.Mode mode = SaoPackApp.Mode.PACK;
+            if (u.launcherBlocked()) {
+                what = "更新启动器";
+                mode = SaoPackApp.Mode.LAUNCHER;
+            } else if (lu.restartRequired()) {
+                what = "重启生效";
+                mode = SaoPackApp.Mode.LAUNCHER;
+            } else if (v == null) what = "导入整合包";
+            else if (u.packUpdateAvailable() && u.metadata() != null) what = "更新 v" + u.metadata().pack().version();
+            else if (u.launcherUpdateAvailable()) {
+                what = "启动器更新";
+                mode = SaoPackApp.Mode.LAUNCHER;
+            }
+            SaoPackApp.Mode m = mode;
+            notice.setText(what);
+            notice.setOnAction(e -> openPack(m));
+            notice.setVisible(!what.isEmpty());
+            notice.setManaged(notice.isVisible());
         };
         service.state().addListener((o, a, b) -> show.run());
         service.installedVersion().addListener((o, a, b) -> show.run());
+        service.updateStatus().addListener((o, a, b) -> show.run());
+        service.launcherUpdate().addListener((o, a, b) -> show.run());
         show.run();
         HBox row = new HBox(slot);
         row.setAlignment(Pos.CENTER_LEFT);
@@ -1069,6 +1138,7 @@ public final class SaoHelmetPage extends StackPane {
         }
         if (appButton != null) appButton.getStyleClass().remove("vr-dock-on");
         SaoFloatWindow w = a.make().make(service, this::closeApp);
+        packWin = a.label().equals(PACK_LABEL) ? w : null;
         // Centred in the view (James, 8 Nov: "为什么所有东西又这么靠下不居中了").
         w.home(660, Math.max(96, (EH - w.height()) / 2 - 10), 0, 0, 0);
         windows.getChildren().add(w);
@@ -1080,7 +1150,15 @@ public final class SaoHelmetPage extends StackPane {
         requestFocus();
     }
 
-    /// Opens one announcement in its own window; another one replaces it, Esc closes it.
+    /// The 整合包 window's dock label (it has no dock button).
+    private static final String PACK_LABEL = "整合包";
+
+    /// Opens the 整合包 / 启动器更新 window (it replaces another app; Esc closes it).
+    void openPack(SaoPackApp.Mode mode) {
+        openApp(new SaoApps.App(SVG.DOWNLOAD, PACK_LABEL, (s, c) -> SaoPackApp.make(s, c, mode)), null);
+    }
+
+    /// One announcement in its own window; another one replaces it, Esc closes it.
     ///
     /// @param n the announcement
     void openNews(SaoData.News n) {
@@ -1103,6 +1181,7 @@ public final class SaoHelmetPage extends StackPane {
         @Nullable SaoFloatWindow w = app;
         if (w == null) return;
         app = null;
+        packWin = null;
         if (appButton != null) appButton.getStyleClass().remove("vr-dock-on");
         appButton = null;
         w.moveBack(420, 0, 240);
@@ -1485,9 +1564,69 @@ public final class SaoHelmetPage extends StackPane {
     private void refreshState() {
         SaoPackState s = service.state().get();
         @Nullable String err = service.lastError().get();
-        if (s == SaoPackState.FAILED && err != null) problem.setText("! " + err);
-        else if (!problem.getText().startsWith("!")) problem.setText("");
+        SaoData.UpdateStatus u = service.updateStatus().get();
+        org.jackhuang.hmcl.sao.SaoInstallProgress ip = service.installProgress().get();
+        @Nullable String block = blockText();
+        // Messages that follow a state go when the state goes (a launcher update installed, a BLOCK cleared).
+        @Nullable String auto = u.launcherBlocked() ? "! " + u.message() : block != null ? "! " + block
+                : s == SaoPackState.FAILED && ip.stage() == org.jackhuang.hmcl.sao.SaoInstallProgress.Stage.FAILED && !ip.failures().isEmpty()
+                ? "! 下载失败 · " + ip.failures().size() + " 个文件" + (err != null ? " · " + err : "")
+                : s == SaoPackState.FAILED && err != null ? "! " + err : null;
+        if (auto != null) {
+            problem.setText(auto);
+            autoProblem = auto;
+        } else if (!problem.getText().startsWith("!") || problem.getText().equals(autoProblem)
+                || problem.getText().equals("! 未安装整合包") && !SaoPackApp.notInstalled(service)) {
+            problem.setText("");
+            autoProblem = null;
+        }
         start.setDisable(s == SaoPackState.RUNNING);
+        // First run with no pack: the 安装整合包 window comes up by itself, once.
+        if (!firstRunShown && s != SaoPackState.CHECKING && SaoPackApp.notInstalled(service)) {
+            firstRunShown = true;
+            Platform.runLater(() -> {
+                if (app == null && SaoPackApp.notInstalled(service)) openPack(SaoPackApp.Mode.PACK);
+            });
+        }
+    }
+
+    /// The first BLOCK of the system check, if any.
+    private static @Nullable String blockText() {
+        @Nullable List<SaoData.SystemCheck> c = SaoPackApp.checks().get();
+        if (c != null) for (SaoData.SystemCheck k : c) if (k.level() == SaoData.CheckLevel.BLOCK) return k.text();
+        return null;
+    }
+
+    /// The progress across the Link row: measured file or byte counts from the backend when it has them.
+    private double fraction() {
+        org.jackhuang.hmcl.sao.SaoInstallProgress ip = service.installProgress().get();
+        if (ip.stage() != org.jackhuang.hmcl.sao.SaoInstallProgress.Stage.IDLE) {
+            if (ip.totalBytes() > 0) return Math.min(1, (double) ip.bytesDone() / ip.totalBytes());
+            if (ip.totalFiles() > 0) return Math.min(1, (double) ip.completedFiles() / ip.totalFiles());
+        }
+        return service.progress().get();
+    }
+
+    /// Whether a launch has to wait: no pack, a launcher below the minimum, or a BLOCK check. Says why and opens
+    /// the window that fixes it.
+    private boolean gated() {
+        SaoData.UpdateStatus u = service.updateStatus().get();
+        if (u.launcherBlocked()) {
+            problem.setText("! " + u.message());
+            openPack(SaoPackApp.Mode.LAUNCHER);
+            return true;
+        }
+        @Nullable String block = blockText();
+        if (block != null) {
+            problem.setText("! " + block);
+            return true;
+        }
+        if (SaoPackApp.notInstalled(service)) {
+            problem.setText("! 未安装整合包");
+            openPack(SaoPackApp.Mode.PACK);
+            return true;
+        }
+        return false;
     }
 
     /// 登录: the name and the password (or the remembered one).
@@ -1556,20 +1695,31 @@ public final class SaoHelmetPage extends StackPane {
     /// Starts the game: at once when ready (the display powers down), or after the first install or an update, which
     /// keeps the display on with the progress until the engine reports the game running.
     private void begin(Runnable launch) {
-        boolean ready = service.state().get() == SaoPackState.READY;
-        launch.run();
-        if (ready) powerDown();
-        else service.state().addListener(new javafx.beans.value.ChangeListener<>() {
+        if (gated()) return;
+        // The display powers down only once the engine reports the game RUNNING: a gate the engine applies (launcher
+        // minimum, account ticket) leaves the helmet on with its message.
+        if (pendingLaunch != null) service.state().removeListener(pendingLaunch);
+        javafx.beans.value.ChangeListener<SaoPackState> l = new javafx.beans.value.ChangeListener<>() {
             @Override
             public void changed(javafx.beans.value.ObservableValue<? extends SaoPackState> o, SaoPackState a, SaoPackState b) {
                 if (b == SaoPackState.RUNNING) {
                     o.removeListener(this);
+                    pendingLaunch = null;
                     powerDown();
                 } else if (b == SaoPackState.FAILED || b == SaoPackState.READY && a != SaoPackState.RUNNING) {
                     o.removeListener(this);
+                    pendingLaunch = null;
                 }
             }
-        });
+        };
+        pendingLaunch = l;
+        service.state().addListener(l);
+        launch.run();
+        if (service.state().get() == SaoPackState.RUNNING && pendingLaunch == l) {
+            service.state().removeListener(l);
+            pendingLaunch = null;
+            powerDown();
+        }
     }
 
     /// Lets the window be dragged by the empty glass.
@@ -1780,6 +1930,16 @@ public final class SaoHelmetPage extends StackPane {
         }
     }
 
+    /// Presses Link Start (screenshot tools).
+    void forceLinkStart() {
+        linkStart();
+    }
+
+    /// Whether the display is on (screenshot tools).
+    boolean isAwakeForTools() {
+        return poweredOn;
+    }
+
     /// Opens an app by its dock index at once (screenshot tools).
     ///
     /// @param i the index in [SaoApps#APPS], or -1 to close
@@ -1787,6 +1947,7 @@ public final class SaoHelmetPage extends StackPane {
         if (i < 0) {
             if (app != null) windows.getChildren().remove(app);
             app = null;
+            packWin = null;
             if (appButton != null) appButton.getStyleClass().remove("vr-dock-on");
             appButton = null;
             for (SaoFloatWindow home : new SaoFloatWindow[]{news, server, player}) {

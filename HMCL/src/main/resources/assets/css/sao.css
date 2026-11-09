@@ -384,3 +384,14 @@
 .theme-sao-dark .vr-part:selected { -fx-background-color: #f2a43a; -fx-border-color: #e0912a; }
 .theme-sao-dark .vr-link { -fx-text-fill: #a2a2ab; }
 .theme-sao-dark .vr-link:hover { -fx-text-fill: #f2a43a; }
+
+/* 整合包 window: the drop target and the "good" state word (wire1, 10 Nov). */
+.vr-drop { -fx-border-color: rgba(255,255,255,0.4); -fx-border-style: segments(7, 5); -fx-border-width: 1.5; -fx-border-radius: 6; -fx-background-radius: 6; }
+.vr-good { -fx-fill: #6fd08f; }
+.theme-sao .vr-drop { -fx-border-color: #c4c4ca; -fx-background-color: rgba(255,255,255,0.55); }
+.theme-sao .vr-drop-on { -fx-border-color: #f2a43a; -fx-background-color: rgba(242,164,58,0.12); }
+.theme-sao .vr-good { -fx-fill: #2f9a57; }
+.theme-sao-dark .vr-drop { -fx-border-color: rgba(255,255,255,0.24); -fx-background-color: rgba(255,255,255,0.04); }
+.theme-sao-dark .vr-drop-on { -fx-border-color: #f2a43a; -fx-background-color: rgba(242,164,58,0.12); }
+.theme-sao-dark .vr-good { -fx-fill: #6fd08f; }
+.theme-sao .vr-tile-warn { -fx-background-color: #fff3df; -fx-border-color: #f2c98a; }
