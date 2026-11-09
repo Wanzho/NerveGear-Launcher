@@ -414,9 +414,8 @@ public final class SaoHelmetPage extends StackPane {
     /// (7 Nov); Link Start lives here too, at the bottom right once signed in. The skin has its own page (James, 7 Nov:
     /// "把classic slim等等塞到一个新的页面").
     private SaoFloatWindow buildPlayer() {
-        ImageView logo = new ImageView(SaoAssets.image("logo.png"));
-        logo.setPreserveRatio(true);
-        logo.setFitHeight(54);
+        // logo-45 (James, 9 Nov) is near 4:3: a little taller than the old wide logo's 54 so it still reads.
+        ImageView logo = SaoAssets.logo(STAGE_W, 66);
         logo.getStyleClass().add("vr-logo");
 
         Button editSkin = round(SVG.EDIT, 30, 15);

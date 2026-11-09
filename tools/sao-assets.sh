@@ -12,7 +12,9 @@ tex=$mod/forge120-full/src/packui/resources/assets/sao/textures/entrance
 rm -rf "$out"; mkdir -p "$out"/{fonts,wallpapers,music,lyrics}
 cp "$fonts"/SAOUITT-Regular.ttf "$fonts"/SAOUITT-Bold.ttf "$fonts"/SAOWelcomeTT-Regular.ttf "$out/fonts/"
 for f in "$tex"/wallpaper_??.jpg; do sips -Z 1920 "$f" --out "$out/wallpapers/${f:t}" >/dev/null; done
-cp "$tex/titlef/logo.png" "$out/logo.png"
+# The title logo is James's pick of 9 Nov, logo-45, copied byte for byte from the logo folder.
+logo=${SAO_LOGO:-"/Users/James/Desktop/Claude Workspace/SAO logo v7/game/logo版本/logo-45-域斜钩顺弧加长-钩不转(44).png"}
+cp "$logo" "$out/logo.png"
 cp "$mod/forge120-full/src/packui/resources/assets/sao/lyrics/title.lrc" "$out/lyrics/title.lrc"
 unzip -p "$jar" assets/sao/sounds/entrance/title_crossing_field.ogg > "$out/music/title.ogg"
 for k in intro loop outro; do cp "$mod/forge120-full/src/packui/resources/assets/sao/sounds/entrance_helmet_$k.ogg" "$out/music/helmet_$k.ogg"; done

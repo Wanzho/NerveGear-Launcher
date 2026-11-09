@@ -670,9 +670,8 @@ final class SaoApps {
 
     /// About: the launcher, HMCL and the licences.
     static SaoFloatWindow about(SaoLauncherService s, Runnable close) {
-        ImageView logo = new ImageView(SaoAssets.image("logo.png"));
-        logo.setPreserveRatio(true);
-        logo.setFitWidth(250);
+        // logo-45 (James, 9 Nov) is near 4:3, so a height bound keeps it a title over the text (old wide one: 250 wide).
+        ImageView logo = SaoAssets.logo(240, 170);
         VBox left = column(270, logo,
                 ink("刀剑神域·誓约 启动器", 15),
                 dim("版本 " + Metadata.VERSION + " · 整合包 v" + s.embeddedVersion(), 12),

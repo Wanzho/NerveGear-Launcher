@@ -97,6 +97,23 @@ public final class SaoAssets {
         return url == null ? null : new Image(url.toExternalForm(), true);
     }
 
+    /// The title logo (logo-45, James's pick of 9 Nov), sized to fit a box with its ratio kept and smoothed, decoded
+    /// at twice the box so it stays sharp on HiDPI screens and is never cropped.
+    ///
+    /// @param maxW the widest it may be
+    /// @param maxH the tallest it may be
+    /// @return the logo view
+    public static javafx.scene.image.ImageView logo(double maxW, double maxH) {
+        @Nullable var url = SaoAssets.class.getResource(ROOT + "logo.png");
+        var view = new javafx.scene.image.ImageView(url == null ? null
+                : new Image(url.toExternalForm(), maxW * 2, maxH * 2, true, true, true));
+        view.setPreserveRatio(true);
+        view.setSmooth(true);
+        view.setFitWidth(maxW);
+        view.setFitHeight(maxH);
+        return view;
+    }
+
     /// The paths of every wallpaper that exists, in order.
     ///
     /// @return wallpaper paths under [#ROOT]
