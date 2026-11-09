@@ -97,7 +97,7 @@ public final class SaoAssets {
         return url == null ? null : new Image(url.toExternalForm(), true);
     }
 
-    /// The title logo (logo-45, James's pick of 9 Nov), sized to fit a box with its ratio kept and smoothed, decoded
+    /// The title logo (logo-49, James's pick of 9 Nov), sized to fit a box with its ratio kept and smoothed, decoded
     /// at twice the box so it stays sharp on HiDPI screens and is never cropped.
     ///
     /// @param maxW the widest it may be

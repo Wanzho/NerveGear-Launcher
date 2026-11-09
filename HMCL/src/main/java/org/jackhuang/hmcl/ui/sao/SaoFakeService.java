@@ -342,6 +342,18 @@ public final class SaoFakeService implements SaoLauncherService {
                 false, verified ? 0 : 47 * 3600 + 12 * 60, null));
     }
 
+    /// Puts this many pretend friends online on the player card (screenshots: 0, 2, 5, 30).
+    ///
+    /// @param n how many
+    void forceFriends(int n) {
+        String[] names = {"Asuna", "Klein", "Agil", "Silica", "Lisbeth", "Leafa", "Sinon", "Yui", "Eugeo", "Alice"};
+        List<String> online = new java.util.ArrayList<>();
+        for (int i = 0; i < n; i++) online.add(i < names.length ? names[i] : "Player" + (i + 1));
+        SaoData.PlayerCard c = card.get();
+        card.set(new SaoData.PlayerCard(24, 1, 12_400, c == null ? System.currentTimeMillis() - 20 * 3600_000L : c.lastPlayed(),
+                12 * 3600 + 40 * 60, online));
+    }
+
     /// Renames today (pretend limit of three).
     private int renames;
 

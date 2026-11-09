@@ -180,6 +180,32 @@ public final class SaoScreenShotTool {
                 // 誓约账号: signed in (verified, then waiting for the code), and each page of its window.
                 fx(() -> fake.forceOath(true));
                 shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "21-home-signed-in.png"));
+                // 好友在线 on one line, as many as fit and then +N (James, 9 Nov), with 0, 2, 5 and 30 friends online.
+                for (int n : new int[]{0, 2, 5, 30}) {
+                    fx(() -> fake.forceFriends(n));
+                    shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "21-home-friends-" + n + ".png"));
+                    fx(() -> {
+                        var line = page[0].friendsLine;
+                        System.out.println("friends " + n + ": " + (line == null ? "no line (没有好友在线)"
+                                : "shown " + line.shown + ", +N " + (line.more.isVisible() ? ((javafx.scene.text.Text)
+                                ((javafx.scene.layout.HBox) line.more).getChildren().get(0)).getText() : "hidden")));
+                    });
+                }
+                // +N opens 好友.
+                fx(() -> {
+                    var line = page[0].friendsLine;
+                    if (line == null || !line.more.isVisible()) {
+                        System.out.println("+N check FAILED: no +N with 30 friends");
+                        return;
+                    }
+                    line.more.getOnMouseClicked().handle(null);
+                    System.out.println("+N clicked");
+                });
+                Thread.sleep(1300);
+                fx(() -> img[0] = scene[0].snapshot(null));
+                write(img[0], out.resolve(p + "21-home-friends-more-clicked.png"));
+                fx(() -> page[0].forceApp(-1));
+                fx(() -> fake.forceFriends(2));
                 fx(() -> fake.forceOath(false));
                 shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "22-home-verify-pending.png"));
                 SaoAccountApp.Page[] pages = {SaoAccountApp.Page.REGISTER, SaoAccountApp.Page.VERIFY, SaoAccountApp.Page.FORGOT, SaoAccountApp.Page.MANAGE};

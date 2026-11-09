@@ -63,6 +63,8 @@ import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 
 import static org.jackhuang.hmcl.ui.sao.SaoUiKit.*;
@@ -414,11 +416,18 @@ public final class SaoHelmetPage extends StackPane {
     /// (7 Nov); Link Start lives here too, at the bottom right once signed in. The skin has its own page (James, 7 Nov:
     /// "把classic slim等等塞到一个新的页面").
     private SaoFloatWindow buildPlayer() {
-        // logo-45 (James, 9 Nov) is near 4:3; "放大点": about 150 wide. It overlaps the stage's empty top (the
-        // character's head starts well below it), drawn over the stage, so the card keeps its size.
-        ImageView logo = SaoAssets.logo(150, 120);
-        logo.setViewOrder(-1);
+        // James, 9 Nov: "左边只放人，logo放到好友在线这里": the logo-49 title fills the room under the friends, signed
+        // in; it shrinks when warnings take that room and hides when too little is left.
+        ImageView logo = SaoAssets.logo(RIGHT_W, 150);
         logo.getStyleClass().add("vr-logo");
+        StackPane logoBox = new StackPane(logo);
+        logoBox.setMinHeight(0);
+        VBox.setVgrow(logoBox, Priority.ALWAYS);
+        logoBox.heightProperty().addListener((o, a, h) -> {
+            double fit = Math.min(170, h.doubleValue() - 4);
+            logo.setFitHeight(Math.max(1, fit));
+            logo.setVisible(fit >= 48);
+        });
 
         Button editSkin = round(SVG.EDIT, 30, 15);
         editSkin.setOnAction(e -> openSkin());
@@ -439,8 +448,9 @@ public final class SaoHelmetPage extends StackPane {
         stage.setMinSize(STAGE_W, STAGE_H);
         stage.setPrefSize(STAGE_W, STAGE_H);
         stage.setMaxSize(STAGE_W, STAGE_H);
-        // The left as it was: the logo over the character ("左边不用动").
-        VBox left = new VBox(-20, logo, stage);
+        // The left: only the character and its pencil (James, 9 Nov: "左边只放人").
+        VBox left = new VBox(stage);
+        left.setAlignment(Pos.CENTER_LEFT);
 
         // ---- signed out
         @Nullable String remembered = service.rememberedOathName();
@@ -492,7 +502,13 @@ public final class SaoHelmetPage extends StackPane {
             // Only the side shown takes room: the taller sign-in form, hidden, pushed Link Start out of the window.
             v.managedProperty().bind(v.visibleProperty());
         }
-        VBox right = new VBox(6, sides, grow(), problem, linkRow);
+        // Signed in, the logo takes the room between the friends and Link Start; elsewhere a plain spring.
+        Region spring = grow();
+        logoBox.visibleProperty().bind(signedIn.visibleProperty());
+        logoBox.managedProperty().bind(signedIn.visibleProperty());
+        spring.visibleProperty().bind(signedIn.visibleProperty().not());
+        spring.managedProperty().bind(signedIn.visibleProperty().not());
+        VBox right = new VBox(6, sides, logoBox, spring, problem, linkRow);
         right.setPrefWidth(RIGHT_W);
         right.setMinWidth(RIGHT_W);
         right.setMaxWidth(RIGHT_W);
@@ -787,6 +803,85 @@ public final class SaoHelmetPage extends StackPane {
         HBox row = new HBox(6, f, ok, cancel);
         row.setAlignment(Pos.CENTER_LEFT);
         return new VBox(3, row, note);
+    }
+
+    /// The player card's friends line, when friends are online (screenshot checks).
+    @Nullable FriendsLine friendsLine;
+
+    /// Opens 好友 (the +N after the friends who fit on the player card).
+    private void openFriends() {
+        for (int i = 0; i < SaoApps.APPS.length; i++)
+            if (SaoApps.APPS[i].label().equals("好友")) openApp(SaoApps.APPS[i], dockButtons[i]);
+    }
+
+    /// One line of online friends under the player's name: the label, as many name chips as fit, then a +N chip for
+    /// the rest. Laid out by hand so it never wraps or pushes the column wider.
+    static final class FriendsLine extends Region {
+        private static final double GAP_X = 6;
+        private final Node label;
+        private final List<Node> chips;
+        final Node more;
+        private final Text moreText;
+        /// How many chips the last layout showed (screenshot checks).
+        int shown;
+
+        FriendsLine(Node label, List<Node> chips, Node more, Text moreText) {
+            this.label = label;
+            this.chips = chips;
+            this.more = more;
+            this.moreText = moreText;
+            getChildren().add(label);
+            getChildren().addAll(chips);
+            getChildren().add(more);
+            setMinWidth(0);
+        }
+
+        @Override
+        protected double computePrefWidth(double height) {
+            return 0;
+        }
+
+        @Override
+        protected double computePrefHeight(double width) {
+            double h = label.prefHeight(-1);
+            for (Node c : getChildren()) h = Math.max(h, c.prefHeight(-1));
+            return h + snappedTopInset() + snappedBottomInset();
+        }
+
+        @Override
+        protected void layoutChildren() {
+            double w = getWidth(), h = getHeight(), x = 0;
+            x = place(label, x, h) + GAP_X;
+            int n = chips.size(), k = 0;
+            for (; k < n; k++) {
+                double cw = chips.get(k).prefWidth(-1);
+                int rest = n - k - 1;
+                double need = cw + (rest > 0 ? GAP_X + moreWidth(rest) : 0);
+                if (x + need > w) break;
+                chips.get(k).setVisible(true);
+                x = place(chips.get(k), x, h) + GAP_X;
+            }
+            for (int i = k; i < n; i++) chips.get(i).setVisible(false);
+            shown = k;
+            more.setVisible(k < n);
+            if (k < n) {
+                moreWidth(n - k);
+                place(more, x, h);
+            }
+        }
+
+        private double moreWidth(int rest) {
+            String t = "+" + rest;
+            if (!t.equals(moreText.getText())) moreText.setText(t);
+            more.applyCss();
+            return more.prefWidth(-1);
+        }
+
+        private static double place(Node n, double x, double h) {
+            double pw = n.prefWidth(-1), ph = n.prefHeight(-1);
+            n.resizeRelocate(x, Math.round((h - ph) / 2), pw, ph);
+            return x + pw;
+        }
     }
 
     /// Opens 好友 on the conversation with a friend (their name under the player's).
@@ -1300,20 +1395,29 @@ public final class SaoHelmetPage extends StackPane {
                 // James, 7 Nov: "上次进入：昨天22:18", "累计游玩时长：_._小时 （不到一小时，_分钟）".
                 Text last = dim(card.lastPlayed() <= 0 ? "上次进入：还没进过游戏" : "上次进入：" + whenText(card.lastPlayed()), 14);
                 Text total = dim("累计游玩时长：" + playText(card.playSeconds()), 14);
-                HBox friends = new HBox(6);
-                friends.setAlignment(Pos.CENTER_LEFT);
+                // James, 9 Nov: "好友在线的多了就+N": one line, as many names as fit, then +N (opens 好友).
+                Region friends;
+                friendsLine = null;
                 if (card.friendsOnline().isEmpty()) {
-                    friends.getChildren().add(dim("没有好友在线", 14));
+                    HBox none = new HBox(dim("没有好友在线", 14));
+                    none.setAlignment(Pos.CENTER_LEFT);
+                    friends = none;
                 } else {
-                    friends.getChildren().add(dim("好友在线", 14));
-                    for (String f : card.friendsOnline().subList(0, Math.min(3, card.friendsOnline().size()))) {
+                    List<Node> chips = new ArrayList<>();
+                    for (String f : card.friendsOnline()) {
                         HBox chip = new HBox(5, light(true), sao(f, 14, false));
                         chip.setAlignment(Pos.CENTER_LEFT);
                         chip.getStyleClass().addAll("vr-name", "vr-row");
                         chip.setOnMouseClicked(e -> openFriendChat(f));
-                        friends.getChildren().add(chip);
+                        chips.add(chip);
                     }
-                    if (card.friendsOnline().size() > 3) friends.getChildren().add(dim("+" + (card.friendsOnline().size() - 3), 14));
+                    Text moreText = sao("", 14, false);
+                    HBox more = new HBox(moreText);
+                    more.setAlignment(Pos.CENTER);
+                    more.getStyleClass().addAll("vr-name", "vr-row");
+                    more.setId("sao-friends-more");
+                    more.setOnMouseClicked(e -> openFriends());
+                    friends = friendsLine = new FriendsLine(dim("好友在线", 14), chips, more, moreText);
                 }
                 signedIn.getChildren().addAll(tiles, new VBox(2, last, total), friends);
             }

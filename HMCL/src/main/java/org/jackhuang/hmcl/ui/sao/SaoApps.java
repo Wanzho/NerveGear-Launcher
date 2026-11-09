@@ -685,7 +685,7 @@ final class SaoApps {
 
     /// About: the launcher, HMCL and the licences.
     static SaoFloatWindow about(SaoLauncherService s, Runnable close) {
-        // logo-45 (James, 9 Nov) is near 4:3, so a height bound keeps it a title over the text (old wide one: 250 wide).
+        // logo-49 (James, 9 Nov) is near 4:3, so a height bound keeps it a title over the text (old wide one: 250 wide).
         ImageView logo = SaoAssets.logo(240, 170);
         VBox left = column(270, logo,
                 ink(SaoUi.LAUNCHER_NAME, 15),
