@@ -1,0 +1,354 @@
+[
+  {
+    "coordinate": "com.github.hervegirod:fxsvgimage:1.9.1",
+    "artifact_sha256": "3facdcd4e85c524aef6210f11cc87dfc7f873cd79fbcd42de4958fb467d9cd04",
+    "declared_licenses": [
+      {
+        "name": "BSD 3-Clause License",
+        "url": "https://raw.githubusercontent.com/hervegirod/fxsvgimage/refs/heads/main/LICENSE"
+      },
+      {
+        "name": "Apache License, Version 2.0 License",
+        "url": "https://raw.githubusercontent.com/hervegirod/fxsvgimage/refs/heads/main/APACHE_LICENSE"
+      }
+    ],
+    "matching_classes": 75
+  },
+  {
+    "coordinate": "com.google.code.gson:gson:2.14.0",
+    "artifact_sha256": "2cbd119bf1961c28788310963dc80ba65f58cdeec1dd139c8bdb1240faa2c36f",
+    "declared_licenses": [
+      {
+        "name": "Apache-2.0",
+        "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+      }
+    ],
+    "matching_classes": 216
+  },
+  {
+    "coordinate": "com.google.errorprone:error_prone_annotations:2.48.0",
+    "artifact_sha256": "b49c5c958316ed67a09c699dda9aa749caf434d51d863dea599ef36a49b9c855",
+    "declared_licenses": [
+      {
+        "name": "Apache 2.0",
+        "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+      }
+    ],
+    "matching_classes": 29
+  },
+  {
+    "coordinate": "io.nayuki:qrcodegen:1.8.0",
+    "artifact_sha256": "1d1aef3caea19387e7dd8034835054bab83db57a02b69cfc6dbc849746f0be21",
+    "declared_licenses": [
+      {
+        "name": "The MIT License",
+        "url": "https://opensource.org/licenses/MIT"
+      }
+    ],
+    "matching_classes": 6
+  },
+  {
+    "coordinate": "net.java.dev.jna:jna:5.18.1",
+    "artifact_sha256": "260c4b1e22b1db9e110ee441c4f13ce115f841fa48c41d78750986214b395557",
+    "declared_licenses": [
+      {
+        "name": "LGPL-2.1-or-later",
+        "url": "https://www.gnu.org/licenses/old-licenses/lgpl-2.1"
+      },
+      {
+        "name": "Apache-2.0",
+        "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+      }
+    ],
+    "matching_classes": 124
+  },
+  {
+    "coordinate": "org.antlr:antlr4-runtime:4.11.1",
+    "artifact_sha256": "e06c6553c1ccc14d36052ec4b0fc6f13b808cf957b5b1dc3f61bf401996ada59",
+    "declared_licenses": [],
+    "matching_classes": 190
+  },
+  {
+    "coordinate": "org.checkerframework:checker-qual:3.21.2",
+    "artifact_sha256": "7e8554c902b9b839e61396cfe3a64c84ecabfb8eb652c410bfd8e4f5c1a8ece8",
+    "declared_licenses": [
+      {
+        "name": "The MIT License",
+        "url": "http://opensource.org/licenses/MIT"
+      }
+    ],
+    "matching_classes": 7
+  },
+  {
+    "coordinate": "org.commonmark:commonmark:0.30.0",
+    "artifact_sha256": "090f0a758ac2f4f51aa86dff9dff0fdf7403666d0efd29f59886dc8e8b1eac53",
+    "declared_licenses": [
+      {
+        "name": "BSD-2-Clause",
+        "url": "https://opensource.org/licenses/BSD-2-Clause"
+      }
+    ],
+    "matching_classes": 172
+  },
+  {
+    "coordinate": "org.commonmark:commonmark-ext-autolink:0.30.0",
+    "artifact_sha256": "53831722545ef200579f3715a5628cdf3b63c702faa05aac12602bffe9e300f7",
+    "declared_licenses": [],
+    "matching_classes": 6
+  },
+  {
+    "coordinate": "org.commonmark:commonmark-ext-gfm-strikethrough:0.30.0",
+    "artifact_sha256": "2fed2064af3114c9fdfe233f9987682af6b1da073522879520fdb8593b65c995",
+    "declared_licenses": [],
+    "matching_classes": 9
+  },
+  {
+    "coordinate": "org.commonmark:commonmark-ext-gfm-tables:0.30.0",
+    "artifact_sha256": "5e28b48e66f7697bee4dfeb4c8f8f08a84a2827d91b53bbd9bd5445e82d14bda",
+    "declared_licenses": [],
+    "matching_classes": 17
+  },
+  {
+    "coordinate": "org.commonmark:commonmark-ext-ins:0.30.0",
+    "artifact_sha256": "19dceb1843f4a2b15e5d51a4158fd4ce2c9e6d482a43989576ffca0826ddbb97",
+    "declared_licenses": [],
+    "matching_classes": 8
+  },
+  {
+    "coordinate": "org.glavo:HelloNBT:0.4.0",
+    "artifact_sha256": "9379b143d242def79fe5e41b595dcc2848f30b61444ed6e7f228f651de6f816a",
+    "declared_licenses": [
+      {
+        "name": "Apache-2.0",
+        "url": "https://www.apache.org/licenses/LICENSE-2.0"
+      }
+    ],
+    "matching_classes": 138
+  },
+  {
+    "coordinate": "org.glavo:MonetFX:0.4.0",
+    "artifact_sha256": "be199487ea1e720beec60c62d4d8238be9a8e6862633e1aea063da3a60299c07",
+    "declared_licenses": [
+      {
+        "name": "Apache-2.0",
+        "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+      }
+    ],
+    "matching_classes": 65
+  },
+  {
+    "coordinate": "org.glavo:java-info:1.0",
+    "artifact_sha256": "fe348fb61e16a00da1b1ac3cfb52b70543fab63b888fac7c961bf1a8449f9340",
+    "declared_licenses": [
+      {
+        "name": "Apache-2.0",
+        "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+      }
+    ],
+    "matching_classes": 1
+  },
+  {
+    "coordinate": "org.glavo:kala-encoding-detector:0.1.0",
+    "artifact_sha256": "e2e18bd0adda5f60f74caa7a4fa8edc7ccc63b9eda197c114de18cb50a77e2f9",
+    "declared_licenses": [
+      {
+        "name": "MPL-2.0",
+        "url": "https://www.mozilla.org/MPL/2.0/"
+      }
+    ],
+    "matching_classes": 46
+  },
+  {
+    "coordinate": "org.glavo:lz4-java:1.10.4.1",
+    "artifact_sha256": "3b6ffcf0bc0f9c40cc2e6b95269d56673b621dea43e73bdb6faeaac02db2018a",
+    "declared_licenses": [
+      {
+        "name": "Apache-2.0",
+        "url": "https://www.apache.org/licenses/LICENSE-2.0"
+      }
+    ],
+    "matching_classes": 36
+  },
+  {
+    "coordinate": "org.glavo:pci-ids:0.4.0",
+    "artifact_sha256": "0aecf735cb0612bb3f023fda3d55cb522ff5007d4ddfc7f4e9ded1c4433503e2",
+    "declared_licenses": [
+      {
+        "name": "Apache-2.0",
+        "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+      }
+    ],
+    "matching_classes": 11
+  },
+  {
+    "coordinate": "org.glavo:simple-png:0.3.0",
+    "artifact_sha256": "e03bb5e09aa50e00b8f6fc37e075b55c5044fb461b939789500c0b2a2717964e",
+    "declared_licenses": [
+      {
+        "name": "Apache-2.0",
+        "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+      }
+    ],
+    "matching_classes": 9
+  },
+  {
+    "coordinate": "org.glavo:simple-png-javafx:0.3.0",
+    "artifact_sha256": "0aa6b96cb8f27a28e943c2f9b8d515ecc4584ee256b134d507e03634ce46071f",
+    "declared_licenses": [
+      {
+        "name": "Apache-2.0",
+        "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+      }
+    ],
+    "matching_classes": 2
+  },
+  {
+    "coordinate": "org.glavo:uuid-tools:0.2.0",
+    "artifact_sha256": "16a7909ea65776988cd3446d941547ee75b252a776153648c5ca6ec907754ba7",
+    "declared_licenses": [
+      {
+        "name": "Mozilla Public License 2.0",
+        "url": "https://www.mozilla.org/en-US/MPL/2.0/"
+      }
+    ],
+    "matching_classes": 3
+  },
+  {
+    "coordinate": "org.glavo:webp:0.2.0",
+    "artifact_sha256": "3f644c53bec98c7129e3461b947ca918525ea888f151bd226785fb98db75c8d9",
+    "declared_licenses": [
+      {
+        "name": "Apache-2.0",
+        "url": "https://www.apache.org/licenses/LICENSE-2.0"
+      }
+    ],
+    "matching_classes": 58
+  },
+  {
+    "coordinate": "org.glavo:weburl:0.2.0",
+    "artifact_sha256": "fa782c12527d0e5e28ca93f81c176828150e67cca481171be9da8aa1a69e9172",
+    "declared_licenses": [
+      {
+        "name": "Apache-2.0",
+        "url": "https://www.apache.org/licenses/LICENSE-2.0"
+      }
+    ],
+    "matching_classes": 35
+  },
+  {
+    "coordinate": "org.glavo.kala:kala-compress-archivers-tar:1.27.1-5",
+    "artifact_sha256": "6de5c6975ee851acc7bea007166fce1a628aa0a0038b3d77918e33dc642df182",
+    "declared_licenses": [
+      {
+        "name": "Apache 2.0",
+        "url": "https://github.com/Glavo/kala-compress/blob/main/LICENSE.txt"
+      }
+    ],
+    "matching_classes": 8
+  },
+  {
+    "coordinate": "org.glavo.kala:kala-compress-archivers-zip:1.27.1-5",
+    "artifact_sha256": "2d5def6572c366853a2611786a3eb5b3fdf84bba4ef7e9488998f54c05059f6e",
+    "declared_licenses": [
+      {
+        "name": "Apache 2.0",
+        "url": "https://github.com/Glavo/kala-compress/blob/main/LICENSE.txt"
+      }
+    ],
+    "matching_classes": 71
+  },
+  {
+    "coordinate": "org.glavo.kala:kala-compress-base:1.27.1-5",
+    "artifact_sha256": "e28dc94719028ac34e048e974f7a4ac7370e297c18e393c5ef0c0857fe01b275",
+    "declared_licenses": [
+      {
+        "name": "Apache 2.0",
+        "url": "https://github.com/Glavo/kala-compress/blob/main/LICENSE.txt"
+      }
+    ],
+    "matching_classes": 37
+  },
+  {
+    "coordinate": "org.hildan.fxgson:fx-gson:5.0.0",
+    "artifact_sha256": "2ba9a9729c6cf0d12d2d64d7d5ba8ca4a6f0807887684f6d7783b53628355973",
+    "declared_licenses": [
+      {
+        "name": "The MIT License",
+        "url": "https://opensource.org/licenses/MIT"
+      }
+    ],
+    "matching_classes": 21
+  },
+  {
+    "coordinate": "org.jenkins-ci:constant-pool-scanner:1.2",
+    "artifact_sha256": "375c4c5e95e91efc61233696ab4803454b01833665d1ab6f72c2f2c646fb1511",
+    "declared_licenses": [
+      {
+        "name": "NetBeans CDDL/GPL",
+        "url": "http://www.netbeans.org/cddl-gplv2.html"
+      }
+    ],
+    "matching_classes": 13
+  },
+  {
+    "coordinate": "org.jetbrains:annotations:26.1.0",
+    "artifact_sha256": "ebc7aec252ed0c7d2d04c039d7f00e69f7b86b1f493c741d67b3ef31b986b054",
+    "declared_licenses": [
+      {
+        "name": "The Apache Software License, Version 2.0",
+        "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+      }
+    ],
+    "matching_classes": 22
+  },
+  {
+    "coordinate": "org.jsoup:jsoup:1.23.2",
+    "artifact_sha256": "e9d8c856856680427f096d156f02a414289985c930998fcb519ce5be39b42003",
+    "declared_licenses": [
+      {
+        "name": "The MIT License",
+        "url": "https://jsoup.org/license"
+      }
+    ],
+    "matching_classes": 308
+  },
+  {
+    "coordinate": "org.nanohttpd:nanohttpd:2.3.1",
+    "artifact_sha256": "de864c47818157141a24c9acb36df0c47d7bf15b7ff48c90610f3eb4e5df0e58",
+    "declared_licenses": [],
+    "matching_classes": 27
+  },
+  {
+    "coordinate": "org.nibor.autolink:autolink:0.12.0",
+    "artifact_sha256": "04647ef989bd8096cfc253a8b5b8c36760918e3f163c1d918df6dfbfb79aa8c6",
+    "declared_licenses": [
+      {
+        "name": "MIT License",
+        "url": "http://www.opensource.org/licenses/mit-license.php"
+      }
+    ],
+    "matching_classes": 16
+  },
+  {
+    "coordinate": "org.tomlj:tomlj:1.1.1",
+    "artifact_sha256": "383b7c66966c42ee4913ec977a7b6573631866bddc5318ec4a6215b688dd0d6c",
+    "declared_licenses": [
+      {
+        "name": "The Apache License, Version 2.0",
+        "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+      }
+    ],
+    "matching_classes": 101
+  },
+  {
+    "coordinate": "org.tukaani:xz:1.12",
+    "artifact_sha256": "3e158a87bd73d8afb4b6e8239c013b7d049c48563f45860ce99cd2e448cf4a6b",
+    "declared_licenses": [
+      {
+        "name": "0BSD",
+        "url": ""
+      }
+    ],
+    "matching_classes": 104
+  }
+]

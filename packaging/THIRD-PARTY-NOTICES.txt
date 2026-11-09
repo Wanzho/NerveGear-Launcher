@@ -1,0 +1,34 @@
+SAO Oath Launcher is a modified distribution of Hello Minecraft! Launcher (HMCL).
+Copyright (C) 2013-2025 huangyuhui and contributors.
+Launcher source is licensed under GNU GPL version 3 or later, with the upstream
+Section 7 naming and copyright-preservation terms. See LICENSE-launcher-GPL-3.0.txt
+and the corresponding source archive for complete notices and dependency versions.
+Upstream: https://github.com/HMCL-dev/HMCL
+
+Bundled runtime: BellSoft Liberica Full JDK 21.0.10+10 (OpenJDK and LibericaFX).
+Exact official URLs and SHA-256 identities: runtimes.lock.json.
+Runtime license/copyright/third-party notices are retained in runtime/legal;
+the macOS location is Contents/runtime/legal. OpenJDK/OpenJFX use GPLv2 with
+the Classpath Exception; additional components retain their own notices there.
+Runtime sources: https://github.com/bell-sw/Liberica/releases/tag/21.0.10%2B10
+and https://github.com/openjdk/jdk21u / https://github.com/openjdk/jfx21u
+Windows native bootstrap is the unchanged code from this pinned JDK's
+jdk.jpackage.jmod jpackageapplauncherw.exe, with only its icon resources rebranded.
+
+The launcher contains third-party Java dependencies, including JFoenix,
+JetBrains Annotations, Gson, JNA, kala-compress, fx-gson, jsoup, tomlj,
+Apache Commons, XZ, lz4-java, QR Code generator, and other HMCL dependencies.
+The dependency-notices directory preserves original artifact POM metadata and
+license/notice resources for dependencies identified in the shaded launcher.
+Exact configured coordinates are retained in gradle/libs.versions.toml and build
+files in the corresponding source archive. META-INF notices in the launcher JAR
+are retained by the upstream build. JOrbis 0.0.17 is a declared LGPL dependency in
+the inherited build configuration, but is unused in this source snapshot and
+removed from this distribution by the existing Shadow minimizer.
+
+The embedded OATH 0.8 pack is the user-supplied SAO OATH0.8.zip and verified
+baseline payloads, not a newly fabricated pack. Individual mods, assets, sounds,
+and pack resources retain their own upstream rights and licenses. This local
+packaging run does not establish public redistribution rights for every asset.
+Minecraft itself is not included in the embedded pack payload, and game base
+downloads remain handled by the existing launcher installation engine.
