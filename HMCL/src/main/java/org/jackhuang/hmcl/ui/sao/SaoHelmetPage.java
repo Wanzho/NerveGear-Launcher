@@ -908,7 +908,7 @@ public final class SaoHelmetPage extends StackPane {
         pad.setManaged(false);
         pad.setPickOnBounds(false);
         pad.getTransforms().addAll(padShift, padFit);
-        Text version = dim("刀剑神域·誓约 启动器 " + Metadata.VERSION + " · 基于 HMCL", 10);
+        Text version = dim(SaoUi.LAUNCHER_NAME + " " + Metadata.VERSION, 10);
         version.relocate(64, 676);
         Button minimize = round(SVG.MINIMIZE_CENTER, 30, 15);
         minimize.setOnAction(e -> Controllers.getDecorator().minimizeWindow());

@@ -54,6 +54,13 @@ public final class SaoScreenShotTool {
         Platform.startup(up::countDown);
         up.await();
         System.out.println("SCENE3D supported: " + Platform.isSupported(javafx.application.ConditionalFeature.SCENE3D));
+        // Never open a browser: About's link buttons go to an inert opener, and each must hand over its own link.
+        java.util.List<String> opened = new java.util.ArrayList<>();
+        SaoUi.linkOpener = opened::add;
+        fx(() -> SaoApps.aboutLinks().getChildren().forEach(n -> ((javafx.scene.control.Button) n).fire()));
+        if (!opened.equals(java.util.List.of(SaoUi.AFDIAN_URL, SaoUi.QUARK_URL)))
+            throw new IllegalStateException("About links opened " + opened);
+        System.out.println("About links OK: " + opened);
         for (int[] size : sizes) {
             int w = size[0], h = size[1];
             boolean win = size[2] == 1, big = w > 1500 && !win;

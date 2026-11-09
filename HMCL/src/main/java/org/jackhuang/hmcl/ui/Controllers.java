@@ -215,7 +215,7 @@ public final class Controllers {
     private static void configureMainStage(Stage stage) {
         stage.setOnCloseRequest(event -> Launcher.stopApplication());
         FXUtils.setIcon(stage);
-        stage.setTitle(Metadata.FULL_TITLE);
+        stage.setTitle(org.jackhuang.hmcl.ui.sao.SaoUi.LAUNCHER_NAME + " " + Metadata.VERSION);
         WindowsNativeUtils.installWindowsAppUserModelRelaunchProperties(stage);
     }
 

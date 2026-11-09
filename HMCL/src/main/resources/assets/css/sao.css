@@ -291,7 +291,7 @@
 .theme-sao .vr-scroll .scroll-bar .thumb { -fx-background-color: #c4c4c4; }
 .theme-sao .vr-pill { -fx-background-color: rgba(255,255,255,0.75); }
 .theme-sao .vr-chip:selected:disabled { -fx-background-color: #e6e6e8; -fx-border-color: #d6d6d6; -fx-text-fill: #555555; }
-.theme-sao .vr-logo { -fx-effect: dropshadow(gaussian, rgba(40,50,70,0.85), 3, 0.6, 0, 0); }
+.theme-sao .vr-logo { -fx-effect: dropshadow(gaussian, rgba(40,50,70,0.16), 6, 0, 0, 1); }
 
 /* ---- Dark glass, minimal: smoked panels with a hairline, white for the main action */
 

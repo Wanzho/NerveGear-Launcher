@@ -668,14 +668,30 @@ final class SaoApps {
 
     // ------------------------------------------------------------------ about
 
+    /// The two link buttons under About's title (James, 9 Nov: "内置一下 爱发电 还有那个夸克链接 ... 两个button").
+    ///
+    /// @return the row
+    static HBox aboutLinks() {
+        Button afdian = button("爱发电");
+        afdian.setOnAction(e -> SaoUi.linkOpener.accept(SaoUi.AFDIAN_URL));
+        Button quark = button("夸克网盘");
+        quark.setGraphic(icon(SVG.DOWNLOAD, 15));
+        quark.setOnAction(e -> SaoUi.linkOpener.accept(SaoUi.QUARK_URL));
+        HBox row = new HBox(10, afdian, quark);
+        row.setAlignment(Pos.CENTER);
+        row.setPadding(new Insets(10, 0, 0, 0));
+        return row;
+    }
+
     /// About: the launcher, HMCL and the licences.
     static SaoFloatWindow about(SaoLauncherService s, Runnable close) {
         // logo-45 (James, 9 Nov) is near 4:3, so a height bound keeps it a title over the text (old wide one: 250 wide).
         ImageView logo = SaoAssets.logo(240, 170);
         VBox left = column(270, logo,
-                ink("刀剑神域·誓约 启动器", 15),
+                ink(SaoUi.LAUNCHER_NAME, 15),
                 dim("版本 " + Metadata.VERSION + " · 整合包 v" + s.embeddedVersion(), 12),
-                dim("刀剑神域·誓约 是免费的非商业整合包。", 12));
+                dim("刀剑神域·誓约 是免费的非商业整合包。", 12),
+                aboutLinks());
         left.setAlignment(Pos.TOP_CENTER);
         Text hmcl = dim("本启动器基于 Hello Minecraft! Launcher (HMCL) 3.17，"
                 + "Copyright © huangyuhui 及贡献者，按 GNU GPL v3 开源，源代码公开。", 12);

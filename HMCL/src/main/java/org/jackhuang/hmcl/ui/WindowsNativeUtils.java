@@ -139,7 +139,7 @@ public final class WindowsNativeUtils {
             // window before relaunch metadata is complete.
             if (!setWindowsPropertyStoreString(store, WinTypes.PROPERTYKEY.PKEY_AppUserModel_RelaunchCommand, relaunchCommand)
                     || !setWindowsPropertyStoreString(store, WinTypes.PROPERTYKEY.PKEY_AppUserModel_RelaunchIconResource, iconResource)
-                    || !setWindowsPropertyStoreString(store, WinTypes.PROPERTYKEY.PKEY_AppUserModel_RelaunchDisplayNameResource, Metadata.FULL_NAME)
+                    || !setWindowsPropertyStoreString(store, WinTypes.PROPERTYKEY.PKEY_AppUserModel_RelaunchDisplayNameResource, org.jackhuang.hmcl.ui.sao.SaoUi.LAUNCHER_NAME)
                     || !setWindowsPropertyStoreString(store, WinTypes.PROPERTYKEY.PKEY_AppUserModel_ID, Metadata.WINDOWS_APP_USER_MODEL_ID)) {
                 return;
             }
