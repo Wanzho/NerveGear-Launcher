@@ -24,27 +24,29 @@ final class SaoGameLogs {
     /// Bounded sanitized lines, guarded by this object.
     private final ArrayDeque<String> lines = new ArrayDeque<>();
 
+    /// Stateful redaction keeps multiline credentials private even when callbacks arrive one line at a time.
+    private SaoFeedbackSanitizer.Stream liveSanitizer = sanitizer().stream();
+
+    /// Creates an identity scrubber without opening any account/configuration file.
+    private static SaoFeedbackSanitizer sanitizer() {
+        return new SaoFeedbackSanitizer(System.getProperty("user.home", ""), System.getProperty("user.name", ""));
+    }
+
     /// Uses the launcher's fixed instance and does not read accounts, options or skin directories.
     SaoGameLogs(Path instance) { this.instance = instance; }
 
     /// Filters handoff/authentication lines before either display or export; also removes home-directory identity.
     static String sanitize(String text) {
-        String lower = text.toLowerCase(Locale.ROOT);
-        if (lower.contains("sao-auth") || lower.contains("sao_auth") || lower.contains("password")
-                || lower.contains("accesstoken") || lower.contains("access_token") || lower.contains("refresh_token")
-                || lower.contains("authorization:") || lower.contains("clienttoken") || lower.contains("launchticket")
-                || lower.contains("launch_ticket") || lower.contains("\"ticket\"") || lower.contains(".sao-launch-ticket")) return "[authentication data omitted]";
-        String home = System.getProperty("user.home", "");
-        return home.isEmpty() ? text : text.replace(home, "~");
+        return sanitizer().scrub(text).stripTrailing();
     }
 
     /// Starts a fresh run; older on-disk logs remain eligible for an explicit support export.
-    synchronized void clear() { lines.clear(); }
+    synchronized void clear() { lines.clear(); liveSanitizer = sanitizer().stream(); }
 
     /// Adds complete lines and caps the ring even when one process callback contains multiple line breaks.
     synchronized void append(String text) {
         for (String line : text.split("\\R", -1)) {
-            String sanitized = sanitize(line);
+            String sanitized = liveSanitizer.line(line);
             lines.addLast(sanitized.length() > 32768 ? sanitized.substring(0, 32768) : sanitized);
             while (lines.size() > MAX_LINES) lines.removeFirst();
         }
@@ -65,9 +67,15 @@ final class SaoGameLogs {
 
     /// Applies HMCL's crash rules to the latest report or captured output after an abnormal exit.
     @Nullable SaoData.Crash analyze(boolean abnormal, long since) throws IOException {
-        @Nullable Path report = latestReport(since);
+        @Nullable Path report;
+        try { report = latestReport(since); }
+        catch (IOException unavailable) { report = null; }
         if (!abnormal && report == null) return null;
-        String text = report == null ? String.join("\n", snapshot()) : readSanitized(report, 4 * 1024 * 1024);
+        String text = String.join("\n", snapshot());
+        if (report != null) {
+            try { text = readSanitized(report, 4 * 1024 * 1024); }
+            catch (IOException unavailable) { /* Captured output still provides a crash card when a report cannot be read. */ }
+        }
         Set<CrashReportAnalyzer.Result> matches = CrashReportAnalyzer.analyze(text);
         @Unmodifiable List<CrashReportAnalyzer.Result> ordered = matches.stream().sorted(Comparator.comparingInt(result -> result.rule().ordinal())).toList();
         String reason = i18n("game.crash.reason.unknown");
@@ -127,9 +135,7 @@ final class SaoGameLogs {
              InputStream input = file.toString().endsWith(".gz") ? new GZIPInputStream(raw) : raw) {
             byte[] bytes = input.readNBytes(maximum + 1);
             if (bytes.length > maximum) throw new IOException("Log is too large to export");
-            StringBuilder result = new StringBuilder();
-            for (String line : new String(bytes, StandardCharsets.UTF_8).split("\\R", -1)) result.append(sanitize(line)).append('\n');
-            return result.toString();
+            return sanitizer().scrub(new String(bytes, StandardCharsets.UTF_8));
         }
     }
 

@@ -128,6 +128,54 @@ public interface SaoLauncherService {
     /// The fixed instance folder (opened from the settings sheet).
     Path instanceDir();
 
+    /// What happens to the launcher when the game process starts; defaults to 隐藏到后台.
+    default SaoData.LauncherBehavior launcherBehavior() { return SaoData.LauncherBehavior.HIDE; }
+
+    /// Persists behavior for the next launch; a running game's captured policy does not change.
+    default void setLauncherBehavior(SaoData.LauncherBehavior behavior) { }
+
+    /// Builds a scrubbed feedback ZIP asynchronously in Downloads; failures complete exceptionally.
+    /// Never opens a file manager itself. The result includes the actual committed file size.
+    default CompletableFuture<SaoData.FeedbackZip> buildFeedbackZip() { return unsupported(); }
+
+    /// Stable, read-only, last-good community links; production defaults include 爱发电 and 夸克网盘.
+    default @org.jetbrains.annotations.UnmodifiableView ObservableList<SaoData.CommunityLink> links() { return javafx.collections.FXCollections.emptyObservableList(); }
+
+    /// Refreshes links asynchronously; a failed fetch preserves the last-good list and disk cache.
+    default void refreshLinks() { }
+
+    /// Selected preset, initially AUTO. Merely reading it does not edit game files.
+    default SaoData.GraphicsPreset graphicsPreset() { return SaoData.GraphicsPreset.AUTO; }
+
+    /// Queues the preset for the next launch; never edits options or mod configs while a game is running.
+    default void setGraphicsPreset(SaoData.GraphicsPreset preset) { }
+
+    /// RAM/GPU-based suggestion, asynchronously detected through HMCL; returns a concrete preset.
+    default CompletableFuture<SaoData.GraphicsPreset> suggestedGraphicsPreset() { return unsupported(); }
+
+    /// First-open RAM, disk, Java/architecture and actual write checks, without installing or downloading.
+    default CompletableFuture<@org.jetbrains.annotations.Unmodifiable List<SaoData.SystemCheck>> systemCheck() { return unsupported(); }
+
+    /// Version of the 用户须知 and licences bundle the UI must present before recording acceptance.
+    default String userNoticeVersion() { return "2026-11-09.1"; }
+
+    /// Whether the user explicitly accepted this exact notice version.
+    default boolean userNoticeAccepted() { return userNoticeVersion().equals(preference("notice.accepted", "")); }
+
+    /// Records explicit acceptance only for the displayed current version; stale versions are refused.
+    default void acceptUserNotice(String version) {
+        if (!userNoticeVersion().equals(version)) throw new IllegalArgumentException("用户须知已更新，请重新阅读");
+        setPreference("notice.accepted", version);
+    }
+
+    /// Reports actual window visibility/focus, initially visible and focused to avoid unsolicited notifications.
+    /// The UI calls this whenever either changes; hidden launch policy also updates it automatically.
+    default void setLauncherAttention(boolean visible, boolean focused) { }
+
+    /// Stable read-only event property. Listen for replacements; no replay, no durable notification history.
+    /// New incoming messages/requests/invites emit only while hidden or unfocused and respect protocol-2 mute.
+    default ReadOnlyObjectProperty<SaoData.@Nullable Notification> notification() { return new SimpleObjectProperty<>(); }
+
     // ---------------------------------------------------------------- windows (added 6 Nov, defaults until built)
     //
     // Everything below feeds one floating window of the screen. Each has a default so an engine that does not

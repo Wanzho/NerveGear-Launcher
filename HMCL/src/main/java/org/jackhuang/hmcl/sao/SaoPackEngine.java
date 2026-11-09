@@ -121,6 +121,10 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     private Supplier<@Unmodifiable List<Path>> downloadDirectories = SaoDownloads::directories;
     /// Sanitized process output and support-export reader.
     private final SaoGameLogs logs;
+    /// Additive common-feature worker keeps support/check/link operations away from pack transactions.
+    private final SaoExtras extras;
+    /// Captures each real process's visibility policy and restores the launcher after crash analysis.
+    private final SaoLauncherLifecycle lifecycle;
     /// Embedded update note remains tied to this launcher rather than a subsequently dropped update.
     private volatile SaoData.News embeddedNews = new SaoData.News(SaoData.NewsKind.UPDATE, "v未内置整合包", "", "");
     /// Independent online work cannot delay pack writes or game startup.
@@ -285,6 +289,28 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
         remoteNews = online.cached();
         installer = new SaoPackInstaller(game.instanceDir(), game::download, Map.of(), this::reportProgress);
         skins = new SaoSkinStore(game.instanceDir());
+        extras = new SaoExtras(root, game, settings, online, logs, installer, () -> source, this::embeddedVersion, gameRunning::get, production);
+        lifecycle = new SaoLauncherLifecycle(SaoPackEngine::publish, new SaoLauncherLifecycle.Window() {
+            /// Implicit-exit setting to restore after the hidden main window returns.
+            private boolean implicitExit;
+            /// Hides only in the production engine; fixture construction never initializes a stage or toolkit.
+            @Override public void hide() {
+                oath.friends.notifications.attention(false, false);
+                if (!production) return;
+                @Nullable javafx.stage.Stage stage = org.jackhuang.hmcl.ui.Controllers.getStage();
+                if (stage != null) { implicitExit = Platform.isImplicitExit(); Platform.setImplicitExit(false); stage.hide(); }
+            }
+            /// The crash property is already published before this operation is queued.
+            @Override public void show() {
+                if (closed.get()) return;
+                oath.friends.notifications.attention(true, false);
+                if (!production) return;
+                @Nullable javafx.stage.Stage stage = org.jackhuang.hmcl.ui.Controllers.getStage();
+                if (stage != null) { stage.setIconified(false); stage.show(); Platform.setImplicitExit(implicitExit); }
+            }
+            /// Uses HMCL's normal application shutdown after the protected launch handoff, never System.exit.
+            @Override public void close() { if (production) org.jackhuang.hmcl.Launcher.stopApplication(); }
+        });
         worker.execute(() -> {
             try {
                 @Nullable String developmentPack = System.getProperty("sao.pack");
@@ -306,7 +332,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
             } catch (Exception failure) { fail("读取整合包失败", failure); }
             finally {
                 packReady.complete(null); busy.set(false); refreshInstalledBytes();
-                if (production) refreshUpdates();
+                if (production) { refreshUpdates(); extras.refreshLinks(); }
             }
         });
     }
@@ -323,6 +349,40 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     @Override public ReadOnlyObjectProperty<@Nullable String> installedVersion() { return installedVersion.getReadOnlyProperty(); }
     /// {@inheritDoc}
     @Override public String embeddedVersion() { return embeddedVersion; }
+
+    /// Persisted next-run visibility, mapped through HMCL's existing LauncherVisibility enum.
+    @Override public SaoData.LauncherBehavior launcherBehavior() { return extras.behavior(); }
+    /// Does not mutate the captured policy of an already running process.
+    @Override public void setLauncherBehavior(SaoData.LauncherBehavior behavior) {
+        if (!closed.get() && !uninstalling.get()) extras.behavior(behavior);
+    }
+    /// Atomically builds a sanitized Downloads ZIP and completes on the publication thread.
+    @Override public CompletableFuture<SaoData.FeedbackZip> buildFeedbackZip() { return extras.feedback(); }
+    /// Stable read-only last-good public links.
+    @Override public @UnmodifiableView ObservableList<SaoData.CommunityLink> links() { return extras.links(); }
+    /// Explicit independent refresh; no account calls or server ping.
+    @Override public void refreshLinks() { extras.refreshLinks(); }
+    /// Selected next-launch preset.
+    @Override public SaoData.GraphicsPreset graphicsPreset() { return extras.preset(); }
+    /// Stores a pending selection even while playing, leaving game files untouched until the next launch.
+    @Override public void setGraphicsPreset(SaoData.GraphicsPreset preset) {
+        if (!closed.get() && !uninstalling.get()) extras.preset(preset);
+    }
+    /// Headless HMCL RAM/GPU suggestion, without creating an OpenGL context.
+    @Override public CompletableFuture<SaoData.GraphicsPreset> suggestedGraphicsPreset() { return extras.suggestion(); }
+    /// Asynchronous first-open checks, including compatible Java discovery without downloads.
+    @Override public CompletableFuture<@Unmodifiable List<SaoData.SystemCheck>> systemCheck() { return extras.systemCheck(); }
+    /// Version shared by the UI's notice/licence bundle and persisted acceptance preference.
+    @Override public String userNoticeVersion() { return SaoLauncherService.super.userNoticeVersion(); }
+    /// Old acceptance versions do not satisfy the current notice bundle.
+    @Override public boolean userNoticeAccepted() { return SaoLauncherService.super.userNoticeAccepted(); }
+    /// Records only an explicit acceptance of the exact currently displayed version.
+    @Override public void acceptUserNotice(String version) { SaoLauncherService.super.acceptUserNotice(version); }
+    /// Explicit frontend visibility/focus changes gate ephemeral social notifications.
+    @Override public void setLauncherAttention(boolean visible, boolean focused) { oath.friends.notifications.attention(visible, focused); }
+    /// Stable event stream driven exclusively by authenticated live/poll deliveries and request transitions.
+    @Override public ReadOnlyObjectProperty<SaoData.@Nullable Notification> notification() { return oath.friends.notifications.event(); }
+
 
     /// {@inheritDoc}
     @Override public void linkStart(Account account, char @Nullable [] authPassword) {
@@ -369,11 +429,13 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
                 // A prior ARGUS launch must not leak a handoff into dependency preparation or this run.
                 if (offline) game.clearOfflineTicket();
                 SaoPackArchive pack = requireSource();
-                game.ensureInstalled(false);
                 @Nullable SaoPackManifest previous = installer.installed();
+                if (previous == null || VersionNumber.compare(pack.manifest().version(), previous.version()) > 0) extras.checkInstallCapacity();
+                game.ensureInstalled(false);
                 if (previous == null || VersionNumber.compare(pack.manifest().version(), previous.version()) > 0)
                     installer.apply(pack, false);
                 files.enforceRequiredResources();
+                extras.beforeLaunch();
                 if (!launcherPermitted()) { busy.set(false); refreshState(); return; }
                 publish(() -> { installedVersion.set(pack.manifest().version()); step.set("Link Start"); state.set(SaoPackState.RUNNING); });
                 if (closed.get()) throw new IOException("Launcher has closed");
@@ -382,11 +444,13 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
                 saveSetting("lastExitAbnormal", false);
                 logs.clear();
                 publish(() -> { gameLog.clear(); crash.set(null); });
+                lifecycle.begin(launcherBehavior());
                 gameRunning.set(true);
                 game.launch(account, pack.manifest(), launchMemoryMiB(), gameWindow(), jvmArgs(), password, offline, closed::get, new ProcessListener() {
                     /// Starts accounting after the OS process exists and before HMCL starts its exit monitor.
                     @Override public void setProcess(org.jackhuang.hmcl.util.platform.ManagedProcess process) {
                         if (account instanceof SaoOathLaunchAccount launched) oath.gameStarted(launched);
+                        lifecycle.started();
                     }
                     /// Captures sanitized output only; handoff and authentication lines are filtered first.
                     @Override public void onLog(String line, boolean stderr) { appendGameLog(line); }
@@ -402,13 +466,15 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
                                 publish(() -> crash.set(result));
                                 refreshLocalNow(); refreshState();
                             } catch (Exception failure) { windowFailure("读取游戏退出信息失败", failure); }
-                            finally { busy.set(false); }
+                            finally { busy.set(false); lifecycle.exited(); }
                         });
                     }
                 });
+                lifecycle.handedOff();
                 // Busy remains true for the running process; its monitor releases it on exit.
             } catch (Exception failure) {
                 gameRunning.set(false);
+                lifecycle.exited();
                 busy.set(false);
                 if (offline) publish(() -> { error.set("离线启动失败，请检查整合包和 Java 17 设置");
                     state.set(SaoPackState.FAILED); step.set(""); progress.set(-1); });
@@ -520,6 +586,8 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
         @Nullable SaoPackArchive pack = source;
         return pack != null && !pack.manifest().server().isEmpty() ? pack.manifest().server() : SaoLauncherService.super.serverAddress();
     }
+    /// Preserves the existing canonical invite-target construction while explicitly implementing the screen seam.
+    @Override public @Unmodifiable List<String> knownServers() { return SaoLauncherService.super.knownServers(); }
     /// {@inheritDoc}
     @Override public @org.jetbrains.annotations.Unmodifiable List<String> serverNodes() {
         @Nullable SaoPackArchive pack = source;
@@ -544,6 +612,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     @Override public void repair() {
         submit(() -> {
             SaoPackArchive pack = requireSource();
+            extras.checkInstallCapacity();
             game.ensureInstalled(true);
             installer.apply(pack, true);
             refreshState();
@@ -569,6 +638,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
                     && (currentSource == null || VersionNumber.compare(currentSource.manifest().version(), previous.version()) < 0);
             if (previous != null && VersionNumber.compare(update.manifest().version(), previous.version()) <= 0 && !recoveringSource)
                 throw new IOException("更新包版本必须高于已安装版本 " + previous.version());
+            extras.checkInstallCapacity(update);
             SaoPackArchive cached = cacheSource(update);
             game.ensureInstalled(false);
             installer.apply(cached, recoveringSource);
@@ -744,6 +814,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
                 closed.set(true);
                 terminal = true;
                 roomGeneration.incrementAndGet();
+                extras.close();
                 online.close();
                 onlineWorker.shutdownNow();
                 if (!onlineWorker.awaitTermination(5, TimeUnit.SECONDS)) throw new IOException("后台联网任务未结束，未移除启动器数据");
@@ -1238,7 +1309,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
         oath.close();
         game.close();
         org.jackhuang.hmcl.terracotta.TerracottaManager.stopRoom();
-        online.close(); onlineWorker.shutdownNow(); publications.shutdownNow();
+        extras.close(); online.close(); onlineWorker.shutdownNow(); publications.shutdownNow();
         worker.shutdownNow();
     }
 }
