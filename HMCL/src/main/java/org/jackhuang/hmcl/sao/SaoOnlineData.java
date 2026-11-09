@@ -21,7 +21,7 @@ import java.util.zip.ZipFile;
 @NotNullByDefault
 final class SaoOnlineData implements AutoCloseable {
     /// Maximum decoded news response bytes.
-    private static final int MAX_NEWS_BYTES = 262144;
+    private static final int MAX_NEWS_BYTES = SaoReleaseSignatures.MAX_NEWS_BYTES;
     /// Closes a status socket at the total deadline even if a peer keeps trickling bytes.
     private final ScheduledExecutorService deadlines = Executors.newSingleThreadScheduledExecutor(task -> {
         Thread thread = new Thread(task, "sao-status-deadline"); thread.setDaemon(true); return thread;
@@ -31,8 +31,12 @@ final class SaoOnlineData implements AutoCloseable {
             .followRedirects(HttpClient.Redirect.NEVER).build();
     /// Cache file for the last valid remote document.
     private final Path cache;
-    /// Last-good fully validated release policy, separate from announcements.
-    private final Path versionCache;
+    /// Atomic signed caches and independent persistent sequence high-water marks.
+    private final SaoReleaseState releases;
+    /// Last successfully authenticated policy sequence; rejected fetches leave it unchanged.
+    private volatile @Nullable Long versionSequence;
+    /// Last successfully authenticated announcement sequence; independent of version policy ordering.
+    private volatile @Nullable Long newsSequence;
     /// Injectable request exchange; tests never contact external hosts.
     private final Exchange exchange;
     /// DNS has a separate daemon so the complete ping has a three-second deadline.
@@ -40,8 +44,11 @@ final class SaoOnlineData implements AutoCloseable {
             new LinkedBlockingQueue<>(), task -> { Thread thread = new Thread(task, "sao-status-dns"); thread.setDaemon(true); return thread; });
 
     /// Keeps all cache files in the launcher's own data root.
-    SaoOnlineData(Path root) {
-        cache = root.resolve("online-news.json"); versionCache = root.resolve("online-version.json");
+    SaoOnlineData(Path root) { this(root, SaoReleaseSignatures.PRODUCTION); }
+
+    /// Allows only explicitly constructed offline fixtures to use throwaway verification keys.
+    SaoOnlineData(Path root, SaoReleaseSignatures trust) {
+        cache = root.resolve("online-news.json"); releases = new SaoReleaseState(root, trust);
         exchange = (request, limit) -> {
             CompletableFuture<HttpResponse<byte[]>> pending = http.sendAsync(request, info -> new NewsSubscriber(limit));
             try {
@@ -53,7 +60,12 @@ final class SaoOnlineData implements AutoCloseable {
 
     /// Supplies an entirely inert exchange for redirect/cache contract tests.
     SaoOnlineData(Path root, Exchange exchange) {
-        cache = root.resolve("online-news.json"); versionCache = root.resolve("online-version.json"); this.exchange = exchange;
+        this(root, exchange, SaoReleaseSignatures.PRODUCTION);
+    }
+
+    /// Supplies inert transport and explicit public test keys without production key overrides.
+    SaoOnlineData(Path root, Exchange exchange, SaoReleaseSignatures trust) {
+        cache = root.resolve("online-news.json"); releases = new SaoReleaseState(root, trust); this.exchange = exchange;
     }
 
     /// Bounded HTTP exchange result; redirect locations are never followed by the HTTP client itself.
@@ -71,39 +83,25 @@ final class SaoOnlineData implements AutoCloseable {
         Response send(HttpRequest request, int limit) throws Exception;
     }
 
-    /// Validates a small news document, preserving source order, with no HTML rendering or synthetic entries.
+    /// Validates signed news schema 2 with exact types and no primitive coercions.
     static @Unmodifiable List<SaoData.News> parseNews(String document) throws IOException {
-        if (document.getBytes(StandardCharsets.UTF_8).length > MAX_NEWS_BYTES) throw new IOException("News document is too large");
-        try {
-            @Nullable JsonArray entries = JsonParser.parseString(document).getAsJsonObject().getAsJsonArray("news");
-            if (entries == null || entries.size() > 100) throw new IOException("News must contain at most 100 entries");
-            List<SaoData.News> result = new ArrayList<>();
-            for (JsonElement item : entries) {
-                JsonObject entry = item.getAsJsonObject();
-                SaoData.NewsKind kind = SaoData.NewsKind.valueOf(entry.get("kind").getAsString());
-                String title = entry.get("title").getAsString();
-                String date = entry.has("date") ? entry.get("date").getAsString() : "";
-                String body = entry.has("body") ? entry.get("body").getAsString() : "";
-                if (title.isBlank() || title.length() > 200 || date.length() > 40 || body.length() > 16000)
-                    throw new IOException("Invalid news entry length");
-                result.add(new SaoData.News(kind, title, date, body));
-            }
-            return List.copyOf(result);
-        } catch (RuntimeException failure) { throw new IOException("Invalid news document", failure); }
+        return SaoReleaseSignatures.news(document).entries();
     }
 
-    /// Reads valid cached news only; a damaged cache does not prevent the launcher from starting.
+    /// Re-verifies cached raw bytes before decoding; damaged state never prevents launcher startup.
     @Unmodifiable List<SaoData.News> cached() {
-        try { return Files.size(cache) <= MAX_NEWS_BYTES ? parseNews(Files.readString(cache)) : List.of(); }
-        catch (IOException | RuntimeException ignored) { return List.of(); }
+        try {
+            byte @Nullable @Unmodifiable [] bytes = releases.cached(SaoReleaseState.Kind.NEWS);
+            if (bytes == null) return List.of();
+            SaoReleaseSignatures.NewsDocument parsed = SaoReleaseSignatures.news(SaoReleaseSignatures.utf8(bytes));
+            newsSequence = parsed.sequence(); return parsed.entries();
+        } catch (IOException | RuntimeException failure) { rejected("cached news", failure); return List.of(); }
     }
 
-    /// Fetches an explicitly configured HTTPS document and commits it only after full validation.
+    /// Fetches JSON and its detached signature under one deadline, authenticating before parse or cache commit.
     @Unmodifiable List<SaoData.News> fetch(String endpoint) throws Exception {
-        String document = fetchDocument(endpoint, MAX_NEWS_BYTES);
-        @Unmodifiable List<SaoData.News> news = parseNews(document);
-        save(cache, document);
-        return news;
+        SaoReleaseSignatures.NewsDocument parsed = SaoReleaseSignatures.news(SaoReleaseSignatures.utf8(fetchSigned(endpoint, SaoReleaseState.Kind.NEWS)));
+        newsSequence = parsed.sequence(); return parsed.entries();
     }
 
     /// Reads only fully validated cached links; an absent/damaged cache uses the built-in defaults.
@@ -121,17 +119,41 @@ final class SaoOnlineData implements AutoCloseable {
         return result;
     }
 
-    /// Loads only a valid last-good release policy; unavailable metadata does not disable play.
+    /// Re-verifies the signed cached policy and high-water before exposing any download identity or minimum gate.
     @Nullable SaoData.VersionMetadata cachedVersion() {
-        try { return Files.size(versionCache) <= SaoUpdates.MAX_VERSION_BYTES ? SaoUpdates.parse(Files.readString(versionCache)) : null; }
-        catch (IOException | RuntimeException ignored) { return null; }
+        try {
+            byte @Nullable @Unmodifiable [] bytes = releases.cached(SaoReleaseState.Kind.VERSION);
+            if (bytes == null) return null;
+            SaoData.VersionMetadata parsed = SaoUpdates.parse(SaoReleaseSignatures.utf8(bytes));
+            versionSequence = parsed.sequence(); return parsed;
+        } catch (IOException | RuntimeException failure) { rejected("cached version", failure); return null; }
     }
 
-    /// Commits version metadata only after complete schema and value validation.
+    /// Authenticates exact version bytes and sequence before exposing any artifact or Quark link.
     SaoData.VersionMetadata fetchVersion(String endpoint) throws Exception {
-        String document = fetchDocument(endpoint, SaoUpdates.MAX_VERSION_BYTES);
-        SaoData.VersionMetadata metadata = SaoUpdates.parse(document);
-        save(versionCache, document); return metadata;
+        SaoData.VersionMetadata parsed = SaoUpdates.parse(SaoReleaseSignatures.utf8(fetchSigned(endpoint, SaoReleaseState.Kind.VERSION)));
+        versionSequence = parsed.sequence(); return parsed;
+    }
+
+    /// Returns immutable accepted state without disk, network or toolkit work.
+    SaoData.ReleaseVerification verification() { return new SaoData.ReleaseVerification(versionSequence, newsSequence); }
+
+    /// Logs only; rejected remote metadata never changes a UI error, prompt, minimum or accepted announcement.
+    static void rejected(String operation, Exception failure) {
+        System.getLogger(SaoOnlineData.class.getName()).log(System.Logger.Level.WARNING,
+                "Release metadata rejected (" + operation + "): " + failure.getClass().getSimpleName());
+    }
+
+    /// Fetches the sibling .sig from the original endpoint, not a redirected response location or advertised document URL.
+    private byte @Unmodifiable [] fetchSigned(String endpoint, SaoReleaseState.Kind kind) throws Exception {
+        URI uri = checkedEndpoint(URI.create(endpoint));
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        byte @Unmodifiable [] document = fetchBytes(uri, kind.limit, deadline);
+        String raw = uri.toString(); int query = raw.indexOf('?');
+        URI signatureUri = URI.create(query < 0 ? raw + ".sig" : raw.substring(0, query) + ".sig" + raw.substring(query));
+        byte @Unmodifiable [] signature = fetchBytes(signatureUri, SaoReleaseSignatures.MAX_SIGNATURE_BYTES, deadline);
+        releases.accept(kind, document, signature);
+        return document;
     }
 
     /// Atomically replaces one last-good public cache after validation.
@@ -147,10 +169,14 @@ final class SaoOnlineData implements AutoCloseable {
         return fetchDocument(endpoint, limit, 10);
     }
 
-    /// Shares redirect/body validation while allowing a caller-specific whole-operation deadline.
+    /// Shares redirect/body validation for separately scoped unsigned community links.
     private String fetchDocument(String endpoint, int limit, int seconds) throws Exception {
-        URI uri = checkedEndpoint(URI.create(endpoint));
-        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(seconds);
+        return SaoReleaseSignatures.utf8(fetchBytes(checkedEndpoint(URI.create(endpoint)), limit,
+                System.nanoTime() + TimeUnit.SECONDS.toNanos(seconds)));
+    }
+
+    /// Uses the caller's whole-operation deadline for each independent JSON/signature request and its permitted hop.
+    private byte @Unmodifiable [] fetchBytes(URI uri, int limit, long deadline) throws Exception {
         Response response = exchange.send(request(uri, deadline), limit);
         if (redirect(response.status())) {
             uri = redirected(uri, response.location());
@@ -159,8 +185,7 @@ final class SaoOnlineData implements AutoCloseable {
         if (response.status() != 200) throw new IOException("Metadata HTTP " + response.status());
         if (System.nanoTime() >= deadline) throw new IOException("Metadata request timed out");
         if (response.body().length > limit) throw new IOException("Metadata document is too large");
-        return StandardCharsets.UTF_8.newDecoder().onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
-                .decode(java.nio.ByteBuffer.wrap(response.body())).toString();
+        return response.body();
     }
 
     /// Builds each hop from the remaining whole-operation timeout.

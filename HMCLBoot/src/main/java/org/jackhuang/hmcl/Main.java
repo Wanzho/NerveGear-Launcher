@@ -124,11 +124,13 @@ public final class Main {
         }
     }
 
-    /// Handles headless pack tools before directory checks, dialogs and JavaFX initialization.
+    /// Handles headless release and pack tools before directory checks, dialogs and JavaFX initialization.
     public static void main(String[] args) throws Throwable {
-        if (args.length > 0 && ("--pack-hash".equals(args[0]) || "--make-update".equals(args[0]) || "--bundle-allowed".equals(args[0]))) {
+        if (args.length > 0 && ("--pack-hash".equals(args[0]) || "--make-update".equals(args[0]) || "--bundle-allowed".equals(args[0])
+                || "--sign-release".equals(args[0]) || "--verify-release".equals(args[0]))) {
             System.setProperty("java.awt.headless", "true");
-            Class<?> tool = Class.forName("--make-update".equals(args[0])
+            Class<?> tool = Class.forName("--sign-release".equals(args[0]) || "--verify-release".equals(args[0])
+                    ? "org.jackhuang.hmcl.sao.SaoReleaseTool" : "--make-update".equals(args[0])
                     ? "org.jackhuang.hmcl.sao.SaoUpdateBuilder" : "--bundle-allowed".equals(args[0])
                     ? "org.jackhuang.hmcl.sao.SaoPackBundler" : "org.jackhuang.hmcl.sao.SaoPackHash");
             try {

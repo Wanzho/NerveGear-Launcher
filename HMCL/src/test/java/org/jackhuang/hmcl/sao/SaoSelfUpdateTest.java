@@ -41,7 +41,7 @@ class SaoSelfUpdateTest {
 
     /// Creates the flat public launcher identity, exactly as the Gitee document advertises it.
     private static SaoData.VersionMetadata metadata(Path artifact, String latest, String minimum, boolean nativeRequired) throws IOException {
-        JsonObject root = new JsonObject(); root.addProperty("schema", 2); root.addProperty("quark", SaoUpdates.QUARK_URL);
+        JsonObject root = new JsonObject(); root.addProperty("schema", 2); root.addProperty("sequence", 0); root.addProperty("quark", SaoUpdates.QUARK_URL);
         JsonObject pack = new JsonObject(); pack.addProperty("version", "0.8"); pack.addProperty("file", "pack.zip"); pack.addProperty("size", 1); pack.addProperty("sha256", "0".repeat(64));
         root.add("pack", pack); root.add("updates", new JsonArray());
         JsonObject launcher = new JsonObject(); launcher.addProperty("latest", latest); launcher.addProperty("min", minimum);
@@ -163,8 +163,8 @@ class SaoSelfUpdateTest {
             JsonObject document = new Gson().toJsonTree(metadata).getAsJsonObject();
             JsonObject launcher = document.getAsJsonObject("launcher"); launcher.remove("artifact");
             launcher.addProperty("file", candidate.getFileName().toString()); launcher.addProperty("size", Files.size(candidate)); launcher.addProperty("sha256", SaoUpdates.sha256(candidate));
-            Files.writeString(root.resolve("online-version.json"), document.toString());
-            try (SaoPackEngine engine = new SaoPackEngine(root, null, false)) {
+            SaoReleaseTestSupport.cacheVersion(root, document.toString());
+            try (SaoPackEngine engine = SaoReleaseTestSupport.engine(root, null, false)) {
                 java.util.concurrent.CompletableFuture<Void> result = engine.acceptDroppedFiles(List.of(candidate));
                 if (blocked) {
                     assertThrows(java.util.concurrent.ExecutionException.class, () -> result.get(10, java.util.concurrent.TimeUnit.SECONDS));
@@ -193,7 +193,7 @@ class SaoSelfUpdateTest {
     /// Flat launcher identity fields are all-or-none and optional booleans never coerce strings or numbers.
     @Test void launcherMetadataRejectsPartialIdentityAndBooleanCoercions() throws Exception {
         Path jar = jar("candidate.jar", "0.1.1"); SaoData.VersionMetadata metadata = metadata(jar, "0.1.1", "0.1.0", false);
-        JsonObject document = new JsonObject(); document.addProperty("schema", 2); document.addProperty("quark", metadata.quark());
+        JsonObject document = new JsonObject(); document.addProperty("schema", 2); document.addProperty("sequence", 0); document.addProperty("quark", metadata.quark());
         document.add("pack", new Gson().toJsonTree(metadata.pack())); document.add("updates", new JsonArray());
         JsonObject launcher = new JsonObject(); launcher.addProperty("latest", "0.1.1"); launcher.addProperty("min", "0.1.0"); launcher.addProperty("file", "candidate.jar"); document.add("launcher", launcher);
         assertThrows(IOException.class, () -> SaoUpdates.parse(document.toString()));

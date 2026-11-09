@@ -111,9 +111,9 @@ class SaoWindowsTest {
 
     /// A last-good cached document survives malformed replacement data and an unconfigured endpoint.
     @Test void newsCacheAndEmbeddedChangelogUseActualSources() throws Exception {
-        String valid = "{\"news\":[{\"kind\":\"NOTICE\",\"title\":\"Fixture\",\"date\":\"2026-11-06\",\"body\":\"Plain text\"}]}";
-        Files.writeString(temporary.resolve("online-news.json"), valid);
-        try (SaoOnlineData online = new SaoOnlineData(temporary)) {
+        String valid = "{\"schema\":2,\"sequence\":0,\"news\":[{\"kind\":\"NOTICE\",\"title\":\"Fixture\",\"date\":\"2026-11-06\",\"body\":\"Plain text\"}]}";
+        SaoReleaseTestSupport.cacheNews(temporary, valid);
+        try (SaoOnlineData online = new SaoOnlineData(temporary, SaoReleaseTestSupport.TRUST)) {
             assertEquals("Fixture", online.cached().get(0).title());
             assertThrows(IOException.class, () -> SaoOnlineData.parseNews("{\"news\":[{\"kind\":\"UNKNOWN\"}]}"));
             assertEquals("Fixture", online.cached().get(0).title());

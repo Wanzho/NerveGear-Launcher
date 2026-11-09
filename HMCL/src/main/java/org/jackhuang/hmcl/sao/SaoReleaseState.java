@@ -1,0 +1,171 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+package org.jackhuang.hmcl.sao;
+
+import com.google.gson.*;
+import org.jetbrains.annotations.NotNullByDefault;
+import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.Unmodifiable;
+
+import java.io.*;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
+import java.nio.file.*;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+
+/// A single durable transaction holds signed caches and their independent high-water marks under an OS lock.
+/// Damaged state fails closed; legacy unsigned caches are never migrated or consulted.
+@NotNullByDefault
+final class SaoReleaseState {
+    /// Atomic state filename in the launcher data root; contains only public release bytes and signatures.
+    static final String NAME = "online-release-state.json";
+    /// Upper bound includes base64 expansion of both bounded documents and their signatures.
+    private static final int MAX_STATE_BYTES = 400000;
+    /// Serializes threads and store objects in one JVM before taking the process-shared file lock.
+    private static final Map<Path, Object> MONITORS = new ConcurrentHashMap<>();
+    /// Canonical per-launcher state file.
+    private final Path state;
+    /// OS lock file is separate so atomic replacement never changes the locked inode.
+    private final Path lockFile;
+    /// Explicit immutable public trust roots.
+    private final SaoReleaseSignatures trust;
+    /// Shared in-process monitor for this launcher root.
+    private final Object monitor;
+
+    /// Separates news and version sequences so a large announcement sequence cannot suppress a release policy.
+    @NotNullByDefault
+    enum Kind {
+        /// Exact version schema 2 and its complete pack/launcher policy.
+        VERSION("version", SaoUpdates.MAX_VERSION_BYTES),
+        /// Exact news schema 2 and its plain-text entries.
+        NEWS("news", SaoReleaseSignatures.MAX_NEWS_BYTES);
+        /// Stable field name in the state transaction.
+        final String field;
+        /// Raw signed document cap before base64 encoding.
+        final int limit;
+        /// Retains the independent signed document identity and byte cap.
+        Kind(String field, int limit) { this.field = field; this.limit = limit; }
+        /// Fully validates a signature-authenticated document and returns its nonnegative sequence.
+        long sequence(byte @Unmodifiable [] bytes) throws IOException {
+            if (bytes.length > limit) throw new IOException("Release document is too large");
+            String document = SaoReleaseSignatures.utf8(bytes);
+            return this == VERSION ? SaoUpdates.parse(document).sequence() : SaoReleaseSignatures.news(document).sequence();
+        }
+    }
+
+    /// Binds a root to compiled production keys or explicit throwaway fixture keys.
+    SaoReleaseState(Path root, SaoReleaseSignatures trust) {
+        state = root.toAbsolutePath().normalize().resolve(NAME);
+        lockFile = state.resolveSibling("online-release-state.lock");
+        this.trust = trust; monitor = MONITORS.computeIfAbsent(state, ignored -> new Object());
+    }
+
+    /// Loads only reverified exact bytes; callers decide whether to keep their existing in-memory value on error.
+    byte @Nullable @Unmodifiable [] cached(Kind kind) throws IOException {
+        return locked(() -> {
+            @Nullable JsonObject entry = read().getAsJsonObject(kind.field);
+            return entry == null ? null : document(entry, kind);
+        });
+    }
+
+    /// Verifies before parsing, rejects rollback, then commits cache and high-water in one durable atomic replacement.
+    long accept(Kind kind, byte @Unmodifiable [] bytes, byte @Unmodifiable [] signature) throws IOException {
+        trust.verify(bytes, signature);
+        long sequence = kind.sequence(bytes);
+        return locked(() -> {
+            JsonObject root = read();
+            @Nullable JsonObject previous = root.getAsJsonObject(kind.field);
+            if (previous != null && sequence < SaoReleaseSignatures.number(previous, "highWater"))
+                throw new IOException("Release sequence rollback refused");
+            JsonObject entry = new JsonObject(); entry.addProperty("highWater", sequence);
+            entry.addProperty("document", Base64.getEncoder().encodeToString(bytes));
+            entry.addProperty("signature", Base64.getEncoder().encodeToString(signature));
+            root.add(kind.field, entry);
+            write(root); return sequence;
+        });
+    }
+
+    /// Strictly validates the complete persisted transaction, rechecking each signature before its document is parsed.
+    private JsonObject read() throws IOException {
+        if (!Files.exists(state, LinkOption.NOFOLLOW_LINKS)) {
+            JsonObject initial = new JsonObject(); initial.addProperty("schema", 1); return initial;
+        }
+        byte @Unmodifiable [] bytes = bounded(state, MAX_STATE_BYTES);
+        JsonObject root = SaoReleaseSignatures.object(SaoReleaseSignatures.utf8(bytes));
+        Set<String> expected = new HashSet<>(Set.of("schema"));
+        for (Kind kind : Kind.values()) if (root.has(kind.field)) expected.add(kind.field);
+        SaoReleaseSignatures.fields(root, expected);
+        // An existing transaction always contains an accepted document; empty state is only valid before the first write.
+        if (expected.size() == 1) throw new IOException("Empty release state transaction");
+        if (SaoReleaseSignatures.number(root, "schema") != 1) throw new IOException("Unsupported release state");
+        for (Kind kind : Kind.values()) {
+            if (!root.has(kind.field)) continue;
+            if (!root.get(kind.field).isJsonObject()) throw new IOException("Invalid release state entry");
+            document(root.getAsJsonObject(kind.field), kind);
+        }
+        return root;
+    }
+
+    /// Decodes a bounded envelope, verifies its raw bytes, then checks the persisted high-water against the signed sequence.
+    private byte @Unmodifiable [] document(JsonObject entry, Kind kind) throws IOException {
+        SaoReleaseSignatures.fields(entry, Set.of("highWater", "document", "signature"));
+        try {
+            byte @Unmodifiable [] bytes = Base64.getDecoder().decode(SaoReleaseSignatures.text(entry, "document"));
+            byte @Unmodifiable [] signature = Base64.getDecoder().decode(SaoReleaseSignatures.text(entry, "signature"));
+            if (bytes.length > kind.limit) throw new IOException("Cached release is too large");
+            trust.verify(bytes, signature);
+            if (kind.sequence(bytes) != SaoReleaseSignatures.number(entry, "highWater")) throw new IOException("Corrupt release high-water");
+            return bytes;
+        } catch (IllegalArgumentException failure) { throw new IOException("Malformed signed release cache", failure); }
+    }
+
+    /// Forces the complete temporary file, atomically replaces the transaction, then syncs its parent where supported.
+    private void write(JsonObject root) throws IOException {
+        Path parent = Objects.requireNonNull(state.getParent());
+        byte @Unmodifiable [] bytes = root.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        if (bytes.length > MAX_STATE_BYTES) throw new IOException("Release state is too large");
+        Path temporary = Files.createTempFile(parent, "release-state-", ".tmp");
+        try {
+            try (FileChannel channel = FileChannel.open(temporary, StandardOpenOption.WRITE)) {
+                ByteBuffer buffer = ByteBuffer.wrap(bytes);
+                while (buffer.hasRemaining()) channel.write(buffer);
+                channel.force(true);
+            }
+            // No non-atomic fallback: a partial cache/high-water transaction must never become visible.
+            Files.move(temporary, state, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            try (FileChannel directory = FileChannel.open(parent, StandardOpenOption.READ)) { directory.force(true); }
+            catch (IOException | UnsupportedOperationException unavailable) { /* Windows cannot open directory handles this way. */ }
+        } finally { Files.deleteIfExists(temporary); }
+    }
+
+    /// Limits disk input before allocation and rejects symlinks, truncation and growth during a read.
+    static byte @Unmodifiable [] bounded(Path path, int limit) throws IOException {
+        if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS) || Files.size(path) > limit)
+            throw new IOException("Missing or oversized release file");
+        try (InputStream input = Files.newInputStream(path, LinkOption.NOFOLLOW_LINKS)) {
+            byte @Unmodifiable [] bytes = input.readNBytes(limit + 1);
+            if (bytes.length > limit) throw new IOException("Release file is too large");
+            return bytes;
+        }
+    }
+
+    /// Serializes read-check-commit across threads and processes; exceptions never weaken an existing high-water mark.
+    private <T extends @Nullable Object> T locked(Operation<T> operation) throws IOException {
+        synchronized (monitor) {
+            Files.createDirectories(Objects.requireNonNull(state.getParent()));
+            if (Files.isSymbolicLink(lockFile)) throw new IOException("Release lock must not be a symlink");
+            try (FileChannel channel = FileChannel.open(lockFile, StandardOpenOption.CREATE, StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS);
+                 var lock = channel.lock()) {
+                return operation.run();
+            }
+        }
+    }
+
+    /// Filesystem operation executed while both transaction locks are held.
+    @NotNullByDefault
+    @FunctionalInterface
+    private interface Operation<T extends @Nullable Object> {
+        /// Returns the validated result or leaves the existing transaction untouched on failure.
+        T run() throws IOException;
+    }
+}

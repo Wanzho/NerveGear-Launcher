@@ -117,6 +117,9 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     /// Observable restart instruction or a persisted rollback report.
     private final ReadOnlyObjectWrapper<SaoData.LauncherUpdate> launcherUpdate = new ReadOnlyObjectWrapper<>(
             new SaoData.LauncherUpdate("", false, ""));
+    /// Stable UI-readable authentication state; failures never replace an accepted signed sequence.
+    private final ReadOnlyObjectWrapper<SaoData.ReleaseVerification> releaseVerification =
+            new ReadOnlyObjectWrapper<>(new SaoData.ReleaseVerification(null, null));
     /// Worker-owned accumulated snapshots, invalidated by installed version or policy changes.
     private @Nullable SaoDropSession dropSession;
     /// Coalesces metadata refreshes without delaying pack work.
@@ -263,6 +266,19 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     private SaoPackEngine(Path dataRoot, @Nullable SaoPackArchive supplied, boolean loadEmbedded,
                           boolean production, @Nullable SaoUninstaller suppliedUninstaller,
                           SaoUninstallHelper.Factory helper, Runnable shutdown, Runnable quit, @Nullable AccountHooks accountHooks) {
+        this(dataRoot, supplied, loadEmbedded, production, suppliedUninstaller, helper, shutdown, quit, accountHooks, null);
+    }
+
+    /// Restricts custom public keys to explicit isolated fixtures; production construction always uses compiled trust roots.
+    SaoPackEngine(Path dataRoot, @Nullable SaoPackArchive supplied, boolean loadEmbedded, SaoReleaseSignatures trust) {
+        this(dataRoot, supplied, loadEmbedded, false, null, SaoUninstallHelper::prepare, () -> { }, () -> { }, null, trust);
+    }
+
+    /// Initializes the shared backend with production-only compiled trust or explicitly supplied offline test keys.
+    private SaoPackEngine(Path dataRoot, @Nullable SaoPackArchive supplied, boolean loadEmbedded,
+                          boolean production, @Nullable SaoUninstaller suppliedUninstaller,
+                          SaoUninstallHelper.Factory helper, Runnable shutdown, Runnable quit, @Nullable AccountHooks accountHooks,
+                          @Nullable SaoReleaseSignatures fixtureTrust) {
         root = dataRoot.toAbsolutePath().normalize();
         try { settings = new SaoSettings(root); }
         catch (IOException failure) { throw new java.io.UncheckedIOException("Cannot read launcher settings", failure); }
@@ -283,7 +299,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
         game.restoreJava(java());
         publish(() -> org.jackhuang.hmcl.task.FetchTask.setDownloadExecutorConcurrency(downloadThreads()));
         files = new SaoInstanceFiles(game.instanceDir(), game);
-        online = new SaoOnlineData(root);
+        online = new SaoOnlineData(root, production || fixtureTrust == null ? SaoReleaseSignatures.PRODUCTION : fixtureTrust);
         productionUpdates = production;
         selfUpdate = new SaoSelfUpdate(production ? SaoSelfUpdate.defaultRoot() : root.resolve("self-update"));
         versionMetadata = online.cachedVersion();
@@ -767,10 +783,14 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     /// {@inheritDoc}
     @Override public ReadOnlyObjectProperty<SaoData.DownloadPrompt> downloadPrompt() { return downloadPrompt.getReadOnlyProperty(); }
 
+    /// Exposes immutable authenticated sequences through the same UI-thread publication as update/news values.
+    @Override public ReadOnlyObjectProperty<SaoData.ReleaseVerification> releaseVerification() { return releaseVerification.getReadOnlyProperty(); }
+
     /// Computes against the actual installed receipt; remote metadata never marks the local pack broken.
     private void publishUpdates() {
         SaoData.UpdateStatus value = SaoUpdates.status(versionMetadata, installedVersion.get(), Metadata.VERSION, dismissedLauncherVersion);
-        publish(() -> updateStatus.set(value));
+        SaoData.ReleaseVerification verification = online.verification();
+        publish(() -> { updateStatus.set(value); releaseVerification.set(verification); });
     }
 
     /// Applies the mandatory launcher gate at both submission and execution, without a network wait.
@@ -853,12 +873,12 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
         onlineWorker.execute(() -> {
             try {
                 try { remoteNews = online.fetch(System.getProperty("sao.newsUrl", SaoUpdates.NEWS_URL)); publishNews(); }
-                catch (Exception ignored) { /* An outage retains last-good announcements. */ }
+                catch (Exception failure) { SaoOnlineData.rejected("news fetch", failure); }
                 try {
                     SaoData.VersionMetadata metadata = online.fetchVersion(System.getProperty("sao.versionUrl", SaoUpdates.VERSION_URL));
                     if (!metadata.equals(versionMetadata)) cancelPackDownload();
                     versionMetadata = metadata; extras.updateQuark(metadata.quark()); publishUpdates();
-                } catch (Exception ignored) { /* Installed packs remain playable with their last-good policy. */ }
+                } catch (Exception failure) { SaoOnlineData.rejected("version fetch", failure); }
             } finally { updatesRefreshing.set(false); }
         });
     }
@@ -1149,7 +1169,8 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
         combined.removeIf(item -> item.kind() == SaoData.NewsKind.UPDATE && item.title().equals(embeddedNews.title()));
         combined.add(embeddedNews);
         @Unmodifiable List<SaoData.News> replacement = List.copyOf(combined);
-        publish(() -> replace(news, replacement));
+        SaoData.ReleaseVerification verification = online.verification();
+        publish(() -> { replace(news, replacement); releaseVerification.set(verification); });
     }
 
     /// Queues a coalesced read, including while the game runs, without queuing a full scan on every getter call.

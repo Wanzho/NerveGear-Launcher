@@ -60,7 +60,8 @@ class SaoExtrasSystemTest {
             assertTrue(Files.readString(options).contains("renderDistance:16"));
             assertEquals("KEEP", new SaoSettings(temporary).text("extras.launcherBehavior", ""));
             assertSame(extras.links(), extras.links()); assertThrows(UnsupportedOperationException.class, () -> extras.links().clear());
-            extras.refreshLinks(); assertEquals(3, extras.links().size());
+            extras.refreshLinks(); assertEquals(2, extras.links().size());
+            assertTrue(extras.links().stream().noneMatch(link -> link.id().equals("quark")));
             var linksView = extras.links();
             extras.updateQuark("https://pan.quark.cn/s/updated-fixture");
             assertSame(linksView, extras.links());

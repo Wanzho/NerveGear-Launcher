@@ -235,10 +235,10 @@ class SaoQuickUpdateTest {
         Path next = pack("0.8.1", "next.zip", Map.of("mods/a.jar", "new", "options.txt", "seed"), false);
         var edge = delta(old, next, "delta.zip"); Path root = temporary.resolve("launcher");
         Path instance;
-        try (SaoPackEngine engine = new SaoPackEngine(root, SaoPackArchive.open(old), false)) { await(() -> engine.state().get() != SaoPackState.CHECKING); instance = engine.instanceDir(); }
+        try (SaoPackEngine engine = SaoReleaseTestSupport.engine(root, SaoPackArchive.open(old), false)) { await(() -> engine.state().get() != SaoPackState.CHECKING); instance = engine.instanceDir(); }
         installer(instance).apply(SaoPackArchive.open(old), false); Files.writeString(instance.resolve("mods/a.jar"), "edited");
-        Files.writeString(root.resolve("online-version.json"), new Gson().toJson(policy(next, List.of(edge))));
-        try (SaoPackEngine engine = new SaoPackEngine(root, SaoPackArchive.open(old), false)) {
+        SaoReleaseTestSupport.cacheVersion(root, new Gson().toJson(policy(next, List.of(edge))));
+        try (SaoPackEngine engine = SaoReleaseTestSupport.engine(root, SaoPackArchive.open(old), false)) {
             await(() -> engine.state().get() != SaoPackState.CHECKING);
             assertThrows(ExecutionException.class, () -> engine.acceptDroppedFiles(List.of(temporary.resolve(edge.file()))).get(10, TimeUnit.SECONDS));
             assertTrue(engine.downloadPrompt().get().fullPackRequired());
@@ -254,18 +254,18 @@ class SaoQuickUpdateTest {
         Path next = pack("0.8.2", "next.zip", Map.of("mods/a.jar", "new", "options.txt", "seed"), false);
         var first = delta(old, middle, "first.zip"); var second = delta(middle, next, "second.zip");
         Path root = temporary.resolve("launcher"); Path instance;
-        try (SaoPackEngine engine = new SaoPackEngine(root, SaoPackArchive.open(old), false)) { await(() -> engine.state().get() != SaoPackState.CHECKING); instance = engine.instanceDir(); }
+        try (SaoPackEngine engine = SaoReleaseTestSupport.engine(root, SaoPackArchive.open(old), false)) { await(() -> engine.state().get() != SaoPackState.CHECKING); instance = engine.instanceDir(); }
         installer(instance).apply(SaoPackArchive.open(old), false);
-        Files.writeString(root.resolve("online-version.json"), new Gson().toJson(policy(next, List.of(first, second))));
+        SaoReleaseTestSupport.cacheVersion(root, new Gson().toJson(policy(next, List.of(first, second))));
         Path wrong = temporary.resolve("wrong.zip"); Files.writeString(wrong, "wrong");
-        try (SaoPackEngine engine = new SaoPackEngine(root, SaoPackArchive.open(old), false)) {
+        try (SaoPackEngine engine = SaoReleaseTestSupport.engine(root, SaoPackArchive.open(old), false)) {
             await(() -> engine.state().get() != SaoPackState.CHECKING);
             engine.acceptDroppedFiles(List.of(temporary.resolve(second.file()))).get(10, TimeUnit.SECONDS);
             assertEquals(List.of("0.8.2"), engine.downloadPrompt().get().present());
             engine.acceptDroppedFiles(List.of(wrong, temporary.resolve(first.file()))).get(10, TimeUnit.SECONDS);
             assertEquals("0.8.2", engine.installedVersion().get()); assertTrue(Objects.requireNonNull(engine.lastError().get()).contains(SaoUpdates.INVALID_ARCHIVE));
         }
-        try (SaoPackEngine engine = new SaoPackEngine(root, null, false)) {
+        try (SaoPackEngine engine = SaoReleaseTestSupport.engine(root, null, false)) {
             await(() -> engine.state().get() != SaoPackState.CHECKING);
             assertEquals("0.8.2", engine.requireSource().manifest().version()); assertEquals(SaoPackState.READY, engine.state().get());
             Files.writeString(instance.resolve("mods/a.jar"), "broken"); installer(instance).apply(engine.requireSource(), true);

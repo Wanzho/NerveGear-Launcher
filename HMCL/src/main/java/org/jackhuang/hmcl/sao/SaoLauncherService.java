@@ -84,6 +84,11 @@ public interface SaoLauncherService {
         return new SimpleObjectProperty<>(new SaoData.UpdateStatus(null, false, false, false, ""));
     }
 
+    /// Accepted signed news/version sequences; rejected or unavailable fetches retain the previous immutable value.
+    default ReadOnlyObjectProperty<SaoData.ReleaseVerification> releaseVerification() {
+        return new SimpleObjectProperty<>(new SaoData.ReleaseVerification(null, null));
+    }
+
     /// Downloads-prompt state; a candidate still requires explicit applyDownloadedPack and checksum verification.
     default ReadOnlyObjectProperty<SaoData.DownloadPrompt> downloadPrompt() {
         return new SimpleObjectProperty<>(new SaoData.DownloadPrompt(false, null, ""));
