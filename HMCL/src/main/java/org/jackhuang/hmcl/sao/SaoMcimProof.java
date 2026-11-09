@@ -23,10 +23,10 @@ public final class SaoMcimProof {
     /// Utility class.
     private SaoMcimProof() { }
 
-    /// Reads PACK read-only; downloads exactly 10 primary CurseForge entries (including the two largest)
+    /// Reads PACK read-only; downloads exactly 15 primary CurseForge entries (including the two largest)
     /// and 5 primary Modrinth entries into SCRATCH, writes evidence.json, and removes every sample jar.
     /// Usage: java -Djava.awt.headless=true -cp launcher.jar org.jackhuang.hmcl.sao.SaoMcimProof PACK SCRATCH
-    public static void main(String[] args) throws Exception {
+    public static void main(String @Unmodifiable [] args) throws Exception {
         System.setProperty("java.awt.headless", "true");
         if (args.length != 2) throw new IllegalArgumentException("Expected PACK ZIP and empty SCRATCH directory");
         Path pack = Path.of(args[0]).toRealPath();
@@ -41,7 +41,7 @@ public final class SaoMcimProof {
         List<SaoPackManifest.PackFile> indexed = readIndex(pack);
         @Unmodifiable List<SaoPackManifest.PackFile> sample = sample(indexed);
         long selectedBytes = sample.stream().mapToLong(SaoPackManifest.PackFile::size).sum();
-        if (sample.size() != 15 || selectedBytes > 250_000_000L) throw new IOException("Unexpected sample size/budget");
+        if (sample.size() != 20 || selectedBytes > 300_000_000L) throw new IOException("Unexpected sample size/budget");
         Map<SaoPackManifest.PackFile, Path> destinations = new LinkedHashMap<>();
         for (var file : sample) destinations.put(file, SaoPackFiles.resolve(scratch, file.path()));
         List<SaoModDownloads.Transfer> results = Collections.synchronizedList(new ArrayList<>());
@@ -55,7 +55,7 @@ public final class SaoMcimProof {
                     results.add(transfer);
                     System.out.printf(Locale.ROOT, "%s verified=%s host=%s seconds=%.3f B/s=%.0f%n", transfer.path(), transfer.verified(),
                             transfer.finalHost(), transfer.seconds(), transfer.bytesPerSecond());
-                }, Set.of("mod.mcimirror.top", "mediafilez.forgecdn.net", "cdn.modrinth.com", "bmclapi2.bangbang93.com"))) {
+                }, Set.of("mod.mcimirror.top", "mediafilez.forgecdn.net", "cdn.modrinth.com", "edge.forgecdn.net"))) {
             downloads.downloadAll(destinations);
         } catch (Exception problem) { failure = problem; }
         finally {
@@ -81,12 +81,12 @@ public final class SaoMcimProof {
             Files.writeString(scratch.resolve("evidence.json"), gson.toJson(report), StandardCharsets.UTF_8);
         }
         if (failure != null) throw failure;
-        if (results.size() != 15 || results.stream().anyMatch(result -> !result.verified() || result.attempts().isEmpty()))
-            throw new IOException("Live proof requires 15 verified network downloads");
+        if (results.size() != 20 || results.stream().anyMatch(result -> !result.verified() || result.attempts().isEmpty()))
+            throw new IOException("Live proof requires 20 verified network downloads");
     }
 
     /// Reads only the real Modrinth index, preserving its SHA-1, byte length and original candidate order.
-    private static List<SaoPackManifest.PackFile> readIndex(Path pack) throws IOException {
+    private static @Unmodifiable List<SaoPackManifest.PackFile> readIndex(Path pack) throws IOException {
         try (ZipFile archive = new ZipFile(pack.toFile(), StandardCharsets.UTF_8)) {
             @Nullable var entry = archive.getEntry("modrinth.index.json");
             if (entry == null) throw new IOException("Missing Modrinth index");
@@ -100,22 +100,22 @@ public final class SaoMcimProof {
                     files.add(new SaoPackManifest.PackFile(file.get("path").getAsString(), file.getAsJsonObject("hashes").get("sha1").getAsString(),
                             file.get("fileSize").getAsLong(), null, urls));
                 }
-                return files;
+                return List.copyOf(files);
             }
         }
     }
 
-    /// Includes the two largest CurseForge files plus eight small ones and five largest Modrinth entries.
-    /// The resulting fixed 15-file set provides large-file and both-CDN coverage without fetching the pack.
+    /// Includes the two largest CurseForge files plus thirteen small ones and five largest Modrinth entries.
+    /// The resulting fixed 20-file set provides large-file and both-CDN coverage without fetching the pack.
     private static @Unmodifiable List<SaoPackManifest.PackFile> sample(List<SaoPackManifest.PackFile> indexed) throws IOException {
         @Unmodifiable List<SaoPackManifest.PackFile> curse = indexed.stream().filter(file -> primaryHost(file).equals("mediafilez.forgecdn.net"))
                 .sorted(Comparator.comparingLong(SaoPackManifest.PackFile::size).reversed()).toList();
         @Unmodifiable List<SaoPackManifest.PackFile> modrinth = indexed.stream().filter(file -> primaryHost(file).equals("cdn.modrinth.com"))
                 .sorted(Comparator.comparingLong(SaoPackManifest.PackFile::size).reversed()).limit(5).toList();
-        if (curse.size() < 10 || modrinth.size() != 5 || !curse.get(0).path().contains("blue_skies") || !curse.get(1).path().contains("alexscaves"))
+        if (curse.size() < 15 || modrinth.size() != 5 || !curse.get(0).path().contains("blue_skies") || !curse.get(1).path().contains("alexscaves"))
             throw new IOException("Index is not the expected proof pack");
         List<SaoPackManifest.PackFile> selected = new ArrayList<>(curse.subList(0, 2));
-        curse.stream().skip(2).sorted(Comparator.comparingLong(SaoPackManifest.PackFile::size)).limit(8).forEach(selected::add);
+        curse.stream().skip(2).sorted(Comparator.comparingLong(SaoPackManifest.PackFile::size)).limit(13).forEach(selected::add);
         selected.addAll(modrinth); return List.copyOf(selected);
     }
 

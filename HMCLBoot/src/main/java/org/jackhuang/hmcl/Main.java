@@ -124,12 +124,13 @@ public final class Main {
         }
     }
 
-    /// Handles the filesystem-only pack hash and quick-update builder commands before all directory checks, dialogs and JavaFX patching.
+    /// Handles headless pack tools before directory checks, dialogs and JavaFX initialization.
     public static void main(String[] args) throws Throwable {
-        if (args.length > 0 && ("--pack-hash".equals(args[0]) || "--make-update".equals(args[0]))) {
+        if (args.length > 0 && ("--pack-hash".equals(args[0]) || "--make-update".equals(args[0]) || "--bundle-allowed".equals(args[0]))) {
             System.setProperty("java.awt.headless", "true");
             Class<?> tool = Class.forName("--make-update".equals(args[0])
-                    ? "org.jackhuang.hmcl.sao.SaoUpdateBuilder" : "org.jackhuang.hmcl.sao.SaoPackHash");
+                    ? "org.jackhuang.hmcl.sao.SaoUpdateBuilder" : "--bundle-allowed".equals(args[0])
+                    ? "org.jackhuang.hmcl.sao.SaoPackBundler" : "org.jackhuang.hmcl.sao.SaoPackHash");
             try {
                 tool.getMethod("main", String[].class).invoke(null, (Object) args);
             } catch (java.lang.reflect.InvocationTargetException failure) {

@@ -85,6 +85,11 @@ public abstract class FetchTask<T extends @UnknownNullability Object> extends Ta
     /// Delay before the next retry of a candidate; subclasses may provide bounded exponential backoff.
     protected long retryDelayMillis(int failedAttempt) { return 200; }
 
+    /// Whether a recoverable failure should retry this candidate; false advances to the next candidate.
+    /// Subclasses can reject stalled or permanently invalid responses without retrying the same host.
+    protected boolean shouldRetry(Exception failure) { return true; }
+
+
     protected abstract void useCachedResult(Path cachedFile) throws IOException;
 
     protected abstract EnumCheckETag shouldCheckETag();
@@ -508,6 +513,7 @@ public abstract class FetchTask<T extends @UnknownNullability Object> extends Ta
                     // Retrying identical corrupt content wastes mirror bandwidth; immediately use the next host.
                     throw toDownloadException(url, corrupt, exceptions);
                 } catch (Exception ex) {
+                    if (!shouldRetry(ex)) throw toDownloadException(url, ex, exceptions);
                     if (exceptions == null)
                         exceptions = new ArrayList<>();
 

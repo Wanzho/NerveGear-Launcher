@@ -9,6 +9,7 @@ import org.jackhuang.hmcl.download.DownloadCandidates;
 import org.jackhuang.hmcl.download.HMCLDownloadProvider;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Unmodifiable;
+import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -30,19 +31,89 @@ class SaoModDownloadsTest {
     /// Disposable staging and destination files.
     @TempDir Path temporary;
 
-    /// All three CDN hosts prefer MCIM on every locale; mediafilez/edge share one deduplicated mirror.
-    @Test void mirrorFirstOrderingPreservesOriginalsAndEncodedPaths() {
+    /// CDN ordering is locale-independent and stable, with no MCIM file requests or lost encoded URLs.
+    @Test void modrinthFirstOrderingPreservesOriginalsAndEncodedPaths() {
         HMCLDownloadProvider provider = new HMCLDownloadProvider("https://bmclapi2.bangbang93.com");
         String path = "/files/1234/567/a%20b+1.jar";
-        assertEquals(List.of("https://mod.mcimirror.top" + path, "https://mediafilez.forgecdn.net" + path),
-                urls(provider.getPackDownloadCandidates(List.of("https://mediafilez.forgecdn.net" + path))));
-        assertEquals(List.of("https://mod.mcimirror.top" + path, "https://edge.forgecdn.net" + path),
-                urls(provider.getPackDownloadCandidates(List.of("https://edge.forgecdn.net" + path))));
-        String modrinth = "/data/abc/versions/def/mod.jar";
-        assertEquals(List.of("https://mod.mcimirror.top" + modrinth, "https://cdn.modrinth.com" + modrinth),
-                urls(provider.getPackDownloadCandidates(List.of("https://cdn.modrinth.com" + modrinth))));
-        assertEquals(List.of("https://mod.mcimirror.top" + path, "https://mediafilez.forgecdn.net" + path, "https://edge.forgecdn.net" + path),
-                urls(provider.getPackDownloadCandidates(List.of("https://mediafilez.forgecdn.net" + path, "https://edge.forgecdn.net" + path))));
+        String media = "https://mediafilez.forgecdn.net" + path;
+        String edge = "https://edge.forgecdn.net" + path;
+        String modrinth = "https://cdn.modrinth.com/data/abc/versions/def/mod.jar";
+        String second = "https://cdn.modrinth.com/data/abc/versions/ghi/mod.jar";
+        assertEquals(List.of(modrinth, second, media, edge),
+                urls(provider.getPackDownloadCandidates(List.of(edge, media, modrinth, media, second))));
+        assertEquals(List.of(media, edge), urls(provider.getPackDownloadCandidates(List.of(edge, media))));
+        assertEquals(List.of(modrinth), urls(provider.getPackDownloadCandidates(List.of(modrinth))));
+        assertTrue(provider.getPackDownloadCandidates(List.of(media)).getCandidates().stream()
+                .allMatch(candidate -> candidate.retry() == 2 && Duration.ofSeconds(10).equals(candidate.readTimeout())));
+    }
+
+    /// A trickling body is disconnected after a short test window and switches candidate without retries.
+    @Test void lowSpeedFallsBackWithoutRetryingStalledHost() throws Exception {
+        try (LocalServer server = new LocalServer()) {
+            String content = "x".repeat(128 * 1024);
+            AtomicInteger slowRequests = new AtomicInteger();
+            server.server.createContext("/slow", exchange -> {
+                slowRequests.incrementAndGet();
+                try {
+                    exchange.sendResponseHeaders(200, content.length());
+                    for (int i = 0; i < 100; i++) {
+                        exchange.getResponseBody().write(new byte[256]); exchange.getResponseBody().flush(); Thread.sleep(40);
+                    }
+                } catch (IOException ignored) { }
+                catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
+                finally { exchange.close(); }
+            });
+            server.server.createContext("/fast", exchange -> send(exchange, 200, content));
+            List<SaoModDownloads.Transfer> results = new CopyOnWriteArrayList<>();
+            try (SaoModDownloads downloads = new SaoModDownloads(ignored -> DownloadCandidates.of(List.of(
+                    new DownloadCandidate(WebURL.parse(server.url("/slow")), null, 2, Duration.ofSeconds(2), Duration.ofSeconds(1)),
+                    new DownloadCandidate(WebURL.parse(server.url("/fast")), null, 0, Duration.ofSeconds(2), Duration.ofSeconds(1)))),
+                    snapshot -> { }, results::add, Set.of("127.0.0.1"), Duration.ofMillis(250), 100 * 1024)) {
+                downloads.downloadAll(Map.of(file("slow", content), temporary.resolve("mods/slow.jar")));
+            }
+            assertEquals(1, slowRequests.get()); assertEquals(1, results.get(0).stalls().size());
+            assertEquals(2, results.get(0).attempts().size()); assertTrue(results.get(0).verified());
+            assertEquals(content, Files.readString(temporary.resolve("mods/slow.jar"))); assertNoTemporaryFiles();
+        }
+    }
+
+    /// A silent response body cannot occupy a worker until the long socket timeout or trigger same-host retries.
+    @Test void silentBodyStallsAndFallsBack() throws Exception {
+        try (LocalServer server = new LocalServer()) {
+            String content = "x".repeat(65536); AtomicInteger silentRequests = new AtomicInteger();
+            server.server.createContext("/silent", exchange -> {
+                silentRequests.incrementAndGet();
+                try {
+                    exchange.sendResponseHeaders(200, content.length());
+                    exchange.getResponseBody().flush(); Thread.sleep(1500);
+                } catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
+                finally { exchange.close(); }
+            });
+            server.server.createContext("/fast", exchange -> send(exchange, 200, content));
+            List<SaoModDownloads.Transfer> results = new CopyOnWriteArrayList<>();
+            try (SaoModDownloads downloads = new SaoModDownloads(ignored -> DownloadCandidates.of(List.of(
+                    new DownloadCandidate(WebURL.parse(server.url("/silent")), null, 2, Duration.ofSeconds(2), Duration.ofMillis(600)),
+                    new DownloadCandidate(WebURL.parse(server.url("/fast")), null, 0, Duration.ofSeconds(2), Duration.ofSeconds(2)))),
+                    snapshot -> { }, results::add, Set.of("127.0.0.1"), Duration.ofMillis(150), 100 * 1024)) {
+                downloads.downloadAll(Map.of(file("silent", content), temporary.resolve("mods/silent.jar")));
+            }
+            assertEquals(1, silentRequests.get()); assertEquals(1, results.get(0).stalls().size());
+            assertEquals(0, results.get(0).stalls().get(0).bytes());
+            assertEquals(2, results.get(0).attempts().size()); assertTrue(results.get(0).verified()); assertNoTemporaryFiles();
+        }
+    }
+
+    /// A correct destination is verified again locally but never fetched, even through the direct engine API.
+    @Test void alreadyVerifiedFileIsNotDownloaded() throws Exception {
+        Path destination = temporary.resolve("mods/a.jar"); Files.createDirectories(destination.getParent());
+        Files.writeString(destination, "jar");
+        List<SaoModDownloads.Transfer> results = new CopyOnWriteArrayList<>();
+        try (SaoModDownloads downloads = new SaoModDownloads(ignored -> DownloadCandidates.of("https://example.invalid/a.jar"),
+                snapshot -> { }, results::add, Set.of("127.0.0.1"))) {
+            downloads.downloadAll(Map.of(file("a", "jar"), destination));
+        }
+        assertEquals("existing", results.get(0).finalHost()); assertEquals(0, results.get(0).networkBytes());
+        assertTrue(results.get(0).attempts().isEmpty()); assertTrue(results.get(0).verified()); assertNoTemporaryFiles();
     }
 
     /// A mirror with the right size but wrong SHA-1 is rejected once, then the original succeeds.
@@ -186,7 +257,7 @@ class SaoModDownloadsTest {
 
     /// Builds a legitimate HTTPS index entry; only injected test candidate resolution uses loopback HTTP.
     private static SaoPackManifest.PackFile file(String name, String content) throws IOException {
-        byte[] bytes = content.getBytes(StandardCharsets.UTF_8);
+        byte @Unmodifiable [] bytes = content.getBytes(StandardCharsets.UTF_8);
         return new SaoPackManifest.PackFile("mods/" + name + ".jar", SaoPackArchive.sha1(new ByteArrayInputStream(bytes)),
                 bytes.length, null, List.of("https://cdn.modrinth.com/data/test/" + name + ".jar"));
     }
@@ -202,13 +273,13 @@ class SaoModDownloadsTest {
     /// Ensures every private sibling and HMCL destination temporary has been removed.
     private void assertNoTemporaryFiles() throws IOException {
         try (var files = Files.walk(temporary)) {
-            assertTrue(files.noneMatch(path -> path.getFileName().toString().endsWith(".part")));
+            assertTrue(files.noneMatch(path -> path.getFileName().toString().endsWith(".part") || path.getFileName().toString().startsWith(".sao-download-")));
         }
     }
 
     /// Sends a fixed response and closes its exchange, including on empty redirects.
     private static void send(HttpExchange exchange, int status, String body) throws IOException {
-        byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+        byte @Unmodifiable [] bytes = body.getBytes(StandardCharsets.UTF_8);
         exchange.sendResponseHeaders(status, bytes.length == 0 ? -1 : bytes.length);
         try (var output = exchange.getResponseBody()) { output.write(bytes); }
         finally { exchange.close(); }

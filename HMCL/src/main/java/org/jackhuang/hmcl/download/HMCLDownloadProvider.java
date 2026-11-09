@@ -33,6 +33,7 @@ import org.jackhuang.hmcl.util.i18n.LocaleUtils;
 import org.jackhuang.hmcl.util.versioning.GameVersionNumber;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.Unmodifiable;
 
 import java.util.*;
 
@@ -144,11 +145,7 @@ public final class HMCLDownloadProvider extends DownloadProvider {
 
                 // https://github.com/mcmod-info-mirror/mcim-rust-api
                 new MirrorRule("https://api.modrinth.com", "https://mod.mcimirror.top/modrinth", true),
-                new MirrorRule("https://cdn.modrinth.com", "https://mod.mcimirror.top"),
-                new MirrorRule("https://api.curseforge.com", "https://mod.mcimirror.top/curseforge", true),
-                new MirrorRule("https://edge.forgecdn.net", "https://mod.mcimirror.top"),
-                // MCIM's /files/{id1}/{id2}/{name} route preserves both CurseForge CDN paths.
-                new MirrorRule("https://mediafilez.forgecdn.net", "https://mod.mcimirror.top")
+                new MirrorRule("https://api.curseforge.com", "https://mod.mcimirror.top/curseforge", true)
         );
     }
 
@@ -236,15 +233,29 @@ public final class HMCLDownloadProvider extends DownloadProvider {
         return getCandidates(fileSource, rules, urls);
     }
 
-    /// Pack dependencies always prefer MCIM, regardless of OS locale or Minecraft source settings.
-    /// Deduplicates the mirror shared by mediafilez/edge while retaining every original fallback.
+    /// Prefers indexed Modrinth URLs, then mediafilez, then edge, preserving encoded paths and other fallbacks.
+    /// MCIM remains an API mirror only: its file routes redirect back to these CDNs and add latency.
     public DownloadCandidates getPackDownloadCandidates(List<String> urls) {
-        var unique = new LinkedHashMap<String, DownloadCandidate>();
-        for (DownloadCandidate candidate : getCandidates(DownloadSource.MIRROR, rules, urls).getCandidates()) {
-            unique.putIfAbsent(candidate.displayUrl(), new DownloadCandidate(candidate.url(), candidate.rawUrl(), 2,
-                    java.time.Duration.ofSeconds(15), java.time.Duration.ofSeconds(45)));
-        }
-        return DownloadCandidates.of(List.copyOf(unique.values()));
+        @Unmodifiable List<String> ordered = urls.stream().distinct()
+                .sorted(Comparator.comparingInt(HMCLDownloadProvider::packHostPriority)).toList();
+        return DownloadCandidates.of(ordered.stream().map(url -> {
+            DownloadCandidate candidate = DownloadCandidate.of(url);
+            return new DownloadCandidate(candidate.url(), candidate.rawUrl(), 2,
+                    java.time.Duration.ofSeconds(15), java.time.Duration.ofSeconds(10));
+        }).toList());
+    }
+
+    /// Stable sorting keeps the index order within each host group, including unknown original sources.
+    private static int packHostPriority(String url) {
+        @Nullable WebURL parsed = WebURL.tryParse(url);
+        if (parsed == null) return 4;
+        return switch (Objects.toString(java.net.URI.create(parsed.href()).getHost(), "")) {
+            case "cdn.modrinth.com" -> 0;
+            case "mediafilez.forgecdn.net" -> 1;
+            case "edge.forgecdn.net" -> 2;
+            case "mod.mcimirror.top" -> 4;
+            default -> 3;
+        };
     }
 
     @Override

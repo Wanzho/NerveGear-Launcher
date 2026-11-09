@@ -22,7 +22,7 @@ import java.util.concurrent.*;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
-/// MCIM-first, SHA-1 checked pack transfers using HMCL's candidate fallback and in-task range resume.
+/// Modrinth-first, SHA-1 checked pack transfers using HMCL's candidate fallback and in-task range resume.
 /// Never writes network bytes into a final jar; only verified same-directory temporary files are published.
 @NotNullByDefault
 final class SaoModDownloads implements SaoPackInstaller.Downloader, AutoCloseable {
@@ -30,6 +30,10 @@ final class SaoModDownloads implements SaoPackInstaller.Downloader, AutoCloseabl
     static final int PARALLELISM = 6;
     /// Identifies this launcher on every request and redirect, without account or machine identifiers.
     static final String USER_AGENT = "NerveGear-Launcher/" + Metadata.VERSION;
+    /// Production low-throughput window; a stalled candidate is discarded rather than resumed on that host.
+    private final Duration stallWindow;
+    /// Minimum sustained payload rate; catches the measured roughly 60 KB/s CloudFront stall.
+    private final long minimumBytesPerSecond;
     /// Process-wide MCIM request pacing and Retry-After cooldown, shared across install attempts.
     private static final MirrorPacer PACER = new MirrorPacer();
     /// Provider supplies deduplicated mirror/original candidates for both CDN families.
@@ -71,6 +75,15 @@ final class SaoModDownloads implements SaoPackInstaller.Downloader, AutoCloseabl
     /// Injects only candidate resolution for local HTTP integration tests; all transfer code remains real HMCL.
     SaoModDownloads(Function<List<String>, DownloadCandidates> candidates, Consumer<SaoInstallProgress> progress,
                     Consumer<Transfer> evidence, Set<String> allowedHosts) {
+        this(candidates, progress, evidence, allowedHosts, Duration.ofSeconds(10), 100 * 1024);
+    }
+
+    /// Injects a short stall window for deterministic loopback tests without changing production policy.
+    SaoModDownloads(Function<List<String>, DownloadCandidates> candidates, Consumer<SaoInstallProgress> progress,
+                    Consumer<Transfer> evidence, Set<String> allowedHosts, Duration stallWindow, long minimumBytesPerSecond) {
+        if (stallWindow.isNegative() || stallWindow.isZero() || minimumBytesPerSecond < 1)
+            throw new IllegalArgumentException("Invalid stall policy");
+        this.stallWindow = stallWindow; this.minimumBytesPerSecond = minimumBytesPerSecond;
         this.candidates = candidates; this.progress = progress; this.evidence = evidence;
         this.allowedHosts = Set.copyOf(allowedHosts);
     }
@@ -79,10 +92,14 @@ final class SaoModDownloads implements SaoPackInstaller.Downloader, AutoCloseabl
     @NotNullByDefault
     record Transfer(String path, long size, String expectedSha1, String actualSha1, boolean verified, String finalHost,
                     double seconds, double bytesPerSecond, long networkBytes,
-                    @Unmodifiable List<SaoInstallProgress.Attempt> attempts, String error) {
+                    @Unmodifiable List<SaoInstallProgress.Attempt> attempts, @Unmodifiable List<Stall> stalls, String error) {
         /// Freezes HTTP evidence before it leaves its worker.
-        Transfer { attempts = List.copyOf(attempts); }
+        Transfer { attempts = List.copyOf(attempts); stalls = List.copyOf(stalls); }
     }
+
+    /// Measured low-speed event; elapsed time and bytes cover one candidate's payload window.
+    @NotNullByDefault
+    record Stall(String host, double seconds, long bytes, double bytesPerSecond) { }
 
     /// Starts a fresh stage and waits for all files, collecting every terminal failure before throwing.
     @Override public void downloadAll(Map<SaoPackManifest.PackFile, Path> files) throws Exception {
@@ -144,9 +161,12 @@ final class SaoModDownloads implements SaoPackInstaller.Downloader, AutoCloseabl
         String error = "";
         try {
             if (closed || worker.isInterrupted()) throw new InterruptedException();
+            if (SaoPackFiles.matches(destination, file)) {
+                task.finalHost = "existing"; actualSha1 = file.sha1(); verified = true; return;
+            }
             try (@Nullable InputStream bundled = SaoModDownloads.class.getResourceAsStream("/assets/sao/files/" + file.sha1())) {
                 if (bundled != null) Files.copy(bundled, staged, StandardCopyOption.REPLACE_EXISTING);
-                else task.run();
+                else task.runMonitored();
             }
             if (closed || worker.isInterrupted()) throw new InterruptedException();
             if (Files.size(staged) != file.size()) throw new IOException("Pack size mismatch: " + file.path());
@@ -171,7 +191,7 @@ final class SaoModDownloads implements SaoPackInstaller.Downloader, AutoCloseabl
                     publish(true, !failures.isEmpty());
                 }
                 evidence.accept(new Transfer(file.path(), file.size(), file.sha1(), actualSha1, verified, task.finalHost, seconds,
-                        task.bytes / Math.max(seconds, 0.001), task.bytes, task.attempts, error));
+                        task.bytes / Math.max(seconds, 0.001), task.bytes, task.attempts, task.stalls, error));
             }
         }
     }
@@ -211,7 +231,70 @@ final class SaoModDownloads implements SaoPackInstaller.Downloader, AutoCloseabl
         /// Last body host; becomes the verified source only when the overall file succeeds.
         private String finalHost = "bundled";
         /// Network byte count across retries and candidates.
-        private long bytes;
+        private volatile long bytes;
+        /// Stall observations are written under this task's monitor and frozen after the watchdog is drained.
+        private final List<Stall> stalls = new ArrayList<>();
+        /// Current request, cleared before retries and after body verification to avoid stale disconnects.
+        private @Nullable HttpURLConnection activeConnection;
+        /// Monotonic payload-window start; zero while connecting or between attempts.
+        private long windowStart, windowBytes;
+        /// Marks the current candidate as unsuitable for same-host retries.
+        private volatile boolean stalled;
+
+        /// A watchdog also catches bodies that send no bytes, rather than waiting for another write callback.
+        private void runMonitored() throws Exception {
+            ScheduledExecutorService monitor = Executors.newSingleThreadScheduledExecutor(action -> {
+                Thread thread = new Thread(action, "sao-mod-stall"); thread.setDaemon(true); return thread;
+            });
+            monitor.scheduleWithFixedDelay(this::checkStall, 50, 50, TimeUnit.MILLISECONDS);
+            try { run(); }
+            finally {
+                synchronized (this) { activeConnection = null; windowStart = 0; }
+                monitor.shutdownNow();
+                boolean interrupted = Thread.interrupted();
+                while (!monitor.isTerminated()) {
+                    try { monitor.awaitTermination(1, TimeUnit.SECONDS); }
+                    catch (InterruptedException ignored) { interrupted = true; }
+                }
+                if (interrupted) Thread.currentThread().interrupt();
+            }
+        }
+
+        /// Disconnects a slow candidate; the retry policy then advances to the next indexed source.
+        private void checkStall() {
+            @Nullable HttpURLConnection abort = null;
+            synchronized (this) {
+                long now = System.nanoTime();
+                if (activeConnection == null || windowStart == 0 || stalled || bytes - windowBytes >= file.size()) return;
+                double seconds = (now - windowStart) / 1_000_000_000.0;
+                if (now - windowStart < stallWindow.toNanos()) return;
+                long received = bytes - windowBytes;
+                if (received / seconds < minimumBytesPerSecond) {
+                    stalled = true; abort = activeConnection;
+                    stalls.add(new Stall(abort.getURL().getHost(), seconds, received, received / seconds));
+                } else { windowStart = now; windowBytes = bytes; }
+            }
+            if (abort != null) abort.disconnect();
+        }
+
+        /// A new candidate or retry gets a fresh observation window; connection setup has its own timeout.
+        @Override protected synchronized void beforeDownload(WebURL url) {
+            activeConnection = null; windowStart = 0; stalled = false;
+            super.beforeDownload(url);
+        }
+
+        /// Stalls and read timeouts switch hosts; ordinary transient failures keep bounded resume/backoff.
+        @Override protected boolean shouldRetry(Exception failure) {
+            synchronized (this) {
+                if (failure instanceof java.net.SocketTimeoutException && windowStart != 0 && !stalled) {
+                    double seconds = (System.nanoTime() - windowStart) / 1_000_000_000.0;
+                    long received = bytes - windowBytes;
+                    stalls.add(new Stall(finalHost, seconds, received, received / Math.max(seconds, 0.001)));
+                    stalled = true;
+                }
+            }
+            return !stalled;
+        }
 
         /// Disables URL/ETag caching so an unchecked cached result cannot bypass the index digest.
         private TransferTask(DownloadCandidates candidates, Path path, SaoPackManifest.PackFile file) {
@@ -242,6 +325,7 @@ final class SaoModDownloads implements SaoPackInstaller.Downloader, AutoCloseabl
             connection.setRequestProperty("Accept-Encoding", "identity");
             attempts.add(new SaoInstallProgress.Attempt(connection.getURL().toString(), host, 0));
             requests.add(connection); connections.add(connection);
+            synchronized (this) { activeConnection = connection; windowStart = 0; }
         }
 
         /// Saves only URL, host and status, never response credentials or unrelated headers.
@@ -249,7 +333,10 @@ final class SaoModDownloads implements SaoPackInstaller.Downloader, AutoCloseabl
             int last = attempts.size() - 1;
             SaoInstallProgress.Attempt request = attempts.get(last);
             attempts.set(last, new SaoInstallProgress.Attempt(request.url(), request.host(), response.responseCode()));
-            if (response.responseCode() / 100 == 2) finalHost = request.host();
+            if (response.responseCode() / 100 == 2) {
+                finalHost = request.host();
+                synchronized (this) { windowStart = System.nanoTime(); windowBytes = bytes; }
+            }
             if (request.host().equals("mod.mcimirror.top") && (response.responseCode() == 429 || response.responseCode() == 503))
                 PACER.cooldown(response.headers().firstValue("retry-after").orElse("5"));
         }
