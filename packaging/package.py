@@ -54,10 +54,10 @@ def digest(path):
 
 
 def check_space(path):
-    """Stop before new work when the user-defined 20 GiB floor is reached."""
+    """Stop before new work when the user-defined 15 GiB floor is reached."""
     free = shutil.disk_usage(path).free
-    if free < 20 * 1024 ** 3:
-        raise RuntimeError(f"Free space {free / 1024 ** 3:.2f} GiB is below the 20 GiB stop threshold")
+    if free < 15 * 1024 ** 3:
+        raise RuntimeError(f"Free space {free / 1024 ** 3:.2f} GiB is below the 15 GiB stop threshold")
 
 
 def linked_copy(source, destination):
@@ -111,7 +111,7 @@ def obtain_toolchains(work, lock):
 
 
 def build_jar(args, work, host):
-    """Serialize the one full Gradle build and preserve all user-selected pack inputs."""
+    """Build thin by default; only explicit offline-test builds embed pack inputs."""
     if args.jar:
         return args.jar.resolve()
     lockdir = Path.home() / "Developer/sao-launcher-runs/build.lock"
@@ -142,8 +142,10 @@ def build_jar(args, work, host):
             os.environ["MICROSOFT_AUTH_ID"] = registration.read_text().strip()
         command = [REPO / "gradlew", "--offline", "--no-daemon", "--max-workers=2", HEADLESS,
                    "-Dorg.gradle.jvmargs=-Xmx3g -Djava.awt.headless=true -Dfile.encoding=UTF-8",
-                   "-I", HERE / "headless.gradle", ":HMCL:jar", "-PsaoPack=" + str(args.pack),
-                   "-PsaoPackBaseline=" + str(args.baseline), "-PsaoPackOffline=true"]
+                   "-I", HERE / "headless.gradle", ":HMCL:jar"]
+        if args.embed_pack:
+            command.extend(["-PsaoPack=" + str(args.pack),
+                            "-PsaoPackBaseline=" + str(args.baseline), "-PsaoPackOffline=true"])
         run(command, log=args.output / "gradle-build.log", cwd=REPO)
     finally:
         lockdir.rmdir()
@@ -151,6 +153,19 @@ def build_jar(args, work, host):
     if len(jars) != 1:
         raise RuntimeError("Expected one plain launcher JAR; pass --jar to select one")
     return jars[0]
+
+
+def verify_pack_mode(jar, embed_pack):
+    """Reject a reused embedded JAR in player packages unless explicitly opted in."""
+    with zipfile.ZipFile(jar) as archive:
+        # The authentication helper is also under assets/sao and is required in thin builds.
+        embedded = any(name in ("assets/sao/pack.zip", "assets/sao/sao-manifest.json")
+                       or name.startswith("assets/sao/files/") and not name.endswith("/")
+                       for name in archive.namelist())
+    if embedded and not embed_pack:
+        raise RuntimeError("Player packages must be thin; embedded JAR requires --embed-pack (offline tests only)")
+    if embed_pack and not embedded:
+        raise RuntimeError("--embed-pack was selected but the supplied JAR has no embedded pack")
 
 
 def make_icons(work):
@@ -333,7 +348,9 @@ def finalize(dist, output):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output", type=Path, default=Path.home() / "Developer/sao-launcher-runs/package1")
+    parser.add_argument("--output", type=Path, default=Path.home() / "Developer/sao-launcher-runs/gitee2")
+    parser.add_argument("--embed-pack", action="store_true", help="Embed a full pack for offline test builds only")
+    parser.add_argument("--toolchain-cache", type=Path, help="Reuse previously SHA-256-pinned downloads/toolchains")
     parser.add_argument("--pack", type=Path, default=Path.home() / "Downloads/SAO OATH0.8.zip")
     parser.add_argument("--baseline", type=Path, default=Path.home() / "Developer/sao-launcher-runs/jarname1/input")
     parser.add_argument("--jar", type=Path, help="Reuse an already built JAR; performs no Gradle invocation")
@@ -350,9 +367,11 @@ def main():
         finalize(dist, args.output)
         return
     lock = json.loads((HERE / "runtimes.lock.json").read_text())
-    homes = obtain_toolchains(work, lock)
+    cache = args.toolchain_cache.resolve() if args.toolchain_cache else work
+    homes = obtain_toolchains(cache, lock)
     host = homes["macos-arm64"]
     jar = build_jar(args, work, host)
+    verify_pack_mode(jar, args.embed_pack)
     ico, icns = make_icons(work)
     linked_copy(jar, dist / jar.name)
     paths = {}

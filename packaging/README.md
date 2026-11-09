@@ -8,16 +8,22 @@ packaging/build-all.sh
 ```
 
 The script downloads four SHA-256-pinned official BellSoft Full JDK archives to
-`~/Developer/sao-launcher-runs/package1/work`, cross-links their target JMODs,
-builds one embedded-pack launcher JAR, and creates the four runtime bundles.
+`~/Developer/sao-launcher-runs/gitee2/work`, cross-links their target JMODs,
+builds one thin launcher JAR, and creates the four runtime bundles.
 It never opens an app, mounts a DMG, launches a game, or contacts a test server.
 All JVM invocations performed by the script use AWT headless mode. Player launch
 entry points intentionally start the graphical launcher normally.
 
-Defaults use `~/Downloads/SAO OATH0.8.zip` and the SHA-1/size-verified baseline
-receipt in `~/Developer/sao-launcher-runs/jarname1/input`. Override them with
-`--pack`, `--baseline`, and `--output`. The pack remains fully embedded; base
-Minecraft and NeoForge downloads still use the existing installation engine.
+Player packages contain the launcher and runtime only. On first start the UI asks
+for the current full pack downloaded from the shared Quark link. Base Minecraft
+and NeoForge downloads still use the existing installation engine. Output defaults
+to `~/Developer/sao-launcher-runs/gitee2`; override it with `--output`.
+
+For offline tests only, `--embed-pack` opts in to the previous embedded-pack build.
+It uses `~/Downloads/SAO OATH0.8.zip` and the SHA-1/size-verified baseline receipt in
+`~/Developer/sao-launcher-runs/jarname1/input`; override with `--pack` and `--baseline`.
+An embedded JAR passed to `--jar` is rejected unless `--embed-pack` is explicit.
+Reuse pinned toolchains without copying them with `--toolchain-cache /path/to/work`.
 
 To reuse a previously built launcher without another Gradle build:
 
@@ -28,7 +34,7 @@ packaging/build-all.sh --jar HMCL/build/libs/SAO-Oath-Launcher-0.1.0.jar
 The build lock is `~/Developer/sao-launcher-runs/build.lock`. A competing build is
 checked every two minutes; the task's forty-minute stale-lock rule applies.
 The work directory records a maximum of three full Gradle builds. Never use
-`gradlew --stop`. The script stops below 20 GiB free.
+`gradlew --stop`. The script stops below 15 GiB free.
 
 Commit the source before producing a release. `dist/SOURCE-COMMIT.txt` and the
 source tarball identify the committed corresponding source. `--finalize-only`
