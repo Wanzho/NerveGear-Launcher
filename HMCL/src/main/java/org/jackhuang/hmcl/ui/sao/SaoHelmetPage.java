@@ -414,8 +414,10 @@ public final class SaoHelmetPage extends StackPane {
     /// (7 Nov); Link Start lives here too, at the bottom right once signed in. The skin has its own page (James, 7 Nov:
     /// "把classic slim等等塞到一个新的页面").
     private SaoFloatWindow buildPlayer() {
-        // logo-45 (James, 9 Nov) is near 4:3: a little taller than the old wide logo's 54 so it still reads.
-        ImageView logo = SaoAssets.logo(STAGE_W, 66);
+        // logo-45 (James, 9 Nov) is near 4:3; "放大点": about 150 wide. It overlaps the stage's empty top (the
+        // character's head starts well below it), drawn over the stage, so the card keeps its size.
+        ImageView logo = SaoAssets.logo(150, 120);
+        logo.setViewOrder(-1);
         logo.getStyleClass().add("vr-logo");
 
         Button editSkin = round(SVG.EDIT, 30, 15);
@@ -438,7 +440,7 @@ public final class SaoHelmetPage extends StackPane {
         stage.setPrefSize(STAGE_W, STAGE_H);
         stage.setMaxSize(STAGE_W, STAGE_H);
         // The left as it was: the logo over the character ("左边不用动").
-        VBox left = new VBox(14, logo, stage);
+        VBox left = new VBox(-20, logo, stage);
 
         // ---- signed out
         @Nullable String remembered = service.rememberedOathName();
