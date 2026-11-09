@@ -239,7 +239,18 @@ public class MicrosoftAccountLoginPane extends JFXDialogLayout implements Dialog
             FXUtils.onClicked(codeBox, () -> FXUtils.copyText(wait.userCode()));
             codeBox.setMaxWidth(USE_PREF_SIZE);
 
-            leftVBox.getChildren().setAll(new Group(qrCode), codeBox);
+            javafx.scene.Node qrNode = new Group(qrCode);
+            if (org.jackhuang.hmcl.ui.sao.SaoUi.enabled()) {
+                // SAO: black modules on a white tile with a quiet zone in both themes (inverted codes fail on many scanners).
+                qrCode.fillProperty().unbind();
+                qrCode.setFill(javafx.scene.paint.Color.BLACK);
+                var tile = new StackPane(new Group(qrCode));
+                tile.setStyle("-fx-background-color: #ffffff; -fx-background-radius: 4; -fx-padding: 14;");
+                tile.setMaxWidth(USE_PREF_SIZE);
+                tile.setMaxHeight(USE_PREF_SIZE);
+                qrNode = tile;
+            }
+            leftVBox.getChildren().setAll(qrNode, codeBox);
             rightVBox.getChildren().setAll(warningPane, deviceHint);
 
             rootContainer.getChildren().setAll(hbox);

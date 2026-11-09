@@ -36,7 +36,7 @@
 }
 
 .jfx-dialog-layout, .task-executor-dialog-layout {
-    -fx-background-color: rgba(243,243,245,0.97);
+    -fx-background-color: rgb(243,243,245);
     -fx-background-radius: 6;
     -fx-border-color: rgba(255,255,255,0.95);
     -fx-border-radius: 6;
@@ -93,7 +93,7 @@
     -monet-inverse-on-surface: #202127;
 }
 .theme-sao-dark .jfx-dialog-layout, .theme-sao-dark .task-executor-dialog-layout {
-    -fx-background-color: rgba(30,31,37,0.97);
+    -fx-background-color: rgb(30,31,37);
     -fx-border-color: rgba(255,255,255,0.13);
 }
 .theme-sao-dark .jfx-layout-heading, .theme-sao-dark .jfx-layout-heading .label, .theme-sao-dark .jfx-layout-heading Text { -fx-text-fill: #ececf0; -fx-fill: #ececf0; }

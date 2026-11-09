@@ -392,6 +392,15 @@ public final class SaoScreenShotTool {
                 }
                 var task = new org.jackhuang.hmcl.ui.construct.TaskExecutorDialogPane(org.jackhuang.hmcl.util.TaskCancellationAction.NORMAL);
                 task.setTitle(org.jackhuang.hmcl.util.i18n.I18n.i18n("modpack.installing"));
+                // Three made-up rows: tasks that only report a fixed progress and wait (no files, no network);
+                // they are cancelled when the dialog closes.
+                var fakeExec = org.jackhuang.hmcl.task.Task.allOf(
+                        new FakeTask("下载 刀剑神域·誓约 整合包", 0.82),
+                        new FakeTask("下载 NeoForge 47.1.106", 0.46),
+                        new FakeTask("下载 资源文件 (1234/5120)", 0.24)).executor(false);
+                task.setExecutor(fakeExec, false);
+                fakeExec.start();
+                fakeExecs.add(fakeExec);
                 panes.add(new Object[]{"task-progress", task});
             });
             // The dialogs open through HMCL's own path (DialogUtils into the window's dialog container), scaled with
@@ -416,6 +425,8 @@ public final class SaoScreenShotTool {
                 fx(() -> node.fireEvent(new org.jackhuang.hmcl.ui.construct.DialogCloseEvent()));
                 Thread.sleep(900);
             }
+            for (var ex : fakeExecs) ex.cancel();
+            fakeExecs.clear();
             // A start-up alert (its own window in the launcher; here its panel over the helmet).
             fx(() -> {
                 SaoDialogs.setDark(dark);
@@ -540,5 +551,23 @@ public final class SaoScreenShotTool {
         PixelReader r = img.getPixelReader();
         for (int y = 0; y < h; y++) for (int x = 0; x < w; x++) b.setRGB(x, y, r.getArgb(x, y));
         ImageIO.write(b, "png", file.toFile());
+    }
+
+    private static final java.util.List<org.jackhuang.hmcl.task.TaskExecutor> fakeExecs = new java.util.ArrayList<>();
+
+    /** A task row for the shots: shows a fixed progress, then waits until cancelled. */
+    private static final class FakeTask extends org.jackhuang.hmcl.task.Task<Object> {
+        private final double progress;
+
+        FakeTask(String name, double progress) {
+            this.progress = progress;
+            setName(name);
+        }
+
+        @Override
+        public void execute() throws Exception {
+            updateProgress(progress);
+            Thread.sleep(120_000);
+        }
     }
 }
