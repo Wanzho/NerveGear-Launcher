@@ -494,9 +494,14 @@ public final class SaoHelmetPage extends StackPane {
         SaoUiKit.font(title, 15, true);
         Text message = ink(m.message(), 13);
         // Narrower than the tile so the scroll bar of a long notice never covers the line ends.
-        message.setWrappingWidth(184);
+        message.setWrappingWidth(170);
         // A long notice scrolls inside the tile instead of pushing the window's rows out; the end time stays visible.
         javafx.scene.control.ScrollPane scroll = scroll(new VBox(message));
+        // The text follows the visible width, which shrinks when the scroll bar shows.
+        scroll.viewportBoundsProperty().addListener((o, a, b) -> {
+            double w = Math.floor(b.getWidth()) - 6;
+            if (w > 40 && Math.abs(w - message.getWrappingWidth()) > 0.5) message.setWrappingWidth(Math.min(184, w));
+        });
         scroll.setMaxHeight(140);
         VBox.setVgrow(scroll, Priority.NEVER);
         VBox text = new VBox(4, title, scroll);
