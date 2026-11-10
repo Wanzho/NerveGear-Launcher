@@ -21,14 +21,15 @@ import org.jackhuang.hmcl.download.ArtifactMalformedException;
 import org.jackhuang.hmcl.download.DownloadProvider;
 import org.jackhuang.hmcl.game.DownloadInfo;
 import org.jackhuang.hmcl.game.GameJavaVersion;
-import org.jackhuang.hmcl.java.JavaInfo;
 import org.jackhuang.hmcl.task.FileDownloadTask;
 import org.jackhuang.hmcl.task.GetTask;
 import org.jackhuang.hmcl.task.Task;
 import org.jackhuang.hmcl.util.gson.JsonUtils;
 import org.jackhuang.hmcl.util.io.ChecksumMismatchException;
 import org.jackhuang.hmcl.util.io.FileUtils;
-import org.jackhuang.hmcl.util.platform.UnsupportedPlatformException;
+import org.jetbrains.annotations.NotNullByDefault;
+import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.Unmodifiable;
 import org.tukaani.xz.LZMAInputStream;
 
 import java.io.IOException;
@@ -43,19 +44,29 @@ import java.util.*;
 
 import static org.jackhuang.hmcl.util.logging.Logger.LOG;
 
+/// Downloads and verifies the first compatible Mojang runtime, then installs its files into the target directory.
+@NotNullByDefault
 public final class MojangJavaDownloadTask extends Task<MojangJavaDownloadTask.Result> {
 
+    /// Mojang runtime index; platform fallback uses the same downloaded index.
     private static final String JAVA_LIST_URL = "https://piston-meta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json";
 
+    /// Supplies mirror-aware URLs for metadata and runtime files.
     private final DownloadProvider downloadProvider;
+    /// Final managed runtime directory, replaced only after every file download succeeds.
     private final Path target;
+    /// Staging directory used for integrity checks and decompression.
     private final Path tempDir;
+    /// Resolves a compatible runtime entry and retrieves its file manifest.
     private final Task<MojangJavaRemoteFiles> javaDownloadsTask;
+    /// File downloads and postprocessing tasks assembled from the manifest.
     private final List<Task<?>> dependencies = new ArrayList<>();
 
-    private volatile MojangJavaDownloads.JavaDownload download;
+    /// Selected runtime metadata, absent until the index selection task succeeds.
+    private volatile @Nullable MojangJavaDownloads.JavaDownload download;
 
-    public MojangJavaDownloadTask(DownloadProvider downloadProvider, Path target, Path tempDir, GameJavaVersion javaVersion, String platform) {
+    /// Creates a lazy runtime download with native-first Windows ARM64 component fallback.
+    public MojangJavaDownloadTask(DownloadProvider downloadProvider, Path target, Path tempDir, GameJavaVersion javaVersion, @Nullable String platform) {
         this.target = target;
         this.tempDir = tempDir;
         this.downloadProvider = downloadProvider;
@@ -63,26 +74,22 @@ public final class MojangJavaDownloadTask extends Task<MojangJavaDownloadTask.Re
                 .thenComposeAsync(javaDownloadsJson -> {
                     MojangJavaDownloads allDownloads = JsonUtils.fromNonNullJson(javaDownloadsJson, MojangJavaDownloads.class);
 
-                    Map<String, List<MojangJavaDownloads.JavaDownload>> osDownloads = allDownloads.downloads().get(platform);
-                    if (osDownloads == null || !osDownloads.containsKey(javaVersion.component()))
-                        throw new UnsupportedPlatformException("Unsupported platform: " + platform);
-                    List<MojangJavaDownloads.JavaDownload> candidates = osDownloads.get(javaVersion.component());
-                    for (MojangJavaDownloads.JavaDownload download : candidates) {
-                        if (JavaInfo.parseVersion(download.version().name()) >= javaVersion.majorVersion()) {
-                            this.download = download;
-                            return new GetTask(downloadProvider.getDownloadCandidates(download.manifest().getUrl()));
-                        }
-                    }
-                    throw new UnsupportedPlatformException("Candidates: " + JsonUtils.GSON.toJson(candidates));
+                    MojangJavaRuntimeSelector.Selection selection = MojangJavaRuntimeSelector.select(allDownloads, javaVersion, platform);
+                    this.download = selection.download();
+                    LOG.info("Selected Mojang runtime " + javaVersion.component() + " for " + selection.platform()
+                            + " (requested " + platform + ")");
+                    return new GetTask(downloadProvider.getDownloadCandidates(selection.download().manifest().getUrl()));
                 })
                 .thenApplyAsync(javaDownloadJson -> JsonUtils.fromNonNullJson(javaDownloadJson, MojangJavaRemoteFiles.class));
     }
 
+    /// Exposes the metadata chain that must finish before file tasks can be created.
     @Override
-    public Collection<Task<?>> getDependents() {
+    public @Unmodifiable Collection<Task<?>> getDependents() {
         return Collections.singleton(javaDownloadsTask);
     }
 
+    /// Builds verified download, directory and link operations from the selected runtime manifest.
     @Override
     public void execute() throws Exception {
         for (Map.Entry<String, MojangJavaRemoteFiles.Remote> entry : javaDownloadsTask.getResult().files().entrySet()) {
@@ -104,9 +111,9 @@ public final class MojangJavaDownloadTask extends Task<MojangJavaDownloadTask.Re
 
                 if (file.getDownloads().containsKey("lzma")) {
                     DownloadInfo download = file.getDownloads().get("lzma");
-                    DownloadInfo raw = file.getDownloads().get("raw");
+                    @Nullable DownloadInfo raw = file.getDownloads().get("raw");
 
-                    String rawSha1;
+                    @Nullable String rawSha1;
                     if (raw != null && raw.getSha1() != null) {
                         rawSha1 = raw.getSha1();
                     } else {
@@ -164,16 +171,19 @@ public final class MojangJavaDownloadTask extends Task<MojangJavaDownloadTask.Re
         }
     }
 
+    /// Returns the mutable task list populated during manifest processing.
     @Override
     public List<Task<?>> getDependencies() {
         return dependencies;
     }
 
+    /// Requests installation after all file dependencies finish.
     @Override
     public boolean doPostExecute() {
         return true;
     }
 
+    /// Replaces the target only after successful downloads and publishes the selected runtime metadata.
     @Override
     public void postExecute() throws Exception {
         if (isDependenciesSucceeded()) {
@@ -185,10 +195,12 @@ public final class MojangJavaDownloadTask extends Task<MojangJavaDownloadTask.Re
                 FileUtils.copyDirectory(tempDir, target);
                 FileUtils.deleteDirectory(tempDir);
             }
-            setResult(new Result(download, javaDownloadsTask.getResult()));
+            setResult(new Result(Objects.requireNonNull(download, "Runtime selection did not complete"), javaDownloadsTask.getResult()));
         }
     }
 
+    /// Installed runtime entry and the file manifest used to verify it.
+    @NotNullByDefault
     public record Result(MojangJavaDownloads.JavaDownload download, MojangJavaRemoteFiles remoteFiles) {
     }
 }

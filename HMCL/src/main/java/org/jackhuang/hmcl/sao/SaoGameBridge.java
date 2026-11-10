@@ -30,6 +30,7 @@ import java.util.function.BiConsumer;
 import org.jackhuang.hmcl.util.platform.ManagedProcess;
 import org.jackhuang.hmcl.util.platform.OperatingSystem;
 import org.jackhuang.hmcl.util.platform.Platform;
+import org.jackhuang.hmcl.util.platform.UnsupportedPlatformException;
 import org.jackhuang.hmcl.util.versioning.GameVersionNumber;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
@@ -42,6 +43,8 @@ import java.util.*;
 /// All entry points execute on an engine worker; none opens HMCL version/account/download screens.
 @NotNullByDefault
 final class SaoGameBridge {
+    /// Minecraft 1.20.1's Java 17 component; the legacy beta component has no native ARM64 entries.
+    static final GameJavaVersion GAME_JAVA_VERSION = new GameJavaVersion("java-runtime-gamma", 17);
     /// The only permitted instance ID in this launcher.
     static final GameInstanceID INSTANCE_ID = new GameInstanceID("sao-oath");
     /// The source data directory; dependencies and runtime downloads remain under it.
@@ -239,14 +242,30 @@ final class SaoGameBridge {
     /// Restores a persisted choice without running an executable on the JavaFX thread; launch validates it again.
     void restoreJava(@Nullable Path executable) { selectedJava = executable; java = null; }
 
-    /// Downloads only Java 17 through HMCL's runtime repository and chosen provider.
+    /// Downloads Minecraft 1.20.1's Java 17 component through the chosen provider, with a short availability error.
     JavaRuntime downloadJava() throws Exception {
         progress.accept("下载 Java 17", -1.0);
-        JavaRuntime downloaded = Objects.requireNonNull(runTask(new HMCLJavaRepository(root.resolve("java"))
-                .getDownloadJavaTask(provider, Platform.SYSTEM_PLATFORM, GameJavaVersion.get(17))), "Java download returned no runtime");
+        JavaRuntime downloaded;
+        try {
+            downloaded = Objects.requireNonNull(runTask(new HMCLJavaRepository(root.resolve("java"))
+                    .getDownloadJavaTask(provider, Platform.SYSTEM_PLATFORM, GAME_JAVA_VERSION)), "Java download returned no runtime");
+        } catch (Exception failure) {
+            throw runtimeDownloadFailure(failure);
+        }
         if (downloaded.getParsedVersion() != 17) throw new IOException("Downloaded Java runtime is not Java 17");
         java = downloaded;
         return downloaded;
+    }
+
+    /// Converts an unavailable runtime, including task wrappers, while retaining diagnostic causes and other failures.
+    static Exception runtimeDownloadFailure(Exception failure) {
+        Set<Throwable> visited = Collections.newSetFromMap(new IdentityHashMap<>());
+        @Nullable Throwable cause = failure;
+        while (cause != null && visited.add(cause)) {
+            if (cause instanceof UnsupportedPlatformException) return new IOException("暂无可用的 Java 17", failure);
+            cause = cause.getCause();
+        }
+        return failure;
     }
 
     /// Lists compatible Java 17 runtimes using JavaManager plus this launcher's managed runtime repository.

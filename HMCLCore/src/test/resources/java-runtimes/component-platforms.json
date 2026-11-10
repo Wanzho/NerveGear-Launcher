@@ -1,0 +1,135 @@
+{
+  "windows-arm64": {
+    "java-runtime-beta": [],
+    "java-runtime-gamma": [
+      {
+        "availability": {
+          "group": 0,
+          "progress": 100
+        },
+        "manifest": {
+          "url": "https://example.invalid/runtime/windows-arm64-gamma.json",
+          "sha1": "0000000000000000000000000000000000000000",
+          "size": 1
+        },
+        "version": {
+          "name": "17.0.15",
+          "released": "2025-04-15T00:00:00+00:00"
+        }
+      }
+    ]
+  },
+  "windows-x64": {
+    "java-runtime-beta": [
+      {
+        "availability": {
+          "group": 0,
+          "progress": 100
+        },
+        "manifest": {
+          "url": "https://example.invalid/runtime/windows-x64-beta.json",
+          "sha1": "0000000000000000000000000000000000000000",
+          "size": 1
+        },
+        "version": {
+          "name": "17.0.15",
+          "released": "2025-04-15T00:00:00+00:00"
+        }
+      }
+    ],
+    "java-runtime-gamma": [
+      {
+        "availability": {
+          "group": 0,
+          "progress": 100
+        },
+        "manifest": {
+          "url": "https://example.invalid/runtime/windows-x64-gamma.json",
+          "sha1": "0000000000000000000000000000000000000000",
+          "size": 1
+        },
+        "version": {
+          "name": "17.0.15",
+          "released": "2025-04-15T00:00:00+00:00"
+        }
+      }
+    ]
+  },
+  "mac-os-arm64": {
+    "java-runtime-beta": [],
+    "java-runtime-gamma": [
+      {
+        "availability": {
+          "group": 0,
+          "progress": 100
+        },
+        "manifest": {
+          "url": "https://example.invalid/runtime/mac-os-arm64-gamma.json",
+          "sha1": "0000000000000000000000000000000000000000",
+          "size": 1
+        },
+        "version": {
+          "name": "17.0.15",
+          "released": "2025-04-15T00:00:00+00:00"
+        }
+      }
+    ]
+  },
+  "linux-aarch64": {
+    "java-runtime-gamma": [
+      {
+        "availability": {
+          "group": 0,
+          "progress": 100
+        },
+        "manifest": {
+          "url": "https://example.invalid/runtime/linux-aarch64-gamma.json",
+          "sha1": "0000000000000000000000000000000000000000",
+          "size": 1
+        },
+        "version": {
+          "name": "17.0.15",
+          "released": "2025-04-15T00:00:00+00:00"
+        }
+      }
+    ]
+  },
+  "linux": {
+    "java-runtime-gamma": [
+      {
+        "availability": {
+          "group": 0,
+          "progress": 100
+        },
+        "manifest": {
+          "url": "https://example.invalid/runtime/linux-x64-gamma.json",
+          "sha1": "0000000000000000000000000000000000000000",
+          "size": 1
+        },
+        "version": {
+          "name": "17.0.15",
+          "released": "2025-04-15T00:00:00+00:00"
+        }
+      }
+    ]
+  },
+  "mac-os": {
+    "java-runtime-gamma": [
+      {
+        "availability": {
+          "group": 0,
+          "progress": 100
+        },
+        "manifest": {
+          "url": "https://example.invalid/runtime/mac-os-x64-gamma.json",
+          "sha1": "0000000000000000000000000000000000000000",
+          "size": 1
+        },
+        "version": {
+          "name": "17.0.15",
+          "released": "2025-04-15T00:00:00+00:00"
+        }
+      }
+    ]
+  }
+}

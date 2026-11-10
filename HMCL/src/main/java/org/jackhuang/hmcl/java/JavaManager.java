@@ -24,6 +24,7 @@ import com.google.gson.JsonPrimitive;
 import com.google.gson.stream.JsonWriter;
 import javafx.beans.property.ObjectProperty;
 import javafx.beans.property.SimpleObjectProperty;
+import org.jackhuang.hmcl.download.java.mojang.MojangJavaRuntimeSelector;
 import org.jackhuang.hmcl.Metadata;
 import org.jackhuang.hmcl.download.DownloadProvider;
 import org.jackhuang.hmcl.game.*;
@@ -79,30 +80,9 @@ public final class JavaManager {
     public static final HMCLJavaRepository REPOSITORY = new HMCLJavaRepository(Metadata.HMCL_USER_HOME.resolve("java"));
     public static final HMCLJavaRepository LOCAL_REPOSITORY = new HMCLJavaRepository(Metadata.HMCL_LOCAL_HOME.resolve("java"));
 
-    public static String getMojangJavaPlatform(Platform platform) {
-        if (platform.getOperatingSystem() == OperatingSystem.WINDOWS) {
-            if (Architecture.SYSTEM_ARCH == Architecture.X86) {
-                return "windows-x86";
-            } else if (Architecture.SYSTEM_ARCH == Architecture.X86_64) {
-                return "windows-x64";
-            } else if (Architecture.SYSTEM_ARCH == Architecture.ARM64) {
-                return "windows-arm64";
-            }
-        } else if (platform.getOperatingSystem() == OperatingSystem.LINUX) {
-            if (Architecture.SYSTEM_ARCH == Architecture.X86) {
-                return "linux-i386";
-            } else if (Architecture.SYSTEM_ARCH == Architecture.X86_64) {
-                return "linux";
-            }
-        } else if (platform.getOperatingSystem() == OperatingSystem.MACOS) {
-            if (Architecture.SYSTEM_ARCH == Architecture.X86_64) {
-                return "mac-os";
-            } else if (Architecture.SYSTEM_ARCH == Architecture.ARM64) {
-                return "mac-os-arm64";
-            }
-        }
-
-        return null;
+    /// Returns Mojang's runtime index key for the requested platform, or null for an unsupported target.
+    public static @Nullable String getMojangJavaPlatform(Platform platform) {
+        return MojangJavaRuntimeSelector.platformKey(platform);
     }
 
     public static Path getExecutable(Path javaHome) {
