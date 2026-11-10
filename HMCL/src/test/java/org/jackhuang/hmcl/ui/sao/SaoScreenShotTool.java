@@ -82,9 +82,15 @@ public final class SaoScreenShotTool {
         if (!opened.equals(java.util.List.of(SaoUi.AFDIAN_URL, SaoUi.QUARK_URL)))
             throw new IllegalStateException("About links opened " + opened);
         System.out.println("About links OK: " + opened);
+        // SAO_SHOTS=wire-dark: only the wire1 dark shots (a re-shoot after a dark-only colour fix).
+        if ("wire-dark".equals(System.getenv("SAO_SHOTS"))) {
+            shootWire(base, true);
+            Platform.exit();
+            System.exit(0);
+        }
         checkThemes();
         shootDialogs(base);
-        shootWire(base);
+        shootWire(base, false);
         // Every shot twice: 浅色 into the folder, 深色 (James, 9 Nov) into dark/.
         for (boolean dark : new boolean[]{false, true})
         for (int[] size : sizes) {
@@ -575,12 +581,12 @@ public final class SaoScreenShotTool {
     /// wire1 (10 Nov): the backend's pack, quick-update, launcher and progress states through the real screens, each
     /// in 浅色 and 深色, 1920 × 1080, into `wire/`. The fake stands in for the backend; nothing installs, downloads
     /// or opens a browser.
-    private static void shootWire(Path base) throws Exception {
+    private static void shootWire(Path base, boolean darkOnly) throws Exception {
         Path out = base.resolve("wire");
         Files.createDirectories(out);
         String first = "请把在夸克里下载的模组文件拖进来";
         Path cand = Path.of(System.getProperty("user.home"), "Downloads", "SAO OATH0.8.2.zip");
-        for (boolean dark : new boolean[]{false, true}) {
+        for (boolean dark : darkOnly ? new boolean[]{true} : new boolean[]{false, true}) {
             String tag = dark ? "dark-" : "light-";
             System.setProperty("sao.windowButtons", "left");
             SaoFakeService fake = new SaoFakeService();

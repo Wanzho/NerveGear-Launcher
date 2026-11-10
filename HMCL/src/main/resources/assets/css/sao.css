@@ -395,3 +395,8 @@
 .theme-sao-dark .vr-drop-on { -fx-border-color: #f2a43a; -fx-background-color: rgba(242,164,58,0.12); }
 .theme-sao-dark .vr-good { -fx-fill: #6fd08f; }
 .theme-sao .vr-tile-warn { -fx-background-color: #fff3df; -fx-border-color: #f2c98a; }
+/* Dark keeps its own warning tile (the light rule above also matches the dark page, which carries both classes). */
+.theme-sao-dark .vr-tile-warn { -fx-background-color: rgba(214,138,40,0.20); -fx-border-color: rgba(240,165,70,0.45); }
+.theme-sao-dark .vr-tile-warn .vr-ink { -fx-fill: #ffd9a3; }
+.theme-sao .vr-tile-warn .vr-icon { -fx-fill: #d9822b; }
+.theme-sao-dark .vr-tile-warn .vr-icon { -fx-fill: #f5a95a; }
