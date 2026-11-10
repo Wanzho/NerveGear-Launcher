@@ -25,7 +25,7 @@ TARGETS = ("macos-arm64", "macos-x64", "windows-x64", "linux-x64")
 PRODUCT = "NerveGear启动器"
 WINDOWS_NAME = "NerveGear启动器"
 MODULES = (
-    "java.base,java.net.http,java.sql,javafx.controls,javafx.swing,jdk.attach,"
+    "java.base,java.net.http,java.sql,java.naming,jdk.naming.dns,javafx.controls,javafx.swing,jdk.attach,"
     "jdk.management,jdk.unsupported,jdk.charsets,jdk.crypto.ec,jdk.localedata,jdk.zipfs"
 )
 ADD_MODULES = "javafx.controls,jdk.zipfs,jdk.crypto.ec,jdk.localedata"
