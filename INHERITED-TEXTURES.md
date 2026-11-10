@@ -87,7 +87,8 @@ The launcher publishes `ReadOnlyObjectProperty<SaoTextureState> inheritedTexture
 `refreshInheritedTextures()`. Image descriptors contain hash, model and preview `URI`.
 All production preview URIs are validated against the captured issuing account origin,
 including during polling if endpoint settings change. The initial queued refresh is polled
-in the background without delaying sign-in. A manual refresh polls for 45 seconds; a still
+in the background without delaying sign-in, including linked `idle` state with no
+completed refresh while its first initialization job waits for a worker. A manual refresh polls for 45 seconds; a still
 queued result reports `同步中` and continues background polling instead of claiming success.
 The existing `oathSkin()` is refreshed when inherited work completes. Logout clears the
 observable state. Cosmetic outages do not sign out the account. The fake service uses six

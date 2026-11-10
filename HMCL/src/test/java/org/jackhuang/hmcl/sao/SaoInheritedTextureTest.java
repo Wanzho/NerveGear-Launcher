@@ -35,6 +35,8 @@ class SaoInheritedTextureTest {
         final AtomicReference<String> skin=new AtomicReference<>("premium");
         /// Current synthetic cape selection, including none.
         final AtomicReference<String> cape=new AtomicReference<>("mojang");
+        /// Initial linked idle responses before a queued initialization worker starts fetching.
+        final AtomicInteger initialIdle=new AtomicInteger();
         /// Number of remaining syncing responses before background work completes.
         final AtomicInteger syncing=new AtomicInteger();
         /// Stable synthetic refresh timestamp.
@@ -54,7 +56,7 @@ class SaoInheritedTextureTest {
         /// Builds bounded state with a same-origin content-addressed preview.
         JsonObject state(){
             var image=new JsonObject();image.addProperty("hash",HASH);image.addProperty("model","slim");image.addProperty("url",imageUrl==null?root().resolve("textures/"+HASH).toString():imageUrl);
-            var images=new JsonObject();images.add("premiumSkin",image);var value=new JsonObject();value.addProperty("linked",true);value.addProperty("skinSource",skin.get());value.addProperty("capeSource",cape.get());value.addProperty("effectiveSkinSource",skin.get());value.addProperty("effectiveCapeSource",cape.get());value.add("images",images);value.addProperty("lastRefresh",refreshed.get());value.addProperty("refreshAfter",180);value.addProperty("status",syncing.getAndUpdate(n->Math.max(0,n-1))>0?"syncing":"synced");return value;
+            boolean idle=initialIdle.getAndUpdate(n->Math.max(0,n-1))>0;var images=new JsonObject();images.add("premiumSkin",image);var value=new JsonObject();value.addProperty("linked",true);value.addProperty("skinSource",skin.get());value.addProperty("capeSource",cape.get());value.addProperty("effectiveSkinSource",skin.get());value.addProperty("effectiveCapeSource",cape.get());value.add("images",images);value.addProperty("lastRefresh",idle?0:refreshed.get());value.addProperty("refreshAfter",180);value.addProperty("status",idle?"idle":syncing.getAndUpdate(n->Math.max(0,n-1))>0?"syncing":"synced");return value;
         }
         /// Routes only synthetic account/source responses and absorbs unrelated social fixture polls locally.
         void respond(HttpExchange exchange)throws IOException {
@@ -105,11 +107,13 @@ class SaoInheritedTextureTest {
     /// Initial linking refresh completes after sign-in through scheduled account-worker polling, and signout clears it.
     @Test void controllerPollsInitialAndManualRefreshWithoutGui()throws Exception {
         try(var fixture=new Fixture()){
-            fixture.syncing.set(2);
+            fixture.initialIdle.set(2);fixture.syncing.set(2);
             try(var accounts=new SaoOathAccounts(temporary,fixture::root,()->"zh_cn",new MemoryCredentials(),()->{throw new AssertionError("Microsoft must not open");},account->{throw new AssertionError("Game must not start");},message->{})){
+                var statuses=new ConcurrentLinkedQueue<String>();accounts.inheritedTextures().addListener((observable,previous,current)->statuses.add(current.status()));
                 accounts.login("ArgusFixture","FixturePassword42".toCharArray(),false).get(10,TimeUnit.SECONDS);
-                assertNotNull(accounts.account().get());assertEquals("syncing",accounts.inheritedTextures().get().status());
+                assertNotNull(accounts.account().get());assertEquals("idle",accounts.inheritedTextures().get().status());assertEquals(0,accounts.inheritedTextures().get().lastRefresh());
                 assertTimeoutPreemptively(Duration.ofSeconds(8),()->{while(!accounts.inheritedTextures().get().status().equals("synced"))Thread.sleep(20);});
+                assertTrue(statuses.containsAll(List.of("idle","syncing","synced")));assertTrue(fixture.reads.get()>=5,"Queued initial idle state must continue polling until a terminal result");
                 accounts.setSkinSource("own").get(10,TimeUnit.SECONDS);accounts.setCapeSource("none").get(10,TimeUnit.SECONDS);assertEquals("own",accounts.inheritedTextures().get().skinSource());assertEquals("none",accounts.inheritedTextures().get().capeSource());
                 accounts.refreshInheritedTextures().get(10,TimeUnit.SECONDS);assertEquals("已同步",accounts.inheritedTextures().get().statusLabel());accounts.logout();assertTimeoutPreemptively(Duration.ofSeconds(5),()->{while(accounts.account().get()!=null)Thread.sleep(10);});assertFalse(accounts.inheritedTextures().get().linked());
             }

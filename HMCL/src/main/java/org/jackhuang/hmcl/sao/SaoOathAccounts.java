@@ -504,9 +504,12 @@ final class SaoOathAccounts implements AutoCloseable {
 
     /// Refreshes optional appearance support without turning an older service or cosmetic outage into signout.
     private void refreshInheritedState(Session active) {
-        try { currentInherited = client.inheritedTextures(active.root(), active.access()); if (currentInherited.status().equals("syncing")) scheduleAppearancePoll(active); }
+        try { currentInherited = client.inheritedTextures(active.root(), active.access()); if (awaitingAppearance(currentInherited)) scheduleAppearancePoll(active); }
         catch (SaoAccountException unavailable) { if (currentInherited.linked()) currentInherited = new SaoTextureState(true, currentInherited.skinSource(), currentInherited.capeSource(), currentInherited.effectiveSkinSource(), currentInherited.effectiveCapeSource(), currentInherited.images(), currentInherited.lastRefresh(), currentInherited.refreshAfter(), "failed"); }
     }
+
+    /// Includes linked accounts whose first initialization task is still queued before a syncing row exists.
+    private static boolean awaitingAppearance(SaoTextureState value) { return value.linked() && (value.status().equals("syncing") || value.status().equals("idle") && value.lastRefresh() == 0); }
 
     /// Polls first-link work without delaying sign-in; completions update both the source property and current skin.
     private void scheduleAppearancePoll(Session active) {
@@ -514,11 +517,11 @@ final class SaoOathAccounts implements AutoCloseable {
         try { appearanceTimer.schedule(() -> submit(() -> {
             if (closed.get() || session != active) return;
             currentInherited = client.inheritedTextures(active.root(), active.access());
-            if (!currentInherited.status().equals("syncing")) refreshSkin(active);
+            if (!awaitingAppearance(currentInherited)) refreshSkin(active);
         }).whenComplete((ignored, failure) -> {
             appearancePolling.set(false);
             @Nullable Session latest = session;
-            if (failure == null && latest != null && currentInherited.status().equals("syncing")) scheduleAppearancePoll(latest);
+            if (failure == null && latest != null && awaitingAppearance(currentInherited)) scheduleAppearancePoll(latest);
         }), 1, TimeUnit.SECONDS); }
         catch (RejectedExecutionException closedTimer) { appearancePolling.set(false); }
     }
