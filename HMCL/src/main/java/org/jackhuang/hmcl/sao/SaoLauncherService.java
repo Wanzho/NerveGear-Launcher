@@ -676,6 +676,18 @@ public interface SaoLauncherService {
         return null;
     }
 
+    /// Account appearance sources, safe image previews and synchronization status; cleared on signout.
+    default ReadOnlyObjectProperty<SaoTextureState> inheritedTextures() { return new SimpleObjectProperty<>(SaoTextureState.empty()); }
+
+    /// Chooses own or premium skin while retaining both stored images.
+    default CompletableFuture<Void> setSkinSource(String source) { return unsupported(); }
+
+    /// Chooses own, mojang, optifine, minecraftcapes or none; unavailable images fall back to the account default.
+    default CompletableFuture<Void> setCapeSource(String source) { return unsupported(); }
+
+    /// Starts a provider refresh; the account server enforces one manual attempt every five minutes.
+    default CompletableFuture<Void> refreshInheritedTextures() { return unsupported(); }
+
     /// Puts a skin on the signed-in account (`PUT /api/user/profile/{uuid}/skin`), so every player sees it.
     ///
     /// @param png  a 64×64 PNG, or null to go back to the default (`DELETE`)

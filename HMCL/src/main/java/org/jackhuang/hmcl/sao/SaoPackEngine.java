@@ -637,6 +637,14 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     @Override public void linkStartOath() { if (!closed.get() && !uninstalling.get() && launcherPermitted()) oath.linkStart(); }
     /// {@inheritDoc}
     @Override public @Nullable Path oathSkin() { return oath.skin(); }
+    /// Publishes the server-owned appearance choices and inherited previews.
+    @Override public ReadOnlyObjectProperty<SaoTextureState> inheritedTextures() { return oath.inheritedTextures(); }
+    /// Selects an available uploaded or linked skin without uploading another PNG.
+    @Override public CompletableFuture<Void> setSkinSource(String source) { return oath.setSkinSource(source); }
+    /// Selects a cape source while retaining all stored source images.
+    @Override public CompletableFuture<Void> setCapeSource(String source) { return oath.setCapeSource(source); }
+    /// Refreshes linked cosmetics asynchronously under the server account cooldown.
+    @Override public CompletableFuture<Void> refreshInheritedTextures() { return oath.refreshInheritedTextures(); }
     /// {@inheritDoc}
     @Override public CompletableFuture<Void> uploadSkin(@Nullable Path png, boolean slim) { return oath.uploadSkin(png, slim); }
     /// {@inheritDoc}

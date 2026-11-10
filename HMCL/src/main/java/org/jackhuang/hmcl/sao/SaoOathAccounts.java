@@ -55,6 +55,12 @@ final class SaoOathAccounts implements AutoCloseable {
         @Override public String toString() { return "OathSession[redacted]"; }
     }
 
+    /// Schedules optional initial-refresh polling; every HTTP operation still runs on the serialized account worker.
+    private final ScheduledExecutorService appearanceTimer = Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread thread = new Thread(r, "argus-appearance-poll"); thread.setDaemon(true); return thread;
+    });
+    /// Limits initial/background polling to one scheduled callback per active account.
+    private final AtomicBoolean appearancePolling = new AtomicBoolean();
     /// Owns all HTTP calls and sensitive state transitions.
     private final ExecutorService worker = Executors.newSingleThreadExecutor(r -> {
         Thread thread = new Thread(r, "sao-oath-accounts"); thread.setDaemon(true); return thread;
@@ -81,6 +87,10 @@ final class SaoOathAccounts implements AutoCloseable {
     private final ReadOnlyObjectWrapper<SaoData.@Nullable OathAccount> account = new ReadOnlyObjectWrapper<>();
     /// Server statistics merged with local process time, published alongside account state.
     private final ReadOnlyObjectWrapper<SaoData.@Nullable PlayerCard> card = new ReadOnlyObjectWrapper<>();
+    /// Observable source preferences and safe preview descriptors, published with the account snapshot.
+    private final ReadOnlyObjectWrapper<SaoTextureState> inherited = new ReadOnlyObjectWrapper<>(SaoTextureState.empty());
+    /// Worker-owned appearance snapshot, cleared together with bearer state.
+    private volatile SaoTextureState currentInherited = SaoTextureState.empty();
     /// Latest card never escapes without an immutable friends list.
     private volatile SaoData.@Nullable PlayerCard currentCard;
     /// Per-user stable-profile process accounting; removed by the existing uninstall root plan.
@@ -153,6 +163,25 @@ final class SaoOathAccounts implements AutoCloseable {
     ReadOnlyObjectProperty<SaoData.@Nullable OathAccount> account() { return account.getReadOnlyProperty(); }
     /// Returns the stable card property, cleared on signout.
     ReadOnlyObjectProperty<SaoData.@Nullable PlayerCard> playerCard() { return card.getReadOnlyProperty(); }
+    /// Returns the observable current source choices and inherited previews.
+    ReadOnlyObjectProperty<SaoTextureState> inheritedTextures() { return inherited.getReadOnlyProperty(); }
+    /// Chooses the uploaded or linked premium skin without replacing either image.
+    CompletableFuture<Void> setSkinSource(String source) { return submit(() -> { Session active = requireSession(); currentInherited = client.textureChoices(active.root(), source, null, active.access()); refreshSkin(requireSession()); }); }
+    /// Chooses a cape provider, own upload or none, preserving every other source slot.
+    CompletableFuture<Void> setCapeSource(String source) { return submit(() -> { Session active = requireSession(); currentInherited = client.textureChoices(active.root(), null, source, active.access()); refreshSkin(requireSession()); }); }
+    /// Refreshes inherited images on the account worker, polling queued work without blocking JavaFX or launching a browser.
+    CompletableFuture<Void> refreshInheritedTextures() { return submit(() -> {
+        Session active = requireSession(); currentInherited = client.refreshInheritedTextures(active.root(), active.access());
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(45);
+        while (currentInherited.status().equals("syncing") && System.nanoTime() < deadline) {
+            SaoTextureState snapshot = currentInherited; publish(() -> inherited.set(snapshot));
+            if (closed.get() || session != active) throw new SaoAccountException("账号操作已取消", "cancelled");
+            Thread.sleep(300); currentInherited = client.inheritedTextures(active.root(), active.access());
+        }
+        refreshSkin(active);
+        if (currentInherited.status().equals("syncing")) { scheduleAppearancePoll(active); throw new SaoAccountException("同步中", "textureSyncPending"); }
+        if (currentInherited.status().equals("failed")) throw new SaoAccountException("同步失败", "textureSyncFailed");
+    }); }
     /// Returns the protected remembered name from memory, or null.
     @Nullable String rememberedName() { return remembered; }
     /// Returns the current account's downloaded texture, or null for the server's default skin.
@@ -445,7 +474,7 @@ final class SaoOathAccounts implements AutoCloseable {
         String id = required(profile, "id"); String name = required(profile, "name");
         if (!id.matches("[a-fA-F0-9]{32}") || !name.matches("[A-Za-z0-9_]{3,16}")) throw new SaoAccountException("角色信息无效", "invalidResponse");
         @Nullable Session previous = session;
-        if (previous != null && !previous.id().equalsIgnoreCase(id)) { skin = null; profileCache = null; }
+        if (previous != null && !previous.id().equalsIgnoreCase(id)) { currentInherited = SaoTextureState.empty(); skin = null; profileCache = null; }
         Logger.registerAccessToken(access);
         session = new Session(client.root(), access, clientToken, name, id);
         @Nullable GameRun running=gameRun;
@@ -468,8 +497,30 @@ final class SaoOathAccounts implements AutoCloseable {
                     state.has("mustRename") && state.get("mustRename").getAsBoolean());
             profileCache = new SaoOathSkins(root, namespace(active.root()), active.id());
             refreshSkin(active);
+            refreshInheritedState(active);
             refreshCardNow();
         } catch (Exception failure) { clear(); throw failure; }
+    }
+
+    /// Refreshes optional appearance support without turning an older service or cosmetic outage into signout.
+    private void refreshInheritedState(Session active) {
+        try { currentInherited = client.inheritedTextures(active.root(), active.access()); if (currentInherited.status().equals("syncing")) scheduleAppearancePoll(active); }
+        catch (SaoAccountException unavailable) { if (currentInherited.linked()) currentInherited = new SaoTextureState(true, currentInherited.skinSource(), currentInherited.capeSource(), currentInherited.effectiveSkinSource(), currentInherited.effectiveCapeSource(), currentInherited.images(), currentInherited.lastRefresh(), currentInherited.refreshAfter(), "failed"); }
+    }
+
+    /// Polls first-link work without delaying sign-in; completions update both the source property and current skin.
+    private void scheduleAppearancePoll(Session active) {
+        if (closed.get() || session != active || !appearancePolling.compareAndSet(false, true)) return;
+        try { appearanceTimer.schedule(() -> submit(() -> {
+            if (closed.get() || session != active) return;
+            currentInherited = client.inheritedTextures(active.root(), active.access());
+            if (!currentInherited.status().equals("syncing")) refreshSkin(active);
+        }).whenComplete((ignored, failure) -> {
+            appearancePolling.set(false);
+            @Nullable Session latest = session;
+            if (failure == null && latest != null && currentInherited.status().equals("syncing")) scheduleAppearancePoll(latest);
+        }), 1, TimeUnit.SECONDS); }
+        catch (RejectedExecutionException closedTimer) { appearancePolling.set(false); }
     }
 
     /// Refreshes the card without turning a statistics outage into a logout or discarding previous known values.
@@ -538,7 +589,7 @@ final class SaoOathAccounts implements AutoCloseable {
 
     /// Downloads only an API-origin texture declared by the current profile; association removal clears the cache.
     private void refreshSkin(Session active) throws Exception {
-        JsonObject profile = client.json("GET", "sessionserver/session/minecraft/profile/" + active.id() + "?unsigned=false", null, null);
+        JsonObject profile = client.jsonAt(active.root(), "GET", "sessionserver/session/minecraft/profile/" + active.id() + "?unsigned=false", null, null);
         @Nullable String texture = null;
         boolean modelSlim = false;
         if (profile.has("properties")) for (JsonElement element : profile.getAsJsonArray("properties")) {
@@ -547,7 +598,7 @@ final class SaoOathAccounts implements AutoCloseable {
                 String value = required(property, "value");
                 if (value.length() > 65536) throw new SaoAccountException("皮肤信息无效", "invalidTexture");
                 JsonObject decoded = JsonParser.parseString(new String(Base64.getDecoder().decode(value), StandardCharsets.UTF_8)).getAsJsonObject();
-                JsonObject textures = decoded.getAsJsonObject("textures");
+                @Nullable JsonObject textures = decoded.getAsJsonObject("textures");
                 if (textures != null && textures.has("SKIN")) {
                     JsonObject skinData = textures.getAsJsonObject("SKIN");
                     texture = required(skinData, "url");
@@ -556,7 +607,7 @@ final class SaoOathAccounts implements AutoCloseable {
             }
         }
         SaoOathSkins storage = Objects.requireNonNull(profileCache);
-        storage.current(texture == null ? null : client.texture(texture));
+        storage.current(texture == null ? null : client.textureAt(active.root(), texture));
         skin = storage.current(); slim = texture != null && modelSlim;
     }
 
@@ -578,7 +629,7 @@ final class SaoOathAccounts implements AutoCloseable {
     /// Clears invalid credentials from protected storage, as required by an explicit forget or password change.
     private void forget() throws IOException { synchronized (gate) { credentials.delete(); remembered = null; } }
     /// Drops all ephemeral account/texture state without deleting an explicitly remembered password.
-    private void clear() { friends.session(null); session = null; current = null; currentCard = null; skin = null; slim = false; profileCache = null; }
+    private void clear() { currentInherited = SaoTextureState.empty(); friends.session(null); session = null; current = null; currentCard = null; skin = null; slim = false; profileCache = null; }
     /// Invalidates state from a launch-token check and publishes the signout.
     private void invalidSession() { clear(); publish(this::publishState); }
 
@@ -642,6 +693,7 @@ final class SaoOathAccounts implements AutoCloseable {
     /// Publishes state and the matching library together, before the operation's future completes.
     private void publishState() {
         account.set(current);
+        inherited.set(currentInherited);
         card.set(currentCard);
         saved.setAll(libraryEntries);
     }
@@ -688,7 +740,7 @@ final class SaoOathAccounts implements AutoCloseable {
     /// Cancels all pending account work, wipes queued passwords and completes outstanding futures safely.
     @Override public void close() {
         if (!closed.compareAndSet(false, true)) return;
-        generation.incrementAndGet(); friends.close(); worker.shutdownNow(); clear();
+        generation.incrementAndGet(); friends.close(); appearanceTimer.shutdownNow(); worker.shutdownNow(); clear();
         for (char[] password : passwords) Arrays.fill(password, '\0'); passwords.clear();
         publish(() -> {
             publishState();
