@@ -15,6 +15,8 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.function.Supplier;
 
@@ -89,6 +91,44 @@ final class SaoAccountClient {
         finally { if (bytes != null) Arrays.fill(bytes, (byte) 0); }
     }
 
+    /// Reads the authenticated inherited-source state; all preview URLs are pinned to this API origin.
+    SaoTextureState inheritedTextures(URI origin, String bearer) throws SaoAccountException {
+        return textureState(jsonAt(origin, "GET", "sao/textures", null, bearer), origin);
+    }
+
+    /// Saves one source preference without changing any uploaded PNG or Microsoft ownership link.
+    SaoTextureState textureChoices(URI origin, @Nullable String skin, @Nullable String cape, String bearer) throws SaoAccountException {
+        JsonObject body = new JsonObject();
+        if (skin != null) body.addProperty("skinSource", skin);
+        if (cape != null) body.addProperty("capeSource", cape);
+        return textureState(jsonAt(origin, "POST", "sao/textures/choices", body, bearer), origin);
+    }
+
+    /// Starts an authenticated background provider refresh and returns its queued state.
+    SaoTextureState refreshInheritedTextures(URI origin, String bearer) throws SaoAccountException {
+        return textureState(jsonAt(origin, "POST", "sao/textures/refresh", new JsonObject(), bearer), origin);
+    }
+
+    /// Decodes only bounded source values and same-origin content-addressed image descriptors.
+    private SaoTextureState textureState(JsonObject value, URI origin) throws SaoAccountException {
+        try {
+            var images = new HashMap<String,SaoTextureState.Image>();
+            JsonObject previews = value.getAsJsonObject("images");
+            for (String source : List.of("ownSkin", "premiumSkin", "ownCape", "mojang", "optifine", "minecraftcapes")) {
+                if (!previews.has(source) || previews.get(source).isJsonNull()) continue;
+                JsonObject image = previews.getAsJsonObject(source);
+                String hash = image.get("hash").getAsString();
+                URI uri = checkedTexture(image.get("url").getAsString(), origin);
+                if (!uri.getPath().endsWith("/" + hash)) throw new IllegalArgumentException();
+                images.put(source, new SaoTextureState.Image(hash, image.get("model").getAsString(), uri));
+            }
+            return new SaoTextureState(value.get("linked").getAsBoolean(), value.get("skinSource").getAsString(),
+                    value.get("capeSource").getAsString(), value.get("effectiveSkinSource").getAsString(),
+                    value.get("effectiveCapeSource").getAsString(), images, value.get("lastRefresh").getAsLong(),
+                    value.get("refreshAfter").getAsLong(), value.get("status").getAsString());
+        } catch (RuntimeException invalid) { throw new SaoAccountException("同步失败", "invalidTextureState"); }
+    }
+
     /// Sends bounded PNG multipart data, or deletes the association when no PNG is supplied.
     void skin(String profile, @Nullable byte[] png, boolean slim, String bearer) throws SaoAccountException {
         if (!profile.matches("[a-fA-F0-9]{32}")) throw new SaoAccountException("角色信息无效", "invalidProfile");
@@ -107,7 +147,15 @@ final class SaoAccountClient {
 
     /// Fetches a profile-owned texture only from this API's immutable blob route, without bearer credentials.
     byte[] texture(String url) throws SaoAccountException {
-        URI root = root();
+        return request(checkedTexture(url, root()), "GET", null, "", null);
+    }
+
+    /// Downloads a captured session origin's image even if launcher endpoint settings change mid-operation.
+    byte[] textureAt(URI origin, String url) throws SaoAccountException { return request(checkedTexture(url, origin), "GET", null, "", null); }
+
+    /// Pins preview and profile image URLs to this API's immutable blob route before UI publication or downloads.
+    private URI checkedTexture(String url, URI origin) throws SaoAccountException {
+        URI root = checkedRoot(origin.toString());
         URI target;
         try { target = URI.create(url); }
         catch (RuntimeException failure) { throw new SaoAccountException("皮肤地址无效", "invalidTexture"); }
@@ -116,7 +164,7 @@ final class SaoAccountClient {
                 || target.getRawQuery() != null || target.getRawFragment() != null || !target.getPath().startsWith(prefix)
                 || !target.getPath().substring(prefix.length()).matches("[a-fA-F0-9]{64}"))
             throw new SaoAccountException("皮肤地址无效", "invalidTexture");
-        return request(target, "GET", null, "", null);
+        return target;
     }
 
     /// Builds the original Mojang URI from components so injector constant rewriting cannot replace its origin.
@@ -164,13 +212,18 @@ final class SaoAccountClient {
     private static SaoAccountException mapped(int status, byte[] bytes, String route) {
         String message = "";
         String code = "";
+        long waitSeconds = 0;
         try {
             JsonObject error = JsonParser.parseString(new String(bytes, StandardCharsets.UTF_8)).getAsJsonObject();
             message = error.get("errorMessage").getAsString();
             if (error.has("error")) code = error.get("error").getAsString();
+            if (error.has("waitSeconds")) waitSeconds = Math.max(0, Math.min(300, error.get("waitSeconds").getAsLong()));
         }
         catch (RuntimeException ignored) { }
+        if (code.equals("textureRefreshLimited")) return new SaoAccountException("操作太频繁，请 " + Math.max(1, (waitSeconds + 59) / 60) + " 分钟后再试", code);
         @Nullable SaoAccountException known = switch (code) {
+            case "premiumUnlinked" -> new SaoAccountException("未绑定微软账号", code);
+            case "textureChoice", "textureSyncBusy" -> new SaoAccountException("同步失败", code);
             case "playerMissing" -> new SaoAccountException("没有找到这位玩家", "playerMissing");
             case "selfFriend" -> new SaoAccountException("不能添加自己", "selfFriend");
             case "playerBlocked" -> new SaoAccountException("无法向对方发送消息", "playerBlocked");

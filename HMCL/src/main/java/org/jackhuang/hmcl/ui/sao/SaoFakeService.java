@@ -21,6 +21,9 @@ import javafx.util.Duration;
 import org.jackhuang.hmcl.auth.Account;
 import org.jackhuang.hmcl.sao.SaoLauncherService;
 import org.jackhuang.hmcl.sao.SaoPackState;
+import org.jackhuang.hmcl.sao.SaoTextureState;
+import org.jackhuang.hmcl.sao.SaoTextureSamples;
+import org.jetbrains.annotations.Unmodifiable;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 
@@ -39,9 +42,24 @@ import java.util.concurrent.CompletableFuture;
 import org.jackhuang.hmcl.sao.SaoAccountException;
 
 /// A stand-in engine for screen work before the real one is installed: Link Start plays a pretend install
-/// and launch, nothing touches the disk or the network.
+/// and launch; appearance previews use small temporary PNGs and never contact the network.
 @NotNullByDefault
 public final class SaoFakeService implements SaoLauncherService {
+    /// Deterministic local preview PNGs matching all production appearance slots.
+    private final @Unmodifiable Map<String,SaoTextureState.Image> appearanceSamples = SaoTextureSamples.images();
+    /// Observable fake source choices, changed by the same actions used by production screens.
+    private final SimpleObjectProperty<SaoTextureState> inherited = new SimpleObjectProperty<>(SaoTextureState.empty());
+    /// Last pretend manual refresh, used to mirror the five-minute account cooldown.
+    private long appearanceRefreshed;
+
+    /// Mirrors account linking and signout into the observable local sample state.
+    public SaoFakeService() {
+        oath.addListener((observable, previous, current) -> {
+            if (current == null || current.premiumName() == null) inherited.set(SaoTextureState.empty());
+            else if (previous == null || previous.premiumName() == null) inherited.set(new SaoTextureState(true, "premium", "mojang", "premium", "mojang", appearanceSamples, System.currentTimeMillis(), 0, "synced"));
+        });
+    }
+
     /// The pretend state.
     private final SimpleObjectProperty<SaoPackState> state = new SimpleObjectProperty<>(SaoPackState.NOT_INSTALLED);
     /// The pretend progress.
@@ -673,6 +691,37 @@ public final class SaoFakeService implements SaoLauncherService {
     @Override
     public @Nullable Path oathSkin() {
         return skin;
+    }
+
+    /// Returns all local sample previews and source choices without contacting the account server.
+    @Override public ReadOnlyObjectProperty<SaoTextureState> inheritedTextures() { return inherited; }
+
+    /// Selects the uploaded or premium sample skin while preserving the cape choice.
+    @Override public CompletableFuture<Void> setSkinSource(String source) { return chooseAppearance(source, null); }
+
+    /// Selects a sample cape provider, own cape or none while preserving the skin choice.
+    @Override public CompletableFuture<Void> setCapeSource(String source) { return chooseAppearance(null, source); }
+
+    /// Mirrors source selection and the production unlinked rejection for frontend state testing.
+    private CompletableFuture<Void> chooseAppearance(@Nullable String skinSource, @Nullable String capeSource) {
+        SaoTextureState old = inherited.get();
+        if (!old.linked()) return CompletableFuture.failedFuture(new SaoAccountException("未绑定微软账号", "premiumUnlinked"));
+        String selectedSkin = skinSource == null ? old.skinSource() : skinSource;
+        String selectedCape = capeSource == null ? old.capeSource() : capeSource;
+        try { inherited.set(new SaoTextureState(true, selectedSkin, selectedCape, selectedSkin, selectedCape, appearanceSamples, old.lastRefresh(), old.refreshAfter(), old.status())); }
+        catch (IllegalArgumentException invalid) { return CompletableFuture.failedFuture(new SaoAccountException("同步失败", "textureChoice")); }
+        return CompletableFuture.completedFuture(null);
+    }
+
+    /// Completes a local refresh immediately and mirrors the server's five-minute manual cooldown.
+    @Override public CompletableFuture<Void> refreshInheritedTextures() {
+        SaoTextureState old = inherited.get();
+        if (!old.linked()) return CompletableFuture.failedFuture(new SaoAccountException("未绑定微软账号", "premiumUnlinked"));
+        long now = System.currentTimeMillis(), wait = Math.max(0, (appearanceRefreshed + 300000 - now + 999) / 1000);
+        if (wait > 0) return CompletableFuture.failedFuture(new SaoAccountException("操作太频繁，请 " + Math.max(1, (wait + 59) / 60) + " 分钟后再试", "textureRefreshLimited"));
+        appearanceRefreshed = now;
+        inherited.set(new SaoTextureState(true, old.skinSource(), old.capeSource(), old.effectiveSkinSource(), old.effectiveCapeSource(), appearanceSamples, now, 300, "synced"));
+        return CompletableFuture.completedFuture(null);
     }
 
     @Override

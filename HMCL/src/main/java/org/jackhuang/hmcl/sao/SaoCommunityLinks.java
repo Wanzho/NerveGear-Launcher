@@ -67,9 +67,15 @@ final class SaoCommunityLinks {
     }
 
     /// Keeps the Quark community action on the same validated version.json share as every download button.
-    static @Unmodifiable List<SaoData.CommunityLink> withQuark(List<SaoData.CommunityLink> links, String quark) {
-        return links.stream().map(link -> link.id().equals("quark")
-                ? new SaoData.CommunityLink("quark", link.label(), quark) : link).toList();
+    static @Unmodifiable List<SaoData.CommunityLink> withQuark(List<SaoData.CommunityLink> links, @Nullable String quark) {
+        List<SaoData.CommunityLink> result = new ArrayList<>();
+        for (SaoData.CommunityLink link : links) {
+            // Unsigned community metadata cannot introduce a differently named Quark download action.
+            if (link.id().equals("quark") || link.url() != null && "pan.quark.cn".equalsIgnoreCase(URI.create(link.url()).getHost())) continue;
+            result.add(link);
+        }
+        if (quark != null) result.add(Math.min(1, result.size()), new SaoData.CommunityLink("quark", "夸克网盘", quark));
+        return List.copyOf(result);
     }
 
     /// Requires an absolute HTTPS URL without credentials, custom ports, controls or local IP literals.

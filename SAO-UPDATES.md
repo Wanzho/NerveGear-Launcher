@@ -1,6 +1,6 @@
 # Gitee policy, Quark packs and launcher updates
 
-Gitee supplies only bounded announcement/version documents. Players download the launcher, full pack or quick updates manually from **one Quark share**, whose folders are `启动器`, `模组` and `快速更新`. Every download button uses the top-level `quark` link. The engine never downloads these artifacts from Gitee or Quark. Production startup fetches metadata in the background; installed-pack startup never waits for Gitee. Explicit isolated engines and tests never request public metadata.
+Gitee supplies bounded announcement/version documents and detached Ed25519 signatures. Gitee is a transport, not the release trust authority: only signatures from the launcher’s embedded key list authorize release policy or remote announcements. Players download the launcher, full pack or quick updates manually from **one Quark share**, whose folders are `启动器`, `模组` and `快速更新`. Every download button uses the top-level `quark` link. The engine never downloads these artifacts from Gitee or Quark. Production startup fetches metadata in the background; installed-pack startup never waits for Gitee. Explicit isolated engines and tests never request public metadata.
 
 Missing, invalid or unavailable metadata retains the last valid policy. With no valid policy, no launcher minimum is imposed. A cached mandatory minimum still applies during an outage. Pack updates remain advisory and never downgrade a newer installed release. All Link Start entry points recheck the launcher minimum before account tickets, runtime preparation and final game launch.
 
@@ -9,7 +9,13 @@ Default endpoints:
 - `https://gitee.com/xwzho/sao-oath-launcher/raw/master/news.json`
 - `https://gitee.com/xwzho/sao-oath-launcher/raw/master/version.json`
 
-Overrides are `-Dsao.newsUrl=https://...` and `-Dsao.versionUrl=https://...`. Each logical news/version fetch has one **10-second deadline**, including response-body consumption and its one permitted redirect from `https://gitee.com/` to `https://raw.giteeusercontent.com/`. Other redirects, extra hops, credentials, fragments and explicit ports are rejected. News is capped at 262144 decoded bytes; version JSON at 16384 bytes. Valid responses atomically replace `online-news.json` or `online-version.json` under the launcher data root; failures never overwrite last-good caches.
+Each document has a sibling `.sig` URL (`news.json.sig`, `version.json.sig`) under the same raw base URL. Its complete content is canonical base64 of the 64-byte Ed25519 signature over the **exact document bytes**, with no JSON wrapper. Changing whitespace, newlines or UTF-8 encoding after signing invalidates the signature.
+
+Overrides are `-Dsao.newsUrl=https://...` and `-Dsao.versionUrl=https://...`; an override changes transport only and cannot replace trusted keys. Each logical document/signature pair has one **10-second deadline**, including both bodies and each resource’s one permitted redirect from `https://gitee.com/` to `https://raw.giteeusercontent.com/`. Other redirects, extra hops, credentials, fragments and explicit ports are rejected. News is capped at 262144 bytes; version JSON at 16384 bytes; signatures are capped at 128 bytes and must contain exactly 88 canonical base64 ASCII characters without whitespace. Raw bytes are verified before UTF-8 decoding and schema parsing.
+
+Accepted document bytes, signatures and independent highest accepted news/version sequences are committed together to `online-release-state.json` in the launcher data root, under `online-release-state.lock`. Cache loading re-verifies signatures and schema; old unsigned `online-news.json` / `online-version.json` files do not authorize anything. A missing, malformed, incorrect or stale signature/document is unavailable: a log line only, no update prompt or error dialog, and the last-good policy/news remains. Damaged cache/state is rejected rather than trusted. A sequence below the corresponding persisted high-water mark is refused; equal is allowed for re-fetch. Use integers from 0 through 9223372036854775807 and increase each document’s sequence independently whenever its content changes.
+
+The embedded trust-key list currently contains one Ed25519 X.509 SubjectPublicKeyInfo key: `MCowBQYDK2VwAyEA8cAcouYSyhc8kQ8yTsMaDWhnhpy1o5wz8WB5vtM3pAk=` (DER SHA-256 prefix `97999b340f359c7e`). There is no Gitee-controlled key override. A future launcher release can add a rotation key; its JAR identity must be authorized by a version document signed by an already trusted key. Keep the private signing key outside the repository and Gitee. Players must first install a trusted build containing this verifier; older unsigned launchers do not gain this protection from a metadata change alone. This protection assumes the launcher binary and local data root remain trusted; deleting local state resets remembered sequence history, and a compromised Gitee account can still withhold files.
 
 ## version.json schema 2
 
@@ -18,6 +24,7 @@ Nothing has been published under schema 1; it is deliberately rejected. All mand
 ```json
 {
   "schema": 2,
+  "sequence": 1,
   "quark": "https://pan.quark.cn/s/1a81ea41915c",
   "pack": {
     "version": "0.8.2",
@@ -60,6 +67,22 @@ Strict validation rejects unknown fields, duplicate JSON keys, nulls, comments, 
 
 `launcher.latest` and `launcher.min` are required. Its `file`, `size` and `sha256` are optional **as one complete group**. `file` may be a portable `.jar` basename or a `.zip` basename whose archive contains exactly one portable basename JAR, with no directories or other files. `nativeRequired` is an optional actual JSON boolean, default `false`; strings and numbers are rejected. Missing artifact identity, `nativeRequired: true`, or a running launcher below `min` requires the complete native launcher from Quark. A JAR shortcut never bypasses that gate.
 
+## news.json schema 2
+
+Remote news also requires `schema: 2` and its own integer `sequence`. Entries remain plain text with `kind` (`NOTICE` or `UPDATE`), required `title` (1–200 characters), optional `date` (up to 40 characters), and optional `body` (up to 16000 characters); at most 100 entries. Unknown/duplicate fields, coercions and trailing input are rejected.
+
+```json
+{
+  "schema": 2,
+  "sequence": 1,
+  "news": [
+    {"kind": "NOTICE", "title": "维护通知", "date": "2026-11-10", "body": "维护结束后可正常进入。"}
+  ]
+}
+```
+
+Sign this file separately as `news.json.sig`. A signature for another file cannot authorize this document. Embedded pack changelog entries remain local and independent of remote news.
+
 ## Pack drops and transactions
 
 A missing pack shows exactly `请把在夸克里下载的模组文件拖进来`. The UI also has `metadata.pack.version` for displaying which complete release to download. A valid full pack requires matching compressed size, SHA-256 and internal manifest version. Failure reports exactly `文件不完整或不是这个版本，请重新下载`.
@@ -70,7 +93,7 @@ An installed pack with a chain shows every destination version, in order:
 - `请把 [0.8.1] 和 [0.8.2] 的快速更新包拖进来`
 - `请把 [0.8.1]、[0.8.2] 和 [0.8.3] 的快速更新包拖进来`
 
-Drops may arrive together or separately, in any order and under any filename. Each good quick archive is copied privately and checked against the Gitee compressed identity and its own `from`/`to` manifest. Good inputs remain accumulated when another input is wrong. A valid full pack always supersedes pending quick updates, including when only some quick hops have arrived. Completion applies all hops automatically in version order; simply finding a file in Downloads never installs it without explicit acceptance.
+Drops may arrive together or separately, in any order and under any filename. Each good quick archive is copied privately and checked against the signed release policy’s compressed identity and its own `from`/`to` manifest. Good inputs remain accumulated when another input is wrong. A valid full pack always supersedes pending quick updates, including when only some quick hops have arrived. Completion applies all hops automatically in version order; simply finding a file in Downloads never installs it without explicit acceptance.
 
 The installer holds its instance OS lock throughout base verification, complete-chain composition and the one final preserving commit. The installed receipt must match the first hop's complete `from` inventory. Before writes, every strict managed file must match both the old SHA-1 inventory and its quick manifest SHA-256. This includes every `.jar`, wherever located (even filenames containing `keybind`), scripts, assets and authored game data. Unknown files at newly managed strict destinations prevent quick application. A modified/missing strict base reports `当前文件不适合快速更新，请下载完整模组包。` followed by the full-pack drag instruction. Missing chains also use the full-pack prompt.
 
@@ -99,6 +122,7 @@ Observable values are immutable `SaoData` records, published through the existin
 
 | `SaoLauncherService` API | Contract |
 | --- | --- |
+| `releaseVerification()` | Stable read-only `ReleaseVerification(versionSequence, newsSequence)` property; nullable sequence means no accepted signed document of that kind. Successful cache load/fetch updates it; rejected refreshes preserve it. This state is informational and must not be used by screens to bypass service verification. |
 | `updateStatus()` | `UpdateStatus(metadata, packUpdateAvailable, launcherBlocked, launcherUpdateAvailable, message)`; nullable metadata until a valid policy exists. |
 | `downloadPrompt()` | `DownloadPrompt(watching, candidate, message, required, present, missing, fullPackRequired)`; version lists are ordered destination labels. `candidate` is nullable and still needs explicit acceptance. |
 | `acceptDroppedFiles(List<Path>)` | One asynchronous `CompletableFuture<Void>` entry for complete packs, quick archives and launcher artifacts. Privately snapshots files, accumulates good quick hops, installs a complete chain, or stages a verified JAR. Completion and failure also update properties. A drop during initial filesystem discovery waits for that discovery. |
@@ -117,7 +141,7 @@ Downloads resolution uses Windows `SHGetKnownFolderPath(FOLDERID_Downloads)`, Li
 
 ## Team build commands
 
-Both commands dispatch before launcher directory setup, logs, AWT dialogs and JavaFX patching. They are local filesystem tools and force headless mode internally.
+All tools below dispatch before launcher directory setup, logs, AWT dialogs and JavaFX patching. They are local filesystem tools and force headless mode internally.
 
 ```sh
 JAVA_TOOL_OPTIONS=-Djava.awt.headless=true java -Djava.awt.headless=true \
@@ -127,6 +151,20 @@ JAVA_TOOL_OPTIONS=-Djava.awt.headless=true java -Djava.awt.headless=true \
   -jar NerveGear-Launcher.jar --make-update '/path/to/old.zip' '/path/to/new.zip' \
   '/path/to/SAO-0.8-to-0.8.1.zip' --baseline '/path/to/baseline.json'
 ```
+
+签名和验证工具不联网，也不初始化启动器目录或图形界面：
+
+```sh
+export JAVA_TOOL_OPTIONS=-Djava.awt.headless=true
+java -Djava.awt.headless=true -jar NerveGear-Launcher.jar \
+  --sign-release /path/to/version.json --key /secure/path/ed25519-private.pem
+java -Djava.awt.headless=true -jar NerveGear-Launcher.jar \
+  --sign-release /path/to/news.json --key /secure/path/ed25519-private.pem
+java -Djava.awt.headless=true -jar NerveGear-Launcher.jar --verify-release /path/to/version.json
+java -Djava.awt.headless=true -jar NerveGear-Launcher.jar --verify-release /path/to/news.json
+```
+
+`--sign-release` writes the adjacent `<file>.sig`, refuses to overwrite an existing signature unless `--force` is provided, and verifies the result against the embedded trust keys. A private key whose public key is absent from that list is refused. `--verify-release` prints `OK` / `FAIL` and the sequence when available; failure has a nonzero exit status. Both validate the document schema. CLI verification authenticates the local pair; it does not mutate a player’s anti-rollback history.
 
 `--pack-hash` reads only bounded `sao-manifest.json` or `modrinth.index.json` version metadata and streams the whole ZIP hash. It prints a pasteable `pack` block. `--pack-version 0.8` may explicitly label an otherwise unlabelled archive without modifying it; the installed manifest must still match the release policy.
 
@@ -160,4 +198,7 @@ The child uses the same `java.home` runtime. JVM module flags, headless settings
 4. 将最新完整包放入“模组”，每跳快速更新 ZIP 放入“快速更新”。不要把模组嵌入正常启动器；`--embed-pack` 仅供明确的离线测试构建。
 5. 普通启动器 Java 代码升级可发布经过校验的薄 JAR 或仅含一个 JAR 的 ZIP，填入 `launcher.file/size/sha256`。更新 `latest`，按实际兼容性设置 `min`。运行时或原生外壳变化时设置 `nativeRequired: true`，发布完整平台启动器。
 6. 将薄启动器分别放入“启动器”文件夹；发布前在隔离目录检查无包首次导入、乱序两跳更新、损坏回滚、重启后修复及玩家文件保留。JAR 更新检查健康标记成功和失败回退。
-7. 校验 schema 2 和所有真实文件身份后再发布 Gitee `version.json` 与公告。不要发布示例零哈希、虚构历史版本或验证用合成更新包。
+7. 编辑 `version.json` 与 `news.json`（均使用 schema 2），填入真实文件身份；每次改动都增加对应文件的 `sequence`，不要回退。两个文件各自计数，可以使用不同的序号。
+8. 在保存最终 JSON 后，用上面的 `--sign-release <file> --key <private.pem>` 分别签名两个文件，生成 `version.json.sig` 与 `news.json.sig`。已有签名需要重签时显式加 `--force`。私钥始终留在本地安全目录，绝不能上传 Gitee 或写入源码、日志、公告。
+9. 对两个文件分别运行 `--verify-release`，确认输出 `OK` 和预期序号。签名后不要再格式化或编辑 JSON；如需修改，增加序号并重新签名。
+10. 把 JSON 和各自的 `.sig` 一起上传至同一个 Gitee raw 目录，共四个文件。上传过程中的不匹配会被客户端忽略，旧的有效缓存继续使用。不要发布示例零哈希、虚构历史版本或验证用合成更新包。

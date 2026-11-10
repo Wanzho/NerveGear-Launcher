@@ -32,7 +32,7 @@ class SaoUpdatesTest {
 
     /// Produces a complete schema document with exact primitive types.
     private static String document(String minimum, String latest) {
-        return "{\"schema\":2,\"quark\":\"" + SaoUpdates.QUARK_URL
+        return "{\"schema\":2,\"sequence\":0,\"quark\":\"" + SaoUpdates.QUARK_URL
                 + "\",\"pack\":{\"version\":\"0.10\",\"file\":\"pack.zip\",\"size\":1,\"sha256\":\"" + SHA
                 + "\"},\"updates\":[],\"launcher\":{\"latest\":\"" + latest + "\",\"min\":\"" + minimum + "\"}}";
     }
@@ -93,8 +93,9 @@ class SaoUpdatesTest {
     @Test void fetchFollowsOneTrustedRedirectAndRetainsLastGoodNews() throws Exception {
         AtomicInteger requests = new AtomicInteger();
         List<URI> visited = new ArrayList<>();
-        String news = "{\"news\":[{\"kind\":\"NOTICE\",\"title\":\"真实格式 fixture\"}]}";
-        try (SaoOnlineData online = new SaoOnlineData(temporary, (request, limit) -> {
+        String news = "{\"schema\":2,\"sequence\":0,\"news\":[{\"kind\":\"NOTICE\",\"title\":\"真实格式 fixture\"}]}";
+        try (SaoOnlineData online = SaoReleaseTestSupport.online(temporary, (request, limit) -> {
+            if (request.uri().getPath().endsWith(".sig")) return new SaoOnlineData.Response(200, null, SaoReleaseTestSupport.sign(news));
             visited.add(request.uri()); assertTrue(request.timeout().orElseThrow().compareTo(Duration.ofSeconds(10)) <= 0);
             return requests.incrementAndGet() == 1 ? new SaoOnlineData.Response(302, "https://raw.giteeusercontent.com/news?signature=fixture", new byte[0])
                     : new SaoOnlineData.Response(200, null, news.getBytes(StandardCharsets.UTF_8));
@@ -103,14 +104,14 @@ class SaoUpdatesTest {
             assertEquals(List.of("gitee.com", "raw.giteeusercontent.com"), visited.stream().map(URI::getHost).toList());
         }
         AtomicInteger refused = new AtomicInteger();
-        try (SaoOnlineData online = new SaoOnlineData(temporary, (request, limit) -> {
+        try (SaoOnlineData online = SaoReleaseTestSupport.online(temporary, (request, limit) -> {
             refused.incrementAndGet(); return new SaoOnlineData.Response(302, "https://foreign.invalid/news", new byte[0]);
         })) {
             assertThrows(IOException.class, () -> online.fetch(SaoUpdates.NEWS_URL)); assertEquals(1, refused.get());
             assertEquals("真实格式 fixture", online.cached().get(0).title());
         }
         AtomicInteger loop = new AtomicInteger();
-        try (SaoOnlineData online = new SaoOnlineData(temporary, (request, limit) -> {
+        try (SaoOnlineData online = SaoReleaseTestSupport.online(temporary, (request, limit) -> {
             loop.incrementAndGet(); return new SaoOnlineData.Response(302, "https://raw.giteeusercontent.com/again", new byte[0]);
         })) {
             assertThrows(IOException.class, () -> online.fetch(SaoUpdates.NEWS_URL)); assertEquals(2, loop.get());
@@ -122,7 +123,11 @@ class SaoUpdatesTest {
     @Test void versionCacheSurvivesInvalidAndOversizedReplacement() throws Exception {
         String valid = document("0.1.0", "0.2.0");
         AtomicReference<String> response = new AtomicReference<>(valid);
-        try (SaoOnlineData online = new SaoOnlineData(temporary, (request, limit) -> {
+        try (SaoOnlineData online = SaoReleaseTestSupport.online(temporary, (request, limit) -> {
+            if (request.uri().getPath().endsWith(".sig")) {
+                assertEquals(SaoReleaseSignatures.MAX_SIGNATURE_BYTES, limit);
+                return new SaoOnlineData.Response(200, null, SaoReleaseTestSupport.sign(response.get()));
+            }
             assertEquals(SaoUpdates.MAX_VERSION_BYTES, limit);
             return new SaoOnlineData.Response(200, null, response.get().getBytes(StandardCharsets.UTF_8));
         })) {
@@ -132,18 +137,18 @@ class SaoUpdatesTest {
             response.set("x".repeat(SaoUpdates.MAX_VERSION_BYTES + 1));
             assertThrows(IOException.class, () -> online.fetchVersion(SaoUpdates.VERSION_URL));
             assertEquals("0.10", Objects.requireNonNull(online.cachedVersion()).pack().version());
-            assertEquals(valid, Files.readString(temporary.resolve("online-version.json")));
+            assertEquals(valid, new String(Objects.requireNonNull(new SaoReleaseState(temporary, SaoReleaseTestSupport.TRUST).cached(SaoReleaseState.Kind.VERSION)), StandardCharsets.UTF_8));
         }
     }
 
     /// Invalid UTF-8 cannot be silently repaired into a replacement public cache document.
     @Test void malformedUtf8RetainsTheLastGoodVersion() throws Exception {
         String valid = document("0.1", "0.1");
-        Files.writeString(temporary.resolve("online-version.json"), valid);
-        try (SaoOnlineData online = new SaoOnlineData(temporary, (request, limit) ->
+        SaoReleaseTestSupport.cacheVersion(temporary, valid);
+        try (SaoOnlineData online = SaoReleaseTestSupport.online(temporary, (request, limit) ->
                 new SaoOnlineData.Response(200, null, new byte[]{'{', (byte) 0xc3, '(', '}'}))) {
             assertThrows(IOException.class, () -> online.fetchVersion(SaoUpdates.VERSION_URL));
-            assertEquals(valid, Files.readString(temporary.resolve("online-version.json")));
+            assertEquals(valid, new String(Objects.requireNonNull(new SaoReleaseState(temporary, SaoReleaseTestSupport.TRUST).cached(SaoReleaseState.Kind.VERSION)), StandardCharsets.UTF_8));
         }
     }
 
@@ -188,8 +193,8 @@ class SaoUpdatesTest {
 
     /// Cached mandatory policy blocks every Link Start entry before any installer, account ticket or game action.
     @Test void serviceGateUsesCachedPolicyAndQuarkOpenerIsStubbable() throws Exception {
-        Files.writeString(temporary.resolve("online-version.json"), document("9.0", "9.1"));
-        try (SaoPackEngine engine = new SaoPackEngine(temporary, null, false)) {
+        SaoReleaseTestSupport.cacheVersion(temporary, document("9.0", "9.1"));
+        try (SaoPackEngine engine = SaoReleaseTestSupport.engine(temporary, null, false)) {
             await(() -> engine.state().get() != SaoPackState.CHECKING);
             assertTrue(engine.updateStatus().get().launcherBlocked());
             assertFalse(engine.launcherPermitted());
@@ -205,9 +210,9 @@ class SaoUpdatesTest {
 
     /// Prompt polling exposes a candidate, stops on cancel, and a mismatched manual file fails before dependency work.
     @Test void promptCancellationAndManualPathVerificationAreHeadless() throws Exception {
-        Files.writeString(temporary.resolve("online-version.json"), document("0.1", "0.1"));
+        SaoReleaseTestSupport.cacheVersion(temporary, document("0.1", "0.1"));
         Path downloads = Files.createDirectories(temporary.resolve("Downloads")); Path zip = downloads.resolve("pack.zip"); Files.writeString(zip, "y");
-        try (SaoPackEngine engine = new SaoPackEngine(temporary, null, false)) {
+        try (SaoPackEngine engine = SaoReleaseTestSupport.engine(temporary, null, false)) {
             await(() -> engine.state().get() != SaoPackState.CHECKING);
             engine.setDownloadDirectories(() -> List.of(downloads)); engine.watchPackDownload();
             await(() -> zip.equals(engine.downloadPrompt().get().candidate()));
@@ -259,12 +264,12 @@ class SaoUpdatesTest {
         }
         SaoPackArchive pack = SaoPackArchive.open(zip);
         Path root = temporary.resolve("launcher"); Path instance;
-        try (SaoPackEngine engine = new SaoPackEngine(root, pack, false)) {
+        try (SaoPackEngine engine = SaoReleaseTestSupport.engine(root, pack, false)) {
             await(() -> engine.state().get() != SaoPackState.CHECKING); instance = engine.instanceDir();
         }
         new SaoPackInstaller(instance, (remote, destination) -> { throw new AssertionError("Unexpected network"); }, Map.of(), (label, progress) -> { }).apply(pack, false);
         Files.writeString(root.resolve("online-version.json"), "{invalid outage cache");
-        try (SaoPackEngine engine = new SaoPackEngine(root, pack, false)) {
+        try (SaoPackEngine engine = SaoReleaseTestSupport.engine(root, pack, false)) {
             await(() -> engine.state().get() != SaoPackState.CHECKING);
             assertEquals(SaoPackState.READY, engine.state().get()); assertEquals("0.10", engine.installedVersion().get());
             assertNull(engine.updateStatus().get().metadata()); assertTrue(engine.launcherPermitted());
@@ -275,7 +280,7 @@ class SaoUpdatesTest {
 
     /// A downloaded ZIP cannot bypass verification when Gitee metadata has never been available.
     @Test void missingMetadataRejectsManualInstallWithoutBreakingLocalState() throws Exception {
-        try (SaoPackEngine engine = new SaoPackEngine(temporary, null, false)) {
+        try (SaoPackEngine engine = SaoReleaseTestSupport.engine(temporary, null, false)) {
             await(() -> engine.state().get() != SaoPackState.CHECKING);
             engine.applyUpdateZip(temporary.resolve("unknown.zip"));
             assertEquals(SaoPackState.NOT_INSTALLED, engine.state().get());

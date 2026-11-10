@@ -50,13 +50,13 @@ class SaoAuthAndSkinTest {
         for (char value : password) assertEquals('\0', value);
     }
 
-    /// A real JDK-only child receives one stdin frame while its arguments and launcher output contain no credential.
+    /// A real headless JDK-only child receives one stdin frame while its arguments and launcher output contain no credential.
     @Test void actualChildReceivesStdinWithoutArgumentOrLogDisclosure() throws Exception {
         String synthetic = "synthetic-probe-密碼-27";
         String encoded = Base64.getEncoder().encodeToString(synthetic.getBytes(StandardCharsets.UTF_8));
         Path executable = Path.of(System.getProperty("java.home"), "bin", System.getProperty("os.name").startsWith("Windows") ? "java.exe" : "java");
         Path classes = Path.of(StdinProbe.class.getProtectionDomain().getCodeSource().getLocation().toURI());
-        ProcessBuilder builder = new ProcessBuilder(executable.toString(), "-cp", classes.toString(), StdinProbe.class.getName()).redirectErrorStream(true);
+        ProcessBuilder builder = new ProcessBuilder(executable.toString(), "-Djava.awt.headless=true", "-cp", classes.toString(), StdinProbe.class.getName()).redirectErrorStream(true);
         assertFalse(String.join(" ", builder.command()).contains(synthetic));
         assertFalse(String.join(" ", builder.command()).contains(encoded));
         Process child = builder.start();

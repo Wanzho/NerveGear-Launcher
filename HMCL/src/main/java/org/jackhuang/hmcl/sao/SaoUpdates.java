@@ -40,7 +40,8 @@ final class SaoUpdates {
             reader.setStrictness(Strictness.STRICT);
             JsonObject root = object(reader, 0);
             if (reader.peek() != JsonToken.END_DOCUMENT) throw new IOException("Trailing version data");
-            fields(root, "schema", "quark", "pack", "updates", "launcher");
+            fields(root, "schema", "sequence", "quark", "pack", "updates", "launcher");
+            long sequence = integer(root, "sequence");
             if (integer(root, "schema") != 2) throw new IOException("Unsupported version schema");
             String quark = checkedQuark(string(root, "quark")).toString();
             JsonObject pack = child(root, "pack"); fields(pack, "version", "file", "size", "sha256");
@@ -70,7 +71,7 @@ final class SaoUpdates {
             if (launcher.has("nativeRequired") && (!launcher.get("nativeRequired").isJsonPrimitive()
                     || !launcher.getAsJsonPrimitive("nativeRequired").isBoolean())) throw new IOException("Expected nativeRequired boolean");
             boolean nativeRequired = launcher.has("nativeRequired") && launcher.get("nativeRequired").getAsBoolean();
-            return new SaoData.VersionMetadata(2, quark, release, updates,
+            return new SaoData.VersionMetadata(2, sequence, quark, release, updates,
                     new SaoData.LauncherRelease(latest, minimum, artifact, nativeRequired));
         } catch (RuntimeException failure) { throw new IOException("Invalid version document", failure); }
     }

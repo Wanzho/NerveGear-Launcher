@@ -119,7 +119,7 @@ final class SaoLocalPremiumFixture implements AutoCloseable {
             return null;
         });
         router = type("YggdrasilService").getConstructor(Path.class, type("AccountStore"), type("AccountFlows"),
-                type("AuthConfig"), hooksType).newInstance(directory, store, flows, config, hooks);
+                type("AuthConfig"), hooksType, java.util.function.LongSupplier.class).newInstance(directory, store, flows, config, hooks, (java.util.function.LongSupplier) System::currentTimeMillis);
         api.createContext("/", this::route);
         api.start();
         mojang.start();

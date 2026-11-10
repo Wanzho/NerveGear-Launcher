@@ -64,16 +64,27 @@ public final class SaoData {
 
     /// Completely validated schema-2 policy with one shared manual-download link.
     /// @param schema supported schema, always 2
+    /// @param sequence authenticated nonnegative release sequence, checked independently of news
     /// @param quark validated shared HTTPS Quark link
     /// @param pack complete pack release
     /// @param updates directed quick-update edges, every path ending at the complete release
     /// @param launcher launcher compatibility policy
     @NotNullByDefault
-    public record VersionMetadata(int schema, String quark, PackRelease pack,
+    public record VersionMetadata(int schema, long sequence, String quark, PackRelease pack,
                                   @Unmodifiable List<QuickRelease> updates, LauncherRelease launcher) {
         /// Isolates the immutable release inventory from its parser.
         public VersionMetadata { updates = List.copyOf(updates); }
+        /// Constructs local builder/test metadata with the initial sequence; network parsing always requires the field.
+        public VersionMetadata(int schema, String quark, PackRelease pack, List<QuickRelease> updates, LauncherRelease launcher) {
+            this(schema, 0, quark, pack, updates, launcher);
+        }
     }
+
+    /// Authenticated document availability and independently accepted rollback sequences; null means none accepted this run.
+    /// @param versionSequence accepted signed version policy sequence, or null
+    /// @param newsSequence accepted signed announcement sequence, or null
+    @NotNullByDefault
+    public record ReleaseVerification(@Nullable Long versionSequence, @Nullable Long newsSequence) { }
 
     /// Startup/update comparison for the UI; missing metadata never blocks an installed pack.
     /// @param metadata last-good metadata, or null before a valid document is available

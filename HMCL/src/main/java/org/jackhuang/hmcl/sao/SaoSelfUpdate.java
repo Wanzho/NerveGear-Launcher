@@ -58,9 +58,9 @@ public final class SaoSelfUpdate {
     /// Native shells and the running launcher resolve exactly the same per-user update storage.
     static Path defaultRoot() { return Metadata.HMCL_USER_HOME.resolve("self-update"); }
 
-    /// Validates compressed bytes first, then snapshots and validates the exact runnable thin JAR.
+    /// Accepts only the engine's authenticated release policy, then validates compressed bytes and the exact runnable thin JAR.
     /// Minimum-version and native/runtime migrations deliberately require the full native package.
-    public SaoData.LauncherUpdate stage(Path download, SaoData.VersionMetadata metadata, String runningVersion) throws IOException {
+    SaoData.LauncherUpdate stage(Path download, SaoData.VersionMetadata metadata, String runningVersion) throws IOException {
         SaoData.LauncherRelease release = metadata.launcher();
         @Nullable SaoData.LauncherArtifact identity = release.artifact();
         if (SaoUpdates.compare(runningVersion, release.min()) < 0 || release.nativeRequired() || identity == null)

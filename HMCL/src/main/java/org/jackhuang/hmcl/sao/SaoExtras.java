@@ -47,7 +47,7 @@ final class SaoExtras implements AutoCloseable {
     /// Stable read-only wrapper retained for frontend listeners.
     private final @UnmodifiableView ObservableList<SaoData.CommunityLink> linksView = FXCollections.unmodifiableObservableList(links);
     /// Last valid version.json share, applied on the publication thread to every community-list replacement.
-    private String quark = SaoUpdates.QUARK_URL;
+    private @Nullable String quark;
     /// Coalesces concurrent metadata refresh requests.
     private final AtomicBoolean refreshing = new AtomicBoolean();
     /// Fences queued publications and new requests after shutdown.
@@ -68,7 +68,7 @@ final class SaoExtras implements AutoCloseable {
         this.feedbackDownloads = feedbackDownloads;
         this.root = root; this.game = game; this.settings = settings; this.online = online; this.logs = logs; this.installer = installer;
         this.source = source; this.embeddedVersion = embeddedVersion; this.running = running; this.production = production;
-        links.setAll(online.cachedLinks());
+        links.setAll(SaoCommunityLinks.withQuark(online.cachedLinks(), null));
     }
 
     /// Stable cached links, replaced only on the publication thread after a fully valid fetch.
