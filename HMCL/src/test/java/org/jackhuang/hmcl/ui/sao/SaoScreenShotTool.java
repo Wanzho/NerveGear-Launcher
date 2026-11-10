@@ -82,6 +82,12 @@ public final class SaoScreenShotTool {
         if (!opened.equals(java.util.List.of(SaoUi.AFDIAN_URL, SaoUi.QUARK_URL)))
             throw new IllegalStateException("About links opened " + opened);
         System.out.println("About links OK: " + opened);
+        // SAO_SHOTS=maint: only the 服务器 window's maintenance shots (maint1, 10 Nov).
+        if ("maint".equals(System.getenv("SAO_SHOTS"))) {
+            shootMaint(base);
+            Platform.exit();
+            System.exit(0);
+        }
         // SAO_SHOTS=wire-dark: only the wire1 dark shots (a re-shoot after a dark-only colour fix).
         if ("wire-dark".equals(System.getenv("SAO_SHOTS"))) {
             shootWire(base, true);
@@ -720,5 +726,52 @@ public final class SaoScreenShotTool {
         fx(() -> im[0] = scene.snapshot(null));
         write(im[0], file);
         System.out.println("wire shot: " + file.getFileName());
+    }
+
+    /// maint1 (10 Nov): the 服务器 window with the signed maintenance notice, in 浅色 and 深色, into `maint/`.
+    private static void shootMaint(Path base) throws Exception {
+        Path out = base.resolve("maint");
+        Files.createDirectories(out);
+        String longMessage = "服务器正在停机维护，本次维护将更新第一层的地图与任务数据，修复多人组队时剑技光效不同步的问题，调整商店物价与掉落表，并对数据库进行备份与迁移。维护期间无法登录游戏服务器，ARGUS ID 账号、皮肤与好友功能不受影响。维护结束时间可能根据实际进度提前或延后，请留意启动器公告与QQ群通知。给各位玩家带来的不便，敬请谅解，感谢大家的耐心等待与支持！维护完成后将第一时间在公告中通知，届时请重新打开启动器检查更新。";
+        System.out.println("long maintenance message: " + longMessage.length() + " characters");
+        var online = new org.jackhuang.hmcl.sao.SaoData.ServerStatus(true, 23, 100, 38, "刀剑神域·誓约 · 第一层", java.util.List.of("Kirito", "Asuna", "Klein", "Agil"));
+        var offline = new org.jackhuang.hmcl.sao.SaoData.ServerStatus(false, 0, 100, -1, "", java.util.List.of());
+        Object[][] states = {
+                {"01-on-until", "服务器维护中，暂时无法进入游戏", "11-10 18:00", online},
+                {"02-on-no-ping", "服务器维护中，暂时无法进入游戏", "11-10 18:00", null},
+                {"03-on-offline", "服务器维护中，暂时无法进入游戏", null, offline},
+                {"04-off", null, null, online},
+                {"05-on-long-message", longMessage, "11-10 18:00", online}};
+        for (boolean dark : new boolean[]{false, true}) {
+            String tag = dark ? "dark-" : "light-";
+            System.setProperty("sao.windowButtons", "left");
+            SaoFakeService fake = new SaoFakeService();
+            fake.setPreference("theme", dark ? "dark" : "light");
+            SaoHelmetPage[] page = new SaoHelmetPage[1];
+            Scene[] scene = new Scene[1];
+            fx(() -> {
+                fake.forceOath(true);
+                fake.force(org.jackhuang.hmcl.sao.SaoPackState.READY, 1, "", null);
+                page[0] = new SaoHelmetPage(fake);
+                scene[0] = new Scene(page[0], 1920, 1080);
+            });
+            Thread.sleep(2500);
+            fx(() -> scene[0].snapshot(null));
+            Thread.sleep(600);
+            for (Object[] st : states) {
+                fx(() -> {
+                    page[0].forceApp(-1);
+                    page[0].forceLit();
+                    fake.forceServer((org.jackhuang.hmcl.sao.SaoData.ServerStatus) st[3]);
+                    fake.forceMaintenance((String) st[1], (String) st[2]);
+                });
+                Thread.sleep(1300);
+                if (!SaoCjkFont.active()) throw new IllegalStateException("Simplified font patch lost");
+                WritableImage[] im = new WritableImage[1];
+                fx(() -> im[0] = scene[0].snapshot(null));
+                write(im[0], out.resolve(tag + st[0] + ".png"));
+                System.out.println("maint shot: " + tag + st[0]);
+            }
+        }
     }
 }
