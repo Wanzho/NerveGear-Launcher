@@ -15,6 +15,7 @@ import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
 import java.util.zip.*;
 
@@ -72,6 +73,209 @@ class SaoQuickUpdateTest {
     /// Installer fixture refuses every external dependency; no incidental network preparation can pass unnoticed.
     private static SaoPackInstaller installer(Path instance) {
         return new SaoPackInstaller(instance, (file, destination) -> { throw new AssertionError("Unexpected network payload"); }, Map.of(), (label, progress) -> { });
+    }
+
+    /// Normal game rewrites and absent unchanged settings do not block a quick update or lose player choices.
+    @Test void playedSettingsArePreservedAcrossQuickUpdate() throws Exception {
+        @Unmodifiable Map<String, String> settings = Map.ofEntries(Map.entry("mods/a.jar", "old"), Map.entry("config/forge-client.toml", "seed"),
+                Map.entry("config/jei/jei-client.ini", "seed"), Map.entry("config/ftbxmodcompat.snbt", "seed"),
+                Map.entry("config/imblocker.json", "seed"), Map.entry("config/packetfixer.properties", "seed"),
+                Map.entry("config/graveyard/the-graveyard-3.0-config.json5", "seed"), Map.entry("tacz/.export-state.json", "seed"),
+                Map.entry("tacz/tacz-pre.toml", "seed"), Map.entry("config/artifacts/client.json5", "seed"),
+                Map.entry("config/badoptimizations.txt", "seed"), Map.entry("config/fancymenu/options.txt", "seed"),
+                Map.entry("defaultconfigs/ftbquests/client-config.snbt", "seed"), Map.entry("kubejs/config/client.properties", "seed"));
+        Path old = pack("0.8", "played-old.zip", settings, false);
+        Map<String, String> nextSettings = new TreeMap<>(settings); nextSettings.put("mods/a.jar", "new");
+        Path next = pack("0.8.1", "played-next.zip", nextSettings, false);
+        var edge = delta(old, next, "played-delta.zip");
+        Path instance = temporary.resolve("played-instance"); SaoPackInstaller installer = installer(instance);
+        installer.apply(SaoPackArchive.open(old), false);
+        for (String path : settings.keySet()) if (!path.endsWith(".jar")) Files.writeString(instance.resolve(path), "game wrote " + path);
+        Files.delete(instance.resolve("config/jei/jei-client.ini"));
+        installer.applyQuick(List.of(temporary.resolve(edge.file())), SaoPackArchive.open(old), temporary.resolve("played-cache"));
+        assertEquals("new", Files.readString(instance.resolve("mods/a.jar")));
+        for (String path : settings.keySet()) if (!path.endsWith(".jar") && !path.equals("config/jei/jei-client.ini"))
+            assertEquals("game wrote " + path, Files.readString(instance.resolve(path)));
+        assertFalse(Files.exists(instance.resolve("config/jei/jei-client.ini")));
+        assertEquals("0.8.1", Objects.requireNonNull(installer.installed()).version());
+    }
+
+    /// Replaced and removed settings use author intent and retain the exact game-written bytes after successful commit.
+    @Test void changedAndRemovedSettingsKeepDurableTransactionBackups() throws Exception {
+        Path old = pack("0.8", "settings-old.zip", Map.of("mods/a.jar", "jar", "config/change.toml", "seed", "config/remove.toml", "seed"), false);
+        Path next = pack("0.8.1", "settings-next.zip", Map.of("mods/a.jar", "jar", "config/change.toml", "author"), false);
+        var edge = delta(old, next, "settings-delta.zip");
+        Path instance = temporary.resolve("settings-instance"); SaoPackInstaller installer = installer(instance);
+        installer.apply(SaoPackArchive.open(old), false);
+        Files.writeString(instance.resolve("config/change.toml"), "played change");
+        Files.writeString(instance.resolve("config/remove.toml"), "played remove");
+        installer.applyQuick(List.of(temporary.resolve(edge.file())), SaoPackArchive.open(old), temporary.resolve("settings-cache"));
+        assertEquals("author", Files.readString(instance.resolve("config/change.toml")));
+        assertFalse(Files.exists(instance.resolve("config/remove.toml")));
+        try (var transactions = Files.list(instance.resolve(".sao-config-backups"))) {
+            @Unmodifiable List<Path> backups = transactions.toList(); assertEquals(1, backups.size());
+            assertEquals("played change", Files.readString(backups.get(0).resolve("config/change.toml")));
+            assertEquals("played remove", Files.readString(backups.get(0).resolve("config/remove.toml")));
+        }
+    }
+
+    /// Every hop validates canonical settings while the final commit honors author changes that return to the original seed.
+    @Test void twoHopsRetainUntouchedSettingsAndApplyRevertedAuthorSettings() throws Exception {
+        Path old = pack("0.8", "revert-old.zip", Map.of("mods/a.jar", "old", "config/change.toml", "seed", "config/keep.toml", "seed", "config/readd.toml", "seed"), false);
+        Path middle = pack("0.8.1", "revert-middle.zip", Map.of("mods/a.jar", "mid", "config/change.toml", "middle", "config/keep.toml", "seed"), false);
+        Path next = pack("0.8.2", "revert-next.zip", Map.of("mods/a.jar", "new", "config/change.toml", "seed", "config/keep.toml", "seed", "config/readd.toml", "seed"), false);
+        var first = delta(old, middle, "revert-first.zip"); var second = delta(middle, next, "revert-second.zip");
+        Path instance = temporary.resolve("revert-instance"); SaoPackInstaller installer = installer(instance);
+        installer.apply(SaoPackArchive.open(old), false);
+        Files.writeString(instance.resolve("config/change.toml"), "played change"); Files.writeString(instance.resolve("config/keep.toml"), "played keep");
+        Files.writeString(instance.resolve("config/readd.toml"), "played readded setting");
+        installer.applyQuick(List.of(temporary.resolve(first.file()), temporary.resolve(second.file())), SaoPackArchive.open(old), temporary.resolve("revert-cache"));
+        assertEquals("seed", Files.readString(instance.resolve("config/change.toml")));
+        assertEquals("seed", Files.readString(instance.resolve("config/readd.toml")));
+        assertEquals("played keep", Files.readString(instance.resolve("config/keep.toml")));
+        assertEquals("new", Files.readString(instance.resolve("mods/a.jar")));
+        assertEquals("0.8.2", Objects.requireNonNull(installer.installed()).version());
+    }
+
+    /// A mod-generated setting newly managed in either hop is replaced by author content and backed up durably.
+    @Test void newlyManagedSettingsMayAlreadyExistAfterPlay() throws Exception {
+        Path old = pack("0.8", "generated-old.zip", Map.of("mods/a.jar", "old"), false);
+        Path middle = pack("0.8.1", "generated-middle.zip", Map.of("mods/a.jar", "mid", "config/new.toml", "first author"), false);
+        Path next = pack("0.8.2", "generated-next.zip", Map.of("mods/a.jar", "new", "config/new.toml", "first author", "kubejs/config/new.properties", "second author"), false);
+        var first = delta(old, middle, "generated-first.zip"); var second = delta(middle, next, "generated-second.zip");
+        Path instance = temporary.resolve("generated-instance"); SaoPackInstaller installer = installer(instance);
+        installer.apply(SaoPackArchive.open(old), false);
+        Files.createDirectories(instance.resolve("config")); Files.writeString(instance.resolve("config/new.toml"), "game first");
+        Files.createDirectories(instance.resolve("kubejs/config")); Files.writeString(instance.resolve("kubejs/config/new.properties"), "game second");
+        installer.applyQuick(List.of(temporary.resolve(first.file()), temporary.resolve(second.file())), SaoPackArchive.open(old), temporary.resolve("generated-cache"));
+        assertEquals("first author", Files.readString(instance.resolve("config/new.toml")));
+        assertEquals("second author", Files.readString(instance.resolve("kubejs/config/new.properties")));
+        try (var transactions = Files.list(instance.resolve(".sao-config-backups"))) {
+            @Unmodifiable List<Path> backups = transactions.toList(); assertEquals(1, backups.size());
+            assertEquals("game first", Files.readString(backups.get(0).resolve("config/new.toml")));
+            assertEquals("game second", Files.readString(backups.get(0).resolve("kubejs/config/new.properties")));
+        }
+    }
+
+    /// Matching external shader seeds can seed the verified chain locally; edited seeds without embedded originals refuse safely.
+    @Test void externalPlayerSeedsUseMatchingInstalledBytesWithoutDownloads() throws Exception {
+        Path source = pack("0.8", "external-source.zip", Map.of("mods/a.jar", "old", "shaderpacks/external.zip", "shader seed"), false);
+        SaoPackManifest original = SaoPackArchive.open(source).manifest();
+        List<SaoPackManifest.PackFile> files = new ArrayList<>();
+        String shaderHash = "";
+        for (var file : original.files()) {
+            if (file.path().equals("shaderpacks/external.zip")) {
+                shaderHash = file.sha1();
+                files.add(new SaoPackManifest.PackFile(file.path(), file.sha1(), file.size(), null, List.of("https://example.invalid/shader.zip")));
+            } else files.add(file);
+        }
+        Path old = temporary.resolve("external-old.zip");
+        try (ZipOutputStream output = new ZipOutputStream(Files.newOutputStream(old))) {
+            member(output, SaoPackManifest.NAME, SaoQuickUpdate.relabel(original, "0.8", files).toJson());
+            member(output, "overrides/mods/a.jar", "old");
+        }
+        Path shader = temporary.resolve("external-shader.zip"); Files.writeString(shader, "shader seed");
+        @Unmodifiable Map<String, Path> baseline = Map.of(shaderHash, shader);
+        Path next = pack("0.8.1", "external-next.zip", Map.of("mods/a.jar", "new", "shaderpacks/external.zip", "shader seed"), false);
+        Path delta = temporary.resolve("external-delta.zip"); SaoUpdateBuilder.build(old, next, delta, baseline, null, null);
+        for (boolean edited : List.of(false, true)) {
+            Path instance = temporary.resolve("external-instance-" + edited);
+            SaoPackInstaller installer = new SaoPackInstaller(instance, (file, destination) -> { throw new AssertionError("Network forbidden"); }, baseline, (label, progress) -> { });
+            installer.apply(SaoPackArchive.open(old), false);
+            if (edited) Files.writeString(instance.resolve("shaderpacks/external.zip"), "player shader");
+            byte[] receipt = Files.readAllBytes(instance.resolve(SaoPackInstaller.RECEIPT));
+            if (edited) {
+                IOException failure = assertThrows(IOException.class, () -> installer.applyQuick(List.of(delta), SaoPackArchive.open(old), temporary.resolve("external-cache-true")));
+                assertEquals(SaoQuickUpdate.FULL_REQUIRED, failure.getMessage());
+                assertEquals("player shader", Files.readString(instance.resolve("shaderpacks/external.zip")));
+                assertEquals("old", Files.readString(instance.resolve("mods/a.jar")));
+                assertArrayEquals(receipt, Files.readAllBytes(instance.resolve(SaoPackInstaller.RECEIPT)));
+            } else {
+                installer.applyQuick(List.of(delta), SaoPackArchive.open(old), temporary.resolve("external-cache-false"));
+                assertEquals("shader seed", Files.readString(instance.resolve("shaderpacks/external.zip")));
+                assertEquals("new", Files.readString(instance.resolve("mods/a.jar")));
+                assertEquals("0.8.1", Objects.requireNonNull(installer.installed()).version());
+            }
+        }
+    }
+
+    /// Configuration-root JARs and authored data/scripts remain strict even when settings are otherwise mutable.
+    @Test void executableAndAuthoredDataChangesRequireFullPack() throws Exception {
+        for (String path : List.of("mods/keybind-helper.jar", "config/keybind-helper.jar", "kubejs/server_scripts/main.js",
+                "kubejs/data/test/recipes/example.json", "kubejs/assets/test/models/example.json", "kubejs/config/sao_balance.json",
+                "config/ftbquests/quests/data.snbt", "config/roadweaver/presets/test.json", "config/.entrance-render-defaults")) {
+            String id = Integer.toString(path.hashCode());
+            Path old = pack("0.8", "strict-old-" + id + ".zip", Map.of(path, "old"), false);
+            Path next = pack("0.8.1", "strict-next-" + id + ".zip", Map.of(path, "author"), false);
+            var edge = delta(old, next, "strict-delta-" + id + ".zip");
+            Path instance = temporary.resolve("strict-" + id); SaoPackInstaller installer = installer(instance);
+            installer.apply(SaoPackArchive.open(old), false); Files.writeString(instance.resolve(path), "edited");
+            byte[] receipt = Files.readAllBytes(instance.resolve(SaoPackInstaller.RECEIPT));
+            IOException failure = assertThrows(IOException.class, () -> installer.applyQuick(List.of(temporary.resolve(edge.file())), SaoPackArchive.open(old), temporary.resolve("strict-cache-" + id)), path);
+            assertEquals(SaoQuickUpdate.FULL_REQUIRED, failure.getMessage(), path);
+            assertEquals("edited", Files.readString(instance.resolve(path)), path);
+            assertArrayEquals(receipt, Files.readAllBytes(instance.resolve(SaoPackInstaller.RECEIPT)), path);
+        }
+    }
+
+    /// Strict original data must match even when the author leaves it unchanged or removes it in the new release.
+    @Test void unchangedAndRemovedAuthoredDataStillRequireOriginalBase() throws Exception {
+        for (boolean removed : List.of(false, true)) {
+            Path old = pack("0.8", "data-old-" + removed + ".zip", Map.of("kubejs/data/test/recipes/example.json", "original"), false);
+            Map<String, String> nextFiles = new TreeMap<>(); nextFiles.put("config/new.toml", "new");
+            if (!removed) nextFiles.put("kubejs/data/test/recipes/example.json", "original");
+            Path next = pack("0.8.1", "data-next-" + removed + ".zip", nextFiles, false);
+            var edge = delta(old, next, "data-delta-" + removed + ".zip");
+            Path instance = temporary.resolve("data-instance-" + removed); SaoPackInstaller installer = installer(instance);
+            installer.apply(SaoPackArchive.open(old), false);
+            Files.writeString(instance.resolve("kubejs/data/test/recipes/example.json"), "edited original data");
+            IOException failure = assertThrows(IOException.class, () -> installer.applyQuick(List.of(temporary.resolve(edge.file())), SaoPackArchive.open(old), temporary.resolve("data-cache-" + removed)));
+            assertEquals(SaoQuickUpdate.FULL_REQUIRED, failure.getMessage());
+            assertEquals("edited original data", Files.readString(instance.resolve("kubejs/data/test/recipes/example.json")));
+            assertFalse(Files.exists(instance.resolve("config/new.toml")));
+            assertEquals("0.8", Objects.requireNonNull(installer.installed()).version());
+        }
+    }
+
+    /// If durable backup storage is unavailable after mutation, the entire transaction rolls back before the receipt changes.
+    @Test void backupStorageFailureRollsBackReplacedAndRemovedSettings() throws Exception {
+        Path old = pack("0.8", "backup-old.zip", Map.of("mods/a.jar", "old", "config/change.toml", "seed", "config/remove.toml", "seed"), false);
+        Path next = pack("0.8.1", "backup-next.zip", Map.of("mods/a.jar", "new", "config/change.toml", "author"), false);
+        var edge = delta(old, next, "backup-delta.zip");
+        Path instance = temporary.resolve("backup-instance"); SaoPackInstaller installer = installer(instance);
+        installer.apply(SaoPackArchive.open(old), false);
+        Files.writeString(instance.resolve("config/change.toml"), "played change"); Files.writeString(instance.resolve("config/remove.toml"), "played remove");
+        Files.writeString(instance.resolve(".sao-config-backups"), "occupied backup location");
+        byte[] receipt = Files.readAllBytes(instance.resolve(SaoPackInstaller.RECEIPT));
+        assertThrows(IOException.class, () -> installer.applyQuick(List.of(temporary.resolve(edge.file())), SaoPackArchive.open(old), temporary.resolve("backup-cache")));
+        assertEquals("old", Files.readString(instance.resolve("mods/a.jar")));
+        assertEquals("played change", Files.readString(instance.resolve("config/change.toml")));
+        assertEquals("played remove", Files.readString(instance.resolve("config/remove.toml")));
+        assertArrayEquals(receipt, Files.readAllBytes(instance.resolve(SaoPackInstaller.RECEIPT)));
+        assertEquals("occupied backup location", Files.readString(instance.resolve(".sao-config-backups")));
+    }
+
+    /// A failing mutation restores rewritten, removed and newly added settings, code, player data and receipt together.
+    @Test void rollbackRestoresPlayedSettingsAndAllOtherState() throws Exception {
+        Path old = pack("0.8", "rollback-old.zip", Map.of("mods/a.jar", "old", "config/change.toml", "seed", "config/remove.toml", "seed", "options.txt", "seed"), false);
+        Path next = pack("0.8.1", "rollback-next.zip", Map.of("mods/a.jar", "new", "config/change.toml", "author", "config/add.toml", "added", "options.txt", "author"), false);
+        var edge = delta(old, next, "rollback-delta.zip");
+        Path instance = temporary.resolve("rollback-instance"); installer(instance).apply(SaoPackArchive.open(old), false);
+        Files.writeString(instance.resolve("config/change.toml"), "played change"); Files.writeString(instance.resolve("config/remove.toml"), "played remove");
+        Files.writeString(instance.resolve("options.txt"), "player");
+        byte[] receipt = Files.readAllBytes(instance.resolve(SaoPackInstaller.RECEIPT));
+        AtomicInteger mutations = new AtomicInteger();
+        SaoPackInstaller failing = new SaoPackInstaller(instance, (file, destination) -> { throw new AssertionError("Network forbidden"); }, Map.of(),
+                (label, progress) -> { if (label.equals("应用整合包") && mutations.incrementAndGet() == 4) throw new IllegalStateException("rollback fixture"); });
+        assertThrows(IllegalStateException.class, () -> failing.applyQuick(List.of(temporary.resolve(edge.file())), SaoPackArchive.open(old), temporary.resolve("rollback-cache")));
+        assertEquals(4, mutations.get());
+        assertEquals("old", Files.readString(instance.resolve("mods/a.jar")));
+        assertEquals("played change", Files.readString(instance.resolve("config/change.toml")));
+        assertEquals("played remove", Files.readString(instance.resolve("config/remove.toml")));
+        assertEquals("player", Files.readString(instance.resolve("options.txt")));
+        assertFalse(Files.exists(instance.resolve("config/add.toml")));
+        assertArrayEquals(receipt, Files.readAllBytes(instance.resolve(SaoPackInstaller.RECEIPT)));
+        assertFalse(Files.exists(instance.resolve(".sao-config-backups")));
     }
 
     /// One/two/three-hop chains use numeric version ordering and the exact requested Chinese punctuation.

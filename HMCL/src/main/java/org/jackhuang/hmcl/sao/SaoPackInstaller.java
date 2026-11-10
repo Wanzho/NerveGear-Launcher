@@ -124,7 +124,12 @@ public final class SaoPackInstaller {
                 Path retained = cache.resolve(key + ".zip");
                 SaoPackFiles.atomicMove(composed.zip(), retained);
                 SaoPackArchive complete = new SaoPackArchive(retained, composed.manifest());
-                applyLocked(complete, true);
+                Set<String> touched = new HashSet<>();
+                for (Path archive : archives) {
+                    SaoQuickUpdate update = SaoQuickUpdate.open(archive);
+                    touched.addAll(update.added()); touched.addAll(update.changed()); touched.addAll(update.removed());
+                }
+                applyLocked(complete, false, touched);
                 return complete;
             } finally { SaoPackFiles.deleteTree(work); }
         }
@@ -132,6 +137,12 @@ public final class SaoPackInstaller {
 
     /// Stages all required bytes before modifying the instance, then commits the receipt last.
     private Result applyLocked(SaoPackArchive source, boolean repair) throws Exception {
+        return applyLocked(source, repair, Set.of());
+    }
+
+    /// Commits a full inventory while forcing every quick-chain author change, even a later return to old seed bytes.
+    /// Unchanged runtime settings retain their current contents or absence; replaced/removed settings get durable backups.
+    private Result applyLocked(SaoPackArchive source, boolean repair, Set<String> quickTouched) throws Exception {
         @Nullable SaoPackManifest previous = installed();
         SaoPackManifest manifest = source.manifest();
         if (previous != null && org.jackhuang.hmcl.util.versioning.VersionNumber.compare(manifest.version(), previous.version()) < 0)
@@ -149,7 +160,7 @@ public final class SaoPackInstaller {
             Path target = SaoPackFiles.resolve(instance, file.path());
             boolean playerOwned = SaoPackManifest.isPlayerFile(file.path()) && Files.exists(target, LinkOption.NOFOLLOW_LINKS);
             @Nullable SaoPackManifest.PackFile old = oldFiles.get(file.path());
-            boolean inventoryChanged = old == null || !old.sha1().equals(file.sha1()) || old.size() != file.size();
+            boolean inventoryChanged = old == null || !old.sha1().equals(file.sha1()) || old.size() != file.size() || quickTouched.contains(file.path());
             if (playerOwned) {
                 if (SaoPackFiles.matches(target, file)) verified++;
                 else preserved++;
@@ -202,7 +213,7 @@ public final class SaoPackInstaller {
                 if (!SaoPackFiles.matches(item.getValue(), item.getKey()))
                     throw new IOException("Pack checksum mismatch: " + item.getKey().path());
             }
-            commit(stage, changed, removed, manifest);
+            commit(stage, changed, removed, manifest, quickTouched);
             verified += changed.size();
             if (!repair && previous != null) {
                 // Incremental update deliberately avoids rehashing unchanged managed payloads.
@@ -219,11 +230,13 @@ public final class SaoPackInstaller {
         }
     }
 
-    /// Replaces files and managed removals, restoring their previous contents if a filesystem operation fails.
+    /// Replaces files and managed removals, restoring previous contents on failure.
+    /// Quick-update settings backups survive success under a unique launcher-owned transaction directory.
     private void commit(Path stage, List<SaoPackManifest.PackFile> changed, List<String> removed,
-                        SaoPackManifest manifest) throws IOException {
+                        SaoPackManifest manifest, Set<String> quickTouched) throws IOException {
         List<String> committed = new ArrayList<>();
         List<String> backedUp = new ArrayList<>();
+        @Nullable Path retained = null;
         try {
             List<String> mutations = new ArrayList<>(removed);
             for (var file : changed) mutations.add(file.path());
@@ -245,6 +258,19 @@ public final class SaoPackInstaller {
                 }
                 progress.accept("应用整合包", 0.8 + 0.19 * ++count / Math.max(1.0, mutations.size()));
             }
+            for (String path : backedUp) {
+                if (!quickTouched.contains(path) || !SaoQuickUpdate.isGameWrittenSetting(path)) continue;
+                if (retained == null) {
+                    Path backups = instance.resolve(".sao-config-backups");
+                    if (Files.isSymbolicLink(backups)) throw new IOException("Invalid configuration backup directory");
+                    Files.createDirectories(backups);
+                    retained = Files.createTempDirectory(backups, "update-");
+                }
+                Path destination = SaoPackFiles.resolve(retained, path);
+                Files.createDirectories(destination.getParent());
+                // Keep the staging backup until the receipt commits, so rollback never depends on the retained copy.
+                Files.copy(SaoPackFiles.resolve(stage.resolve("backup"), path), destination);
+            }
             Path receipt = stage.resolve("receipt.json");
             Files.writeString(receipt, manifest.toJson(), StandardCharsets.UTF_8);
             SaoPackFiles.atomicMove(receipt, instance.resolve(RECEIPT));
@@ -259,6 +285,10 @@ public final class SaoPackInstaller {
                         SaoPackFiles.atomicMove(SaoPackFiles.resolve(stage.resolve("backup"), path), target);
                     }
                 } catch (IOException rollback) { failure.addSuppressed(rollback); }
+            }
+            if (retained != null) {
+                try { SaoPackFiles.deleteTree(retained); }
+                catch (IOException cleanup) { failure.addSuppressed(cleanup); }
             }
             throw failure;
         }

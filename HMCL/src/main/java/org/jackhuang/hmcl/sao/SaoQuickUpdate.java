@@ -35,6 +35,19 @@ public record SaoQuickUpdate(String from, String to, SaoPackManifest before, Sao
     private static final int MAX_METADATA = 32 * 1024 * 1024;
     /// Required instruction after a missing chain or modified managed base is detected.
     static final String FULL_REQUIRED = "当前文件不适合快速更新，请下载完整模组包。";
+    /// Known runtime settings whose extension alone would also describe authored pack data or layout assets.
+    private static final @Unmodifiable Set<String> RUNTIME_SETTINGS = Set.of(
+            "config/dangomusic/config.json", "config/dangomusic/update_check.json",
+            "config/embeddium-fingerprint.json", "config/embeddium-options.json", "config/imblocker.json",
+            "config/artifacts/client.json5", "config/artifacts/common.json5", "config/bettercombat/client.json5",
+            "config/bettercombat/server.json5", "config/bc_particle/config.json5", "config/bosses_of_mass_destruction.json5",
+            "config/chat_heads.json5", "config/graveyard/the-graveyard-3.0-config.json5",
+            "config/hundredyearswar/hyw_client.json5", "config/hundredyearswar/hyw_main.json5",
+            "config/hundredyearswar/hyw_global_modifier.json5", "config/jea.json5", "config/yacl.json5",
+            "config/badoptimizations.txt", "config/dangomusic/netease_cookie.txt", "config/fancymenu/options.txt",
+            "config/fancymenu/custom_gui_screens.txt", "config/fancymenu/customizablemenus.txt", "config/fancymenu/legacy_checklist.txt",
+            "config/aether/aether_customizations.txt", "config/ftbxmodcompat.snbt", "config/ftbqoptimizer.snbt",
+            "tacz/.export-state.json", "tacz/tacz-pre.toml");
 
     /// Defensively copies inventories and validates their exact relationship before accepting any update.
     public SaoQuickUpdate {
@@ -168,18 +181,42 @@ public record SaoQuickUpdate(String from, String to, SaoPackManifest before, Sao
         return gson.toJson(root);
     }
 
-    /// Confirms the installed receipt and every non-player managed file match a quick update's required base.
+    /// Identifies settings rewritten by normal play, without exempting authored scripts, assets or arbitrary JSON data.
+    /// The exact JSON/state exceptions cover the night1 audit; standard setting formats are restricted to config roots.
+    /// JARs are always strict, including paths containing a player-file keyword such as "keybind".
+    static boolean isGameWrittenSetting(String path) {
+        String lower = path.toLowerCase(Locale.ROOT);
+        if (lower.endsWith(".jar")) return false;
+        if (RUNTIME_SETTINGS.contains(lower)) return true;
+        boolean configRoot = lower.startsWith("config/") || lower.startsWith("defaultconfigs/") || lower.startsWith("kubejs/config/");
+        if (!configRoot) return false;
+        if (lower.startsWith("defaultconfigs/") && lower.endsWith(".snbt")) return true;
+        return lower.endsWith(".toml") || lower.endsWith(".ini") || lower.endsWith(".properties")
+                || lower.endsWith(".cfg") || lower.endsWith(".conf") || lower.endsWith(".yaml") || lower.endsWith(".yml");
+    }
+
+    /// Confirms receipt identity and all strict managed bytes; mutable settings may differ or be absent.
+    /// Existing mutable destinations must still be regular files and every path retains symbolic-link protection.
     static void verifyBase(Path instance, SaoPackManifest installed, SaoQuickUpdate first) throws IOException {
         if (SaoUpdates.compare(installed.version(), first.from()) != 0 || !sameInventory(installed, first.before())) throw new IOException(FULL_REQUIRED);
         for (var file : first.before().files()) {
-            if (SaoPackManifest.isPlayerFile(file.path())) continue;
             Path path = SaoPackFiles.resolve(instance, file.path());
+            if (SaoPackManifest.isPlayerFile(file.path())) continue;
+            if (isGameWrittenSetting(file.path())) {
+                if (Files.exists(path, LinkOption.NOFOLLOW_LINKS) && !Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) throw new IOException(FULL_REQUIRED);
+                continue;
+            }
             if (!SaoPackFiles.matches(path, file) || !SaoUpdates.sha256(path).equals(first.base().get(file.path()))) throw new IOException(FULL_REQUIRED);
         }
-        for (String path : first.added()) {
-            if (!SaoPackManifest.isPlayerFile(path) && Files.exists(SaoPackFiles.resolve(instance, path), LinkOption.NOFOLLOW_LINKS))
-                throw new IOException(FULL_REQUIRED);
-        }
+        for (String path : first.added()) verifyAddedDestination(instance, path);
+    }
+
+    /// Allows newly managed runtime settings already generated locally; authored-file collisions remain a full-pack gate.
+    /// Existing runtime destinations must be regular files and remain covered by the instance's path safety checks.
+    private static void verifyAddedDestination(Path instance, String path) throws IOException {
+        Path destination = SaoPackFiles.resolve(instance, path);
+        if (SaoPackManifest.isPlayerFile(path) || !Files.exists(destination, LinkOption.NOFOLLOW_LINKS)) return;
+        if (!isGameWrittenSetting(path) || !Files.isRegularFile(destination, LinkOption.NOFOLLOW_LINKS)) throw new IOException(FULL_REQUIRED);
     }
 
     /// Compares path/hash/size identities independently of archive entry names and download mirror order.
@@ -201,11 +238,13 @@ public record SaoQuickUpdate(String from, String to, SaoPackManifest before, Sao
         for (Path archive : archives) updates.add(open(archive));
         verifyBase(instance, installed, updates.get(0));
         Path tree = work.resolve("inventory"); Files.createDirectories(tree);
-        // Player data in the instance may differ from its seed. Reconstruct seeds from the retained full source.
+        // Runtime settings and player data may differ or be missing. Only canonical seeds enter the verified chain.
         for (var file : installed.files()) {
             Path destination = SaoPackFiles.resolve(tree, file.path());
             Files.createDirectories(destination.getParent());
-            if (SaoPackManifest.isPlayerFile(file.path())) {
+            // Matching live seeds also cover external shader archives absent from the full ZIP; verifyTree checks SHA-256.
+            if ((SaoPackManifest.isPlayerFile(file.path()) || isGameWrittenSetting(file.path()))
+                    && !SaoPackFiles.matches(SaoPackFiles.resolve(instance, file.path()), file)) {
                 if (pristine == null || !sameInventory(installed, pristine.manifest())) throw new IOException(FULL_REQUIRED);
                 @Nullable SaoPackManifest.PackFile seed = inventory(pristine.manifest()).get(file.path());
                 if (seed == null || seed.entry() == null) throw new IOException(FULL_REQUIRED);
@@ -225,8 +264,7 @@ public record SaoQuickUpdate(String from, String to, SaoPackManifest before, Sao
             if (!previous.version().equals(update.from()) || !sameInventory(previous, update.before())
                     || previousExpected != null && !previousExpected.equals(update.base())) throw new IOException(FULL_REQUIRED);
             for (String path : update.added()) {
-                if (!inventory(installed).containsKey(path) && !SaoPackManifest.isPlayerFile(path)
-                        && Files.exists(SaoPackFiles.resolve(instance, path), LinkOption.NOFOLLOW_LINKS)) throw new IOException(FULL_REQUIRED);
+                if (!inventory(installed).containsKey(path)) verifyAddedDestination(instance, path);
             }
             verifyTree(tree, update.before(), update.base());
             try (ZipFile zip = new ZipFile(archives.get(hop).toFile(), StandardCharsets.UTF_8)) {

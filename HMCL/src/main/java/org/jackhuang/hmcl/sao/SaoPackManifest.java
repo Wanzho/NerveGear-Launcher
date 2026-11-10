@@ -149,6 +149,8 @@ public record SaoPackManifest(String version, String minecraft, String neoforge,
     /// True for player state: install seeds absent defaults, updates and repair preserve existing files.
     public static boolean isPlayerFile(String path) {
         String lower = path.toLowerCase(Locale.ROOT);
+        // Executable pack payloads remain managed even when their names contain a player-state keyword.
+        if (lower.endsWith(".jar")) return false;
         return lower.equals("options.txt") || lower.startsWith("options") && lower.endsWith(".txt")
                 || lower.startsWith("saves/") || lower.startsWith("screenshots/")
                 || lower.startsWith("shaderpacks/") || lower.equals("config/oculus.properties")
