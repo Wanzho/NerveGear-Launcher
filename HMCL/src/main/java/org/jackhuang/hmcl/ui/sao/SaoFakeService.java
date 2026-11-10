@@ -205,6 +205,32 @@ public final class SaoFakeService implements SaoLauncherService {
                         "NerveGear-Launcher-" + launcherLatest + ".jar", 1, "0".repeat(64)) : null, false));
     }
 
+    /// Turns the pretend signed maintenance notice on (message, optional until) or off (null message); no network.
+    public void forceMaintenance(@Nullable String message, @Nullable String until) {
+        SaoData.UpdateStatus u = updates.get();
+        SaoData.VersionMetadata base = u.metadata() != null ? u.metadata() : meta("0.8.2", "0.1.0", "0.1.0", false);
+        SaoData.VersionMetadata m = new SaoData.VersionMetadata(base.schema(), base.sequence(), base.quark(), base.pack(),
+                base.updates(), base.launcher(), base.server(), base.accountApi(),
+                message == null ? null : new SaoData.Maintenance(message, until));
+        updates.set(new SaoData.UpdateStatus(m, u.packUpdateAvailable(), u.launcherBlocked(), u.launcherUpdateAvailable(), u.message()));
+    }
+
+    /// Sets the pretend server status (null: still connecting).
+    public void forceServer(SaoData.@Nullable ServerStatus st) {
+        server.set(st);
+    }
+
+    /// The signed server when the pretend policy names one.
+    @Override public String serverAddress() {
+        SaoData.@Nullable VersionMetadata m = updates.get().metadata();
+        return m != null && m.server() != null ? m.server() : "mc.saooath.com";
+    }
+
+    /// Pretend refresh: nothing goes on the network.
+    @Override public void refreshOnline(boolean forcePolicy) {
+        refreshOnline();
+    }
+
     /// Sets the update states directly (screenshots).
     public void forceUpdates(SaoData.UpdateStatus u, SaoData.DownloadPrompt p, SaoData.LauncherUpdate l) {
         updates.set(u);

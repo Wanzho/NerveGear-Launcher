@@ -440,11 +440,16 @@ public final class SaoHelmetPage extends StackPane {
         HBox addressRow = new HBox(8, address, grow(), more);
         addressRow.setAlignment(Pos.CENTER_LEFT);
         VBox where = new VBox(6, addressRow, nodes);
+        // 维护中 (James, 10 Nov: "如果服务器在维护中，启动器要在右边面板上说明"): the signed notice under the address,
+        // whatever the ping says. Its text is the backend's, shown as is; a long one scrolls inside the tile.
         Runnable show = () -> {
             @Nullable SaoData.ServerStatus st = service.serverStatus().get();
+            SaoData.@Nullable Maintenance m = service.updateStatus().get().maintenance();
             box.getChildren().clear();
+            box.getChildren().add(where);
+            if (m != null) box.getChildren().add(maintenanceTile(m));
             if (st == null) {
-                box.getChildren().addAll(where, empty(SVG.PUBLIC, "正在连接服务器"));
+                box.getChildren().add(empty(SVG.PUBLIC, "正在连接服务器"));
                 return;
             }
             HBox state = new HBox(8, light(st.online()), ink(st.online() ? "在线" : "离线", 13), grow(),
@@ -463,15 +468,44 @@ public final class SaoHelmetPage extends StackPane {
                 chip.getStyleClass().add("vr-name");
                 names.getChildren().add(chip);
             }
-            box.getChildren().addAll(where, state, rule(), players, motd, names);
+            box.getChildren().addAll(state, rule(), players);
+            // During maintenance the notice takes the room of the MOTD and the name chips.
+            if (m == null) box.getChildren().addAll(motd, names);
         };
         service.serverStatus().addListener((o, a, b) -> show.run());
+        // The signed policy can turn maintenance on or off and move the address.
+        service.updateStatus().addListener((o, a, b) -> {
+            fillNodes.run();
+            show.run();
+        });
         show.run();
         Button refresh = round(SVG.REFRESH, 26, 14);
-        refresh.setOnAction(e -> service.refreshOnline());
+        // The button also asks for the signed policy again; the open call and the 60 s timer do not.
+        refresh.setOnAction(e -> service.refreshOnline(true));
         SaoFloatWindow w = new SaoFloatWindow("服务器", 290, 430, null).add(box);
         w.head.getChildren().add(refresh);
         return w.home(1034, 175, 40, 24, 0);
+    }
+
+    /// The 维护中 tile: the state word, the backend's message and, when given, 预计结束 with its time.
+    private static Node maintenanceTile(SaoData.Maintenance m) {
+        Text title = ink("维护中", 15);
+        title.getStyleClass().setAll("vr-warn");
+        SaoUiKit.font(title, 15, true);
+        Text message = ink(m.message(), 13);
+        // Narrower than the tile so the scroll bar of a long notice never covers the line ends.
+        message.setWrappingWidth(184);
+        // A long notice scrolls inside the tile instead of pushing the window's rows out; the end time stays visible.
+        javafx.scene.control.ScrollPane scroll = scroll(new VBox(message));
+        scroll.setMaxHeight(140);
+        VBox.setVgrow(scroll, Priority.NEVER);
+        VBox text = new VBox(4, title, scroll);
+        @Nullable String until = m.until();
+        if (until != null && !until.isBlank()) text.getChildren().add(ink("预计结束 " + until.strip(), 12.5));
+        HBox tile = tile(icon(SVG.WARNING, 20), text);
+        tile.setAlignment(Pos.TOP_LEFT);
+        tile.getStyleClass().add("vr-tile-warn");
+        return tile;
     }
 
     /// The player, in the middle: the logo over the character on the left, the ARGUS ID on the right as James drew it
