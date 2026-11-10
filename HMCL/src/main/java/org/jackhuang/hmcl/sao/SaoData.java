@@ -69,16 +69,31 @@ public final class SaoData {
     /// @param pack complete pack release
     /// @param updates directed quick-update edges, every path ending at the complete release
     /// @param launcher launcher compatibility policy
+    /// @param server optional signed game target, subordinate to an explicit pack target
+    /// @param accountApi optional signed HTTPS account API root
+    /// @param maintenance optional maintenance notice; null means maintenance is off
     @NotNullByDefault
     public record VersionMetadata(int schema, long sequence, String quark, PackRelease pack,
-                                  @Unmodifiable List<QuickRelease> updates, LauncherRelease launcher) {
+                                  @Unmodifiable List<QuickRelease> updates, LauncherRelease launcher,
+                                  @Nullable String server, @Nullable String accountApi, @Nullable Maintenance maintenance) {
         /// Isolates the immutable release inventory from its parser.
         public VersionMetadata { updates = List.copyOf(updates); }
+        /// Constructs metadata predating optional production settings without changing its signed sequence.
+        public VersionMetadata(int schema, long sequence, String quark, PackRelease pack,
+                               @Unmodifiable List<QuickRelease> updates, LauncherRelease launcher) {
+            this(schema, sequence, quark, pack, updates, launcher, null, null, null);
+        }
         /// Constructs local builder/test metadata with the initial sequence; network parsing always requires the field.
         public VersionMetadata(int schema, String quark, PackRelease pack, List<QuickRelease> updates, LauncherRelease launcher) {
             this(schema, 0, quark, pack, updates, launcher);
         }
     }
+
+    /// Signed plain-text maintenance notice, independent of ping success or launcher compatibility gates.
+    /// @param message bounded maintenance explanation
+    /// @param until optional human-readable estimate, never interpreted as a deadline
+    @NotNullByDefault
+    public record Maintenance(String message, @Nullable String until) { }
 
     /// Authenticated document availability and independently accepted rollback sequences; null means none accepted this run.
     /// @param versionSequence accepted signed version policy sequence, or null
@@ -94,7 +109,10 @@ public final class SaoData {
     /// @param message Chinese launcher compatibility message, empty when no note is needed
     @NotNullByDefault
     public record UpdateStatus(@Nullable VersionMetadata metadata, boolean packUpdateAvailable,
-                               boolean launcherBlocked, boolean launcherUpdateAvailable, String message) { }
+                               boolean launcherBlocked, boolean launcherUpdateAvailable, String message) {
+        /// Returns the signed notice without requiring the screen to inspect policy JSON; null means maintenance is off.
+        public @Nullable Maintenance maintenance() { return metadata == null ? null : metadata.maintenance(); }
+    }
 
     /// Cancellable drop/download prompt with retained quick-update identities across multiple drops.
     /// @param watching whether the prompt is active

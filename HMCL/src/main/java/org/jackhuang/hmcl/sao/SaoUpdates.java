@@ -40,7 +40,18 @@ final class SaoUpdates {
             reader.setStrictness(Strictness.STRICT);
             JsonObject root = object(reader, 0);
             if (reader.peek() != JsonToken.END_DOCUMENT) throw new IOException("Trailing version data");
-            fields(root, "schema", "sequence", "quark", "pack", "updates", "launcher");
+            Set<String> rootFields = new HashSet<>(Set.of("schema", "sequence", "quark", "pack", "updates", "launcher"));
+            for (String optional : List.of("server", "accountApi", "maintenance")) if (root.has(optional)) rootFields.add(optional);
+            if (!root.keySet().equals(rootFields)) throw new IOException("Unexpected or missing version fields");
+            @Nullable String server = root.has("server") ? server(string(root, "server")) : null;
+            @Nullable String accountApi = root.has("accountApi") ? accountApi(string(root, "accountApi")) : null;
+            @Nullable SaoData.Maintenance maintenance = null;
+            if (root.has("maintenance")) {
+                JsonObject notice = child(root, "maintenance");
+                if (notice.has("until")) fields(notice, "message", "until"); else fields(notice, "message");
+                maintenance = new SaoData.Maintenance(text(string(notice, "message"), 1, 200),
+                        notice.has("until") ? text(string(notice, "until"), 0, 40) : null);
+            }
             long sequence = integer(root, "sequence");
             if (integer(root, "schema") != 2) throw new IOException("Unsupported version schema");
             String quark = checkedQuark(string(root, "quark")).toString();
@@ -72,8 +83,44 @@ final class SaoUpdates {
                     || !launcher.getAsJsonPrimitive("nativeRequired").isBoolean())) throw new IOException("Expected nativeRequired boolean");
             boolean nativeRequired = launcher.has("nativeRequired") && launcher.get("nativeRequired").getAsBoolean();
             return new SaoData.VersionMetadata(2, sequence, quark, release, updates,
-                    new SaoData.LauncherRelease(latest, minimum, artifact, nativeRequired));
+                    new SaoData.LauncherRelease(latest, minimum, artifact, nativeRequired), server, accountApi, maintenance);
         } catch (RuntimeException failure) { throw new IOException("Invalid version document", failure); }
+    }
+
+    /// Requires a bounded lower-case DNS host, optionally followed by a decimal TCP port.
+    static String server(String value) throws IOException {
+        if (value.length() > 259 || !value.matches("[a-z0-9.-]+(?::[0-9]{1,5})?")) throw new IOException("Invalid game server");
+        int separator = value.indexOf(':');
+        String host = separator < 0 ? value : value.substring(0, separator);
+        if (host.length() > 253 || !host.matches("[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?")) throw new IOException("Invalid game host");
+        for (String label : host.split("\\.", -1))
+            if (!label.matches("[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")) throw new IOException("Invalid DNS label");
+        if (separator >= 0) {
+            int port = Integer.parseInt(value.substring(separator + 1));
+            if (port < 1 || port > 65535) throw new IOException("Invalid game port");
+        }
+        return value;
+    }
+
+    /// Requires an explicit HTTPS root path and port range without credentials, query, fragment or normalization.
+    static String accountApi(String value) throws IOException {
+        try {
+            URI uri = URI.create(value);
+            if (value.length() > 2048 || !"https".equals(uri.getScheme()) || uri.getHost() == null
+                    || uri.getRawUserInfo() != null || uri.getRawQuery() != null || uri.getRawFragment() != null
+                    || uri.getPort() == 0 || uri.getPort() > 65535 || uri.getRawAuthority().endsWith(":")
+                    || !uri.getRawPath().startsWith("/") || !uri.getRawPath().endsWith("/")
+                    || value.codePoints().anyMatch(Character::isISOControl)) throw new IOException("Invalid account API");
+            return value;
+        } catch (IllegalArgumentException failure) { throw new IOException("Invalid account API", failure); }
+    }
+
+    /// Bounds displayed Unicode text by code points and rejects C0/C1 controls, including line breaks.
+    private static String text(String value, int minimum, int maximum) throws IOException {
+        int length = value.codePointCount(0, value.length());
+        if (length < minimum || length > maximum || value.codePoints().anyMatch(Character::isISOControl))
+            throw new IOException("Invalid maintenance text");
+        return value;
     }
 
     /// Requires a positive compressed archive size.

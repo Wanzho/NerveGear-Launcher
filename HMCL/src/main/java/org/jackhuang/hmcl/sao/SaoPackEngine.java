@@ -102,6 +102,12 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     private final SaoOnlineData online;
     /// Explicit fixture engines never perform public metadata reads, including refreshOnline calls.
     private final boolean productionUpdates;
+    /// Explicit account-test transports retain priority over remotely signed deployment settings.
+    private final boolean fixtureAccountEndpoint;
+    /// Shared monotonic policy-attempt limiter; independent of news and status refreshes.
+    private final SaoPolicyRefresh policyRefresh;
+    /// Explicit transport fixtures use inert status values instead of DNS or sockets.
+    private final boolean inertOnlineFixture;
     /// Last-good public policy is read atomically at the launch boundary, independently of UI publication.
     private volatile @Nullable SaoData.VersionMetadata versionMetadata;
     /// Optional note dismissed during this launcher session, scoped to the advertised latest version.
@@ -279,12 +285,30 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
                           boolean production, @Nullable SaoUninstaller suppliedUninstaller,
                           SaoUninstallHelper.Factory helper, Runnable shutdown, Runnable quit, @Nullable AccountHooks accountHooks,
                           @Nullable SaoReleaseSignatures fixtureTrust) {
+        this(dataRoot, supplied, loadEmbedded, production, suppliedUninstaller, helper, shutdown, quit,
+                accountHooks, fixtureTrust, null, System::nanoTime);
+    }
+
+    /// Exercises real verified refresh/publication paths with an inert exchange and deterministic monotonic clock.
+    SaoPackEngine(Path dataRoot, SaoReleaseSignatures trust, SaoOnlineData.Exchange exchange,
+                  java.util.function.LongSupplier clock) {
+        this(dataRoot, null, false, false, null, SaoUninstallHelper::prepare, () -> { }, () -> { },
+                null, trust, exchange, clock);
+    }
+
+    /// Initializes production or entirely offline refresh fixtures without changing compiled trust in production.
+    private SaoPackEngine(Path dataRoot, @Nullable SaoPackArchive supplied, boolean loadEmbedded,
+                          boolean production, @Nullable SaoUninstaller suppliedUninstaller,
+                          SaoUninstallHelper.Factory helper, Runnable shutdown, Runnable quit, @Nullable AccountHooks accountHooks,
+                          @Nullable SaoReleaseSignatures fixtureTrust, @Nullable SaoOnlineData.Exchange fixtureExchange,
+                          java.util.function.LongSupplier clock) {
         root = dataRoot.toAbsolutePath().normalize();
         try { settings = new SaoSettings(root); }
         catch (IOException failure) { throw new java.io.UncheckedIOException("Cannot read launcher settings", failure); }
         game = new SaoGameBridge(root, this::reportProgress);
         game.observeInstallProgress(this::reportInstallProgress);
         productionUninstall = production;
+        fixtureAccountEndpoint = accountHooks != null;
         uninstallHelper = helper;
         uninstallShutdown = shutdown;
         uninstallQuit = quit;
@@ -299,8 +323,11 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
         game.restoreJava(java());
         publish(() -> org.jackhuang.hmcl.task.FetchTask.setDownloadExecutorConcurrency(downloadThreads()));
         files = new SaoInstanceFiles(game.instanceDir(), game);
-        online = new SaoOnlineData(root, production || fixtureTrust == null ? SaoReleaseSignatures.PRODUCTION : fixtureTrust);
-        productionUpdates = production;
+        SaoReleaseSignatures trust = production || fixtureTrust == null ? SaoReleaseSignatures.PRODUCTION : fixtureTrust;
+        online = fixtureExchange == null ? new SaoOnlineData(root, trust) : new SaoOnlineData(root, fixtureExchange, trust);
+        productionUpdates = production || fixtureExchange != null;
+        inertOnlineFixture = fixtureExchange != null;
+        policyRefresh = new SaoPolicyRefresh(clock);
         selfUpdate = new SaoSelfUpdate(production ? SaoSelfUpdate.defaultRoot() : root.resolve("self-update"));
         versionMetadata = online.cachedVersion();
         logs = new SaoGameLogs(game.instanceDir());
@@ -314,6 +341,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
                     accountHooks == null ? SaoAccountClient.originalMojangJoin() : accountHooks.mojangJoin(),
                     account -> linkStart(account, null), message -> publish(() -> error.set(message)));
         } catch (IOException failure) { throw new java.io.UncheckedIOException("Cannot initialize protected account storage", failure); }
+        applyAccountPolicy(versionMetadata);
         remoteNews = online.cached();
         installer = new SaoPackInstaller(game.instanceDir(), new SaoPackInstaller.Downloader() {
             /// Downloads one dependency through the production mirror/hash path.
@@ -368,7 +396,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
             } catch (Exception failure) { fail("读取整合包失败", failure); }
             finally {
                 busy.set(false); packReady.complete(null); refreshInstalledBytes();
-                if (production) { refreshUpdates(); extras.refreshLinks(); }
+                if (production) { refreshUpdates(false); extras.refreshLinks(); }
             }
         });
     }
@@ -484,7 +512,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
                 publish(() -> { gameLog.clear(); crash.set(null); });
                 lifecycle.begin(launcherBehavior());
                 gameRunning.set(true);
-                game.launch(account, pack.manifest(), launchMemoryMiB(), gameWindow(), jvmArgs(), password, offline, closed::get, new ProcessListener() {
+                game.launch(account, pack.manifest(), launchMemoryMiB(), gameWindow(), jvmArgs(), password, offline, signedServer(), closed::get, new ProcessListener() {
                     /// Starts accounting after the OS process exists and before HMCL starts its exit monitor.
                     @Override public void setProcess(org.jackhuang.hmcl.util.platform.ManagedProcess process) {
                         if (account instanceof SaoOathLaunchAccount launched) oath.gameStarted(launched);
@@ -538,6 +566,21 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
         @Nullable SaoPackArchive pack = source;
         return SaoAccountClient.checkedRoot(pack != null && !pack.manifest().accountApi().isBlank()
                 ? pack.manifest().accountApi() : SaoAccountClient.DEFAULT_API);
+    }
+
+    /// Applies authenticated account policy only when no explicit deployment/test override is configured.
+    private void applyAccountPolicy(@Nullable SaoData.VersionMetadata metadata) {
+        @Nullable String property = System.getProperty("sao.account.api");
+        @Nullable String environment = System.getenv("SAO_ACCOUNT_API");
+        boolean explicit = fixtureAccountEndpoint || property != null && !property.isBlank() || environment != null && !environment.isBlank()
+                || !settings.text("accountApi", "").isBlank();
+        oath.applyAccountApi(explicit || metadata == null ? null : metadata.accountApi());
+    }
+
+    /// Reads one current verified game target, without consulting a UI property or performing network work.
+    private @Nullable String signedServer() {
+        @Nullable SaoData.VersionMetadata metadata = versionMetadata;
+        return metadata == null ? null : metadata.server();
     }
 
     /// Gives isolated package tests the same account controller used by every production seam method.
@@ -622,7 +665,9 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     /// {@inheritDoc}
     @Override public String serverAddress() {
         @Nullable SaoPackArchive pack = source;
-        return pack != null && !pack.manifest().server().isEmpty() ? pack.manifest().server() : SaoLauncherService.super.serverAddress();
+        @Nullable String signed = signedServer();
+        return pack != null && !pack.manifest().server().isEmpty() ? pack.manifest().server()
+                : signed != null ? signed : SaoLauncherService.super.serverAddress();
     }
     /// Preserves the existing canonical invite-target construction while explicitly implementing the screen seam.
     @Override public @Unmodifiable List<String> knownServers() { return SaoLauncherService.super.knownServers(); }
@@ -876,16 +921,20 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     }
 
     /// {@inheritDoc}
-    @Override public void refreshUpdates() {
+    @Override public void refreshUpdates() { refreshUpdates(true); }
+
+    /// Coalesces news work and reserves policy attempts before dispatch; failed attempts consume the same rate limit.
+    private void refreshUpdates(boolean forcePolicy) {
         if (!productionUpdates || closed.get() || uninstalling.get() || !updatesRefreshing.compareAndSet(false, true)) return;
+        boolean fetchPolicy = policyRefresh.acquire(forcePolicy);
         onlineWorker.execute(() -> {
             try {
                 try { remoteNews = online.fetch(System.getProperty("sao.newsUrl", SaoUpdates.NEWS_URL)); publishNews(); }
                 catch (Exception failure) { SaoOnlineData.rejected("news fetch", failure); }
-                try {
+                if (fetchPolicy) try {
                     SaoData.VersionMetadata metadata = online.fetchVersion(System.getProperty("sao.versionUrl", SaoUpdates.VERSION_URL));
                     if (!metadata.equals(versionMetadata)) cancelPackDownload();
-                    versionMetadata = metadata; extras.updateQuark(metadata.quark()); publishUpdates();
+                    versionMetadata = metadata; applyAccountPolicy(metadata); extras.updateQuark(metadata.quark()); publishUpdates();
                 } catch (Exception failure) { SaoOnlineData.rejected("version fetch", failure); }
             } finally { updatesRefreshing.set(false); }
         });
@@ -1017,18 +1066,23 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     /// {@inheritDoc}
     @Override public ReadOnlyObjectProperty<SaoData.@Nullable ServerStatus> serverStatus() { return serverStatus.getReadOnlyProperty(); }
     /// {@inheritDoc}
-    @Override public void refreshOnline() {
+    @Override public void refreshOnline() { refreshOnline(false); }
+
+    /// Keeps news/card/status freshness independent of the slower verified version-policy cadence.
+    @Override public void refreshOnline(boolean forcePolicy) {
         if (closed.get() || uninstalling.get() || !onlineRefreshing.compareAndSet(false, true)) return;
-        refreshUpdates();
-        oath.refreshCard();
+        refreshUpdates(forcePolicy);
+        // The explicit offline exchange fixture cannot authorize real account-card transport.
+        if (!inertOnlineFixture) oath.refreshCard();
         onlineWorker.execute(() -> {
             try {
                 @Nullable SaoPackArchive pack = source;
-                String address = pack == null ? "" : pack.manifest().server();
+                String address = !productionUpdates && (pack == null || pack.manifest().server().isEmpty())
+                        ? "" : serverAddress();
                 if (address.isEmpty()) publish(() -> serverStatus.set(null));
                 else {
                     SaoData.ServerStatus result;
-                    try { result = online.ping(address); }
+                    try { result = inertOnlineFixture ? new SaoData.ServerStatus(false, 0, 0, -1, "", List.of()) : online.ping(address); }
                     catch (Exception failure) { result = new SaoData.ServerStatus(false, 0, 0, -1, "", List.of()); }
                     SaoData.ServerStatus status = result;
                     publish(() -> serverStatus.set(status));

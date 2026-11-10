@@ -149,13 +149,14 @@ final class SaoGameBridge {
     /// Authenticates an existing supported HMCL account, starts the fixed instance and hands off stdin once.
     /// Password ownership transfers to this method; it is wiped even when authentication or process creation fails.
     void launch(Account account, SaoPackManifest manifest, int memoryMiB, SaoData.GameWindow window, String jvmArgs, char @Nullable [] password, boolean offline,
-                java.util.function.BooleanSupplier cancelled, ProcessListener listener) throws Exception {
+                @Nullable String signedServer, java.util.function.BooleanSupplier cancelled, ProcessListener listener) throws Exception {
         @Nullable SaoOathLaunchTicket launchTicket = null;
         boolean started = false;
         try {
             if (!(account instanceof OfflineAccount) && !(account instanceof MicrosoftAccount) && !(account instanceof SaoOathLaunchAccount))
                 throw new IOException("Unsupported launcher account");
-            boolean handoff = !offline && !(account instanceof SaoOathLaunchAccount) && !manifest.server().isEmpty();
+            boolean handoff = !offline && !(account instanceof SaoOathLaunchAccount)
+                    && (!manifest.server().isEmpty() || signedServer != null);
             if (!handoff && password != null) Arrays.fill(password, '\0');
             if (handoff && password != null && password.length > SaoAuthHandoff.MAX_PASSWORD_CHARS)
                 throw new IOException("sao_auth password is too long");
@@ -163,7 +164,7 @@ final class SaoGameBridge {
             DefaultGameInstance instance = repository.getInstance(INSTANCE_ID);
             validateInstance(instance);
             if (offline) clearOfflineTicket();
-            LaunchPlan plan = launchPlan(account, manifest, memoryMiB, window, jvmArgs, selectJava(), instanceDir(), offline);
+            LaunchPlan plan = launchPlan(account, manifest, memoryMiB, window, jvmArgs, selectJava(), instanceDir(), offline, signedServer);
             if (cancelled.getAsBoolean()) throw new IOException("Launcher has closed");
             if (!offline && account instanceof SaoOathLaunchAccount oath) launchTicket = oath.ticket(instanceDir(), plan.server());
             if (cancelled.getAsBoolean()) throw new IOException("Launcher has closed");
@@ -197,6 +198,13 @@ final class SaoGameBridge {
     /// Minecraft's launcher profile and version type use the product title; account identity remains in AuthInfo.
     static LaunchPlan launchPlan(Account account, SaoPackManifest manifest, int memoryMiB, SaoData.GameWindow window,
                                  String jvmArgs, JavaRuntime runtime, Path instance, boolean offline) throws Exception {
+        return launchPlan(account, manifest, memoryMiB, window, jvmArgs, runtime, instance, offline, null);
+    }
+
+    /// Uses one accepted policy snapshot for both QuickPlay and the ARGUS launch-ticket destination; offline ignores it.
+    static LaunchPlan launchPlan(Account account, SaoPackManifest manifest, int memoryMiB, SaoData.GameWindow window,
+                                 String jvmArgs, JavaRuntime runtime, Path instance, boolean offline,
+                                 @Nullable String signedServer) throws Exception {
         if (offline && (account.getClass() != OfflineAccount.class || ((OfflineAccount) account).getSkin() != null))
             throw new IOException("Offline play requires a plain offline account");
         AuthInfo auth = account.logIn();
@@ -206,8 +214,8 @@ final class SaoGameBridge {
                 .setProfileName(Metadata.TITLE).setDisableAutoGameOptions(true)
                 .setWidth(window.width()).setHeight(window.height()).setFullscreen(window.fullscreen())
                 .setJavaArguments(org.jackhuang.hmcl.util.StringUtils.tokenize(jvmArgs));
-        String server = offline ? "" : manifest.server().isEmpty() && account instanceof SaoOathLaunchAccount
-                ? "mc.saooath.com" : manifest.server();
+        String server = offline ? "" : !manifest.server().isEmpty() ? manifest.server()
+                : signedServer != null ? signedServer : account instanceof SaoOathLaunchAccount ? "mc.saooath.com" : "";
         if (!server.isEmpty()) options.setQuickPlayOption(new QuickPlayOption.MultiPlayer(server));
         return new LaunchPlan(auth, options.create(), server);
     }

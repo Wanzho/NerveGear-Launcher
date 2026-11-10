@@ -34,7 +34,7 @@ public final class SaoReleaseTool {
                 byte @Unmodifiable [] document = SaoReleaseState.bounded(file, SaoReleaseSignatures.MAX_NEWS_BYTES);
                 byte @Unmodifiable [] signature = SaoReleaseState.bounded(signature(file), SaoReleaseSignatures.MAX_SIGNATURE_BYTES);
                 trust.verify(document, signature);
-                output.println("OK sequence=" + sequence(document)); return 0;
+                output.println(summary(document)); return 0;
             }
             if ((args.length != 4 && args.length != 5) || !args[0].equals("--sign-release") || !args[2].equals("--key")
                     || args.length == 5 && !args[4].equals("--force"))
@@ -66,10 +66,21 @@ public final class SaoReleaseTool {
             trust.verify(savedDocument, savedSignature);
             if (!Arrays.equals(document, savedDocument) || sequence(savedDocument) != sequence)
                 throw new IOException("Release document changed during signing");
-            output.println("OK sequence=" + sequence); return 0;
+            output.println(summary(savedDocument)); return 0;
         } catch (IOException | GeneralSecurityException | RuntimeException failure) {
             output.println("FAIL sequence=unknown"); return 1;
         }
+    }
+
+    /// Summarizes authenticated policy settings on one line; news has no production-target authority.
+    private static String summary(byte @Unmodifiable [] bytes) throws IOException {
+        String document = SaoReleaseSignatures.utf8(bytes);
+        if (SaoReleaseSignatures.object(document).has("news"))
+            return "OK sequence=" + SaoReleaseSignatures.news(document).sequence() + " maintenance=n/a server=n/a accountApi=n/a";
+        SaoData.VersionMetadata metadata = SaoUpdates.parse(document);
+        return "OK sequence=" + metadata.sequence() + " maintenance=" + (metadata.maintenance() == null ? "off" : "on")
+                + " server=" + (metadata.server() == null ? "mc.saooath.com" : metadata.server())
+                + " accountApi=" + (metadata.accountApi() == null ? SaoAccountClient.DEFAULT_API : metadata.accountApi());
     }
 
     /// Appends .sig to the complete document filename, retaining its exact parent directory.

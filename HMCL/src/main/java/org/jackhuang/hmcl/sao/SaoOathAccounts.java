@@ -67,6 +67,10 @@ final class SaoOathAccounts implements AutoCloseable {
     });
     /// Transport enforcing origin, TLS, bounds, locale and safe failure text.
     private final SaoAccountClient client;
+    /// Last applied verified account API, null to use explicit deployment/pack/default resolution.
+    private volatile @Nullable String signedAccountApi;
+    /// Resolves explicit deployment overrides and legacy pack/default account roots.
+    private final Supplier<URI> fallbackEndpoint;
     /// Live social engine shares only the current memory-only ARGUS session.
     final SaoFriends friends;
     /// Root enclosing only this launcher's credentials, texture cache and libraries.
@@ -145,7 +149,8 @@ final class SaoOathAccounts implements AutoCloseable {
     /// Fully injectable controller for literal-loopback headless contracts, without a game process or windows.
     SaoOathAccounts(Path root, Supplier<URI> endpoint, Supplier<String> language, SaoOathCredentials credentials,
                     PremiumProof premium, URI mojangJoin, Consumer<Account> launch, Consumer<String> errors) {
-        this.root = root; this.client = new SaoAccountClient(endpoint, language); this.credentials = credentials;
+        this.root = root; this.fallbackEndpoint = endpoint;
+        this.client = new SaoAccountClient(this::accountEndpoint, language); this.credentials = credentials;
         this.friends = new SaoFriends(root, client, errors);
         this.premium = premium; this.mojangJoin = mojangJoin; this.launch = launch; this.errors = errors;
         this.injector = new SaoOathInjector(root);
@@ -157,6 +162,29 @@ final class SaoOathAccounts implements AutoCloseable {
             SaoOathCredentials.@Nullable Credential credential = credentials.read();
             if (credential != null) { remembered = credential.name(); Arrays.fill(credential.password(), '\0'); }
         } catch (IOException failure) { errors.accept("读取已保存账号失败，请重新输入密码"); }
+    }
+
+    /// Resolves the selected signed root; the engine's fallback retains explicit test/deployment override priority.
+    URI accountEndpoint() {
+        @Nullable String selected = signedAccountApi;
+        return selected == null ? fallbackEndpoint.get() : SaoAccountClient.checkedRoot(selected);
+    }
+
+    /// Applies a verified root only while signed out and idle, atomically with account-operation submission.
+    /// A skipped change is retried by the next verified refresh or applied from cache on the next launcher start.
+    boolean applyAccountApi(@Nullable String selected) {
+        synchronized (gate) {
+            if (Objects.equals(selected, signedAccountApi)) return true;
+            if (session != null || pending.get() != 0 || closed.get() || frozen) {
+                System.getLogger(SaoOathAccounts.class.getName()).log(System.Logger.Level.INFO,
+                        "Signed account API change deferred until signed out and idle or launcher restart");
+                return false;
+            }
+            signedAccountApi = selected;
+            System.getLogger(SaoOathAccounts.class.getName()).log(System.Logger.Level.INFO,
+                    "Signed account API applied: " + (selected == null ? "deployment/pack/default" : selected));
+            return true;
+        }
     }
 
     /// The current account property; only refreshed server values are published.

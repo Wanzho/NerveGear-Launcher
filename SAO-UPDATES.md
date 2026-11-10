@@ -67,6 +67,58 @@ Strict validation rejects unknown fields, duplicate JSON keys, nulls, comments, 
 
 `launcher.latest` and `launcher.min` are required. Its `file`, `size` and `sha256` are optional **as one complete group**. `file` may be a portable `.jar` basename or a `.zip` basename whose archive contains exactly one portable basename JAR, with no directories or other files. `nativeRequired` is an optional actual JSON boolean, default `false`; strings and numbers are rejected. Missing artifact identity, `nativeRequired: true`, or a running launcher below `min` requires the complete native launcher from Quark. A JAR shortcut never bypasses that gate.
 
+## 正式服目标、账号 API 与维护通知（仍为 schema 2）
+
+`version.json` 可增加以下三个可选顶层字段；老的 schema 2 签名文件继续有效。未知字段、重复字段、错误类型和 JSON null 仍然拒绝。这些设置与发布文件身份一起签名、校验并保存到同一个高水位缓存，不能由未签名公告或状态 ping 开启/关闭。
+
+```json
+{
+  "server": "mc.saooath.com",
+  "accountApi": "https://argus.example.com/",
+  "maintenance": {
+    "message": "正式服维护中，安装新的登录验证",
+    "until": "今晚 20:00"
+  }
+}
+```
+
+上面只是要合并进完整 `version.json` 的字段示例，**不是独立可发布文件**；`argus.example.com` 是占位域名，不是真实生产接口。
+
+- `server` 是 1–253 字符的小写 DNS 主机名，可附带 `:1`–`:65535`，总长最多 259。每个 DNS 标签 1–63 字符，只允许小写字母、数字和内部连字符；不接受协议、路径、空白、下划线或末尾点。选择顺序为：**非空整合包清单 server → 已验证签名 server → mc.saooath.com**。保留清单优先，避免把明确指定测试服/专用服的测试包、安装记录引向正式服。屏幕地址、状态 ping、QuickPlay 与 ARGUS ticket 使用同一目标；离线启动仍无 QuickPlay。原有非 ARGUS 无清单/签名目标时的普通启动行为保留。
+- `accountApi` 是不超过 2048 字符的 HTTPS URL，必须有主机、可选的 1–65535 端口，以及以 `/` 开头和结尾的路径；不接受用户信息、query、fragment。账号选择顺序为：显式 `sao.account.api` / `SAO_ACCOUNT_API` / 本地 `accountApi` 设置（及隔离账号测试 seam）→ 签名 `accountApi` → 非空整合包 `accountApi` → 内置默认。内置默认仍是 `https://auth.saooath.com:61784/`，不是已经可用的生产接口承诺。
+- `accountApi` 在启动时从重新验签的缓存应用；后台首次/后续验签成功时，仅在账号已退出且没有排队/进行中的账号操作时应用。已登录会话保持原 API，变更会记录日志，并在退出后的下一次成功刷新或重启时应用；缓存可先保存新 API。移除该字段同样受会话保护。正式切换 API 后应提示当前已登录玩家重新打开启动器。
+- `maintenance` **存在即开启维护通知**，删除该字段即关闭。`message` 是 1–200 个 Unicode 字符；`until` 可省略，最多 40 个 Unicode 字符（可为空）；两者均禁止 C0/C1 控制字符，包括换行、制表符。`until` 仅是显示的预计结束时间，不会定时自动结束维护。维护通知不会改变最低启动器版本，也不会单独禁止 Link Start；入服权限仍由服务器控制。
+
+服务器窗口在打开/每 60 秒调用 `refreshOnline()`：新闻和状态保持原节奏，版本策略最多每 **180 秒**尝试一次。刷新按钮应调用新接口 `refreshOnline(true)`，版本策略最多每 **30 秒**尝试一次。`refreshUpdates()` 也按按钮限额执行。两种节奏共用上一次尝试时间，失败也计入限额；正在执行的刷新仍合并。生产启动后台请求共享同一计时器，不等待网络。每个 JSON/签名对的十秒 deadline、签名、sequence、高水位、防回滚和失败保留上次有效数据规则均不变。
+
+### 团队操作：开始维护、切换正式 API、结束维护
+
+1. **开始维护**：从当前完整 `version.json` 修改，将它自己的 `sequence` 加 1，设置 `server: "mc.saooath.com"`（或保留字段缺省），加入 `maintenance.message` 和可选 `until`。保留真实 `pack` / `updates` / `launcher` 身份。`news.json` 可同步写玩家公告；若修改新闻内容，将新闻自己的 `sequence` 也加 1。
+2. **部署生产账号 API**：为 ARGUS HTTPS 服务配置实际 DNS 名称、实际监听/反向代理端口和受玩家 Java 信任且域名匹配的 TLS 证书。例如最终选择标准 443 端口时可用 `https://auth.saooath.com/`；只有部署确认后才能填。2026-11-10 的已提供 DNS 事实中 `auth.saooath.com` 无记录，61784 是游戏 SRV 端口，不能直接当成 HTTPS API 端口。不要填写测试接口。将真实 API 写入 `accountApi`，再把版本 `sequence` 加 1。这样已经发出的新启动器能在验签后采用接口，无需再发启动器。
+3. 在正式服维护窗口安装并配置服务端 `sao_auth` / ARGUS 验证，确保客户端 launch ticket 的验证流程与该正式 API 配套。在部署后的实际环境另行验证登录和入服；本后端修改不部署服务端，也不能证明入服成功。
+4. **签名与校验**：UI 合并并完成最终重建后，使用包含本修改的最终可信 JAR 执行下面四个命令。私钥保留在本地受保护位置；JSON 若签名后改任何一个字节，必须重新签名。已经存在 `.sig` 时，确认 JSON/sequence 后显式加 `--force`。
+
+```sh
+JAVA_TOOL_OPTIONS=-Djava.awt.headless=true java -Djava.awt.headless=true \
+  -jar NerveGear-Launcher.jar --sign-release version.json --key /secure/release-ed25519-private.pem
+JAVA_TOOL_OPTIONS=-Djava.awt.headless=true java -Djava.awt.headless=true \
+  -jar NerveGear-Launcher.jar --verify-release version.json
+JAVA_TOOL_OPTIONS=-Djava.awt.headless=true java -Djava.awt.headless=true \
+  -jar NerveGear-Launcher.jar --sign-release news.json --key /secure/release-ed25519-private.pem
+JAVA_TOOL_OPTIONS=-Djava.awt.headless=true java -Djava.awt.headless=true \
+  -jar NerveGear-Launcher.jar --verify-release news.json
+```
+
+5. 两个工具对版本策略打印一行 `OK sequence=… maintenance=on/off server=… accountApi=…`，缺省值显示内置目标；显式整合包/本地覆盖仍可能改变运行时最终选择。新闻文件打印 `maintenance=n/a server=n/a accountApi=n/a`，因为新闻没有修改目标/维护策略的权限。
+6. **逐字节原样上传** `version.json`、`version.json.sig`、`news.json`、`news.json.sig` 四个文件到 Gitee 发布分支根目录；每个 JSON 必须和自己的签名同时更新，最好同一提交。不要用网页编辑器重新排版、改 BOM、换行或编码。未修改的新闻可以保持原序列与原签名。若上传过程短暂不成对，客户端会拒绝本次刷新并保留之前的有效缓存。
+7. **结束维护**：在服务端部署验证完成后，删除整个 `maintenance` 字段（不要设 null），保留真实 `server` 与 `accountApi`，将版本 `sequence` 再加 1。若改新闻也增加其独立 sequence。再次签名、校验并原样上传四个文件。在线启动器会在下次允许的刷新中去掉通知；缓存中的维护状态在无网络/验签失败时继续显示，不能保证所有玩家同时看到切换。
+
+### UI 接线（由 UI 负责人完成）
+
+监听现有稳定 `service.updateStatus()`，读取 `status.maintenance()`（`SaoData.Maintenance`，可为 null）。存在时在右侧“服务器”窗口以纯文本显示 `message()` 和非空 `until()`；null 时移除维护说明。维护提示独立于 `serverStatus().online()`，即使 ping 失败也应显示。每次 updateStatus 替换时重新读取 `service.serverAddress()`；现有 serverStatus 监听仍负责刷新人数/ping。刷新按钮改为 `refreshOnline(true)`，打开/60 秒 timer 保留 `refreshOnline()`。
+
+`SaoFakeService` 已有稳定的 `updates` (`SimpleObjectProperty<UpdateStatus>`) 与 `forceUpdates(...)`；复用它们，提供带 `VersionMetadata(..., server, accountApi, maintenance)` 的维护演示数据，并通过替换 UpdateStatus 演示 on→off；其无维护构造器继续可用。假服务需使 `serverAddress()` 与演示 metadata.server 一致，必要时实现 `refreshOnline(boolean)` 委托已有模拟刷新。本次没有修改任何 `org/jackhuang/hmcl/ui/` 文件。
+
 ## news.json schema 2
 
 Remote news also requires `schema: 2` and its own integer `sequence`. Entries remain plain text with `kind` (`NOTICE` or `UPDATE`), required `title` (1–200 characters), optional `date` (up to 40 characters), and optional `body` (up to 16000 characters); at most 100 entries. Unknown/duplicate fields, coercions and trailing input are rejected.
@@ -131,7 +183,7 @@ Observable values are immutable `SaoData` records, published through the existin
 | `watchPackDownload()` | Poll platform Downloads folders immediately and every three seconds; finds full-pack or quick filenames by name/size as suggestions only. |
 | `cancelPackDownload()` | Stop polling, clear candidate and discard pending private quick snapshots. Does not interrupt an accepted installer commit. |
 | `launcherUpdate()` | `LauncherUpdate(version, restartRequired, message)` with the staged replacement or persisted success/rollback result. |
-| `refreshUpdates()` | Background news/version fetch only; startup calls it automatically in production. |
+| `refreshUpdates()` | Background news refresh and policy attempt (30 s limit); startup uses the shared 180 s cadence. |
 | `dismissLauncherUpdate()` | Dismiss optional `latest` for this session; a minimum-version gate remains mandatory. |
 | `lastError()` | Localized rejection/failure text, including a wrong member in an otherwise accepted batch. |
 

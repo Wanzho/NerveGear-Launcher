@@ -94,7 +94,7 @@ public interface SaoLauncherService {
         return new SimpleObjectProperty<>(new SaoData.DownloadPrompt(false, null, ""));
     }
 
-    /// Refreshes Gitee announcements and version policy asynchronously, without account refresh or server ping.
+    /// Refreshes announcements and version policy asynchronously; explicit policy attempts are limited to once per 30 seconds.
     default void refreshUpdates() { }
 
     /// Dismisses the optional launcher note for this advertised latest version; cannot dismiss the minimum gate.
@@ -216,9 +216,13 @@ public interface SaoLauncherService {
         return new SimpleObjectProperty<>();
     }
 
-    /// Fetches the news and pings the server again (the screen calls it on open and every minute).
+    /// Refreshes news/status on open or timer; signed policy attempts are limited to once per three minutes.
     default void refreshOnline() {
     }
+
+    /// Refreshes online data for an explicit button action, allowing a policy attempt once per 30 seconds.
+    /// Timer/open callers use the no-argument method; UI implementations may inherit this delegation.
+    default void refreshOnline(boolean forcePolicy) { refreshOnline(); }
 
     /// The instance's singleplayer saves, last played first.
     default ObservableList<SaoData.World> worlds() {
