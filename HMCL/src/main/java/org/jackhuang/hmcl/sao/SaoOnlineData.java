@@ -39,9 +39,13 @@ final class SaoOnlineData implements AutoCloseable {
     private volatile @Nullable Long newsSequence;
     /// Injectable request exchange; tests never contact external hosts.
     private final Exchange exchange;
+    /// Selects an optional Minecraft SRV endpoint without DNS work during construction.
+    private final SaoServerResolver serverResolver;
+    /// Resolves the selected endpoint on the same deadline-bound DNS worker.
+    private final HostLookup hostLookup;
     /// DNS has a separate daemon so the complete ping has a three-second deadline.
     private final ThreadPoolExecutor resolver = new ThreadPoolExecutor(1, 1, 0, TimeUnit.SECONDS,
-            new LinkedBlockingQueue<>(), task -> { Thread thread = new Thread(task, "sao-status-dns"); thread.setDaemon(true); return thread; });
+            new LinkedBlockingQueue<>(1), task -> { Thread thread = new Thread(task, "sao-status-dns"); thread.setDaemon(true); return thread; });
 
     /// Keeps all cache files in the launcher's own data root.
     SaoOnlineData(Path root) { this(root, SaoReleaseSignatures.PRODUCTION); }
@@ -49,6 +53,7 @@ final class SaoOnlineData implements AutoCloseable {
     /// Allows only explicitly constructed offline fixtures to use throwaway verification keys.
     SaoOnlineData(Path root, SaoReleaseSignatures trust) {
         cache = root.resolve("online-news.json"); releases = new SaoReleaseState(root, trust);
+        serverResolver = new SaoServerResolver(); hostLookup = InetAddress::getByName;
         exchange = (request, limit) -> {
             CompletableFuture<HttpResponse<byte[]>> pending = http.sendAsync(request, info -> new NewsSubscriber(limit));
             try {
@@ -65,8 +70,28 @@ final class SaoOnlineData implements AutoCloseable {
 
     /// Supplies inert transport and explicit public test keys without production key overrides.
     SaoOnlineData(Path root, Exchange exchange, SaoReleaseSignatures trust) {
-        cache = root.resolve("online-news.json"); releases = new SaoReleaseState(root, trust); this.exchange = exchange;
+        this(root, exchange, trust, new SaoServerResolver(), InetAddress::getByName);
     }
+
+    /// Supplies inert HTTP and DNS transports for socket-free status-resolution tests.
+    SaoOnlineData(Path root, Exchange exchange, SaoReleaseSignatures trust, SaoServerResolver serverResolver, HostLookup hostLookup) {
+        cache = root.resolve("online-news.json"); releases = new SaoReleaseState(root, trust); this.exchange = exchange;
+        this.serverResolver = serverResolver; this.hostLookup = hostLookup;
+    }
+
+    /// One address lookup after optional SRV selection; production uses the JVM resolver.
+    @NotNullByDefault
+    @FunctionalInterface
+    interface HostLookup {
+        /// Resolves the first selected host address on the status DNS worker.
+        InetAddress lookup(String host) throws Exception;
+    }
+
+    /// Immutable resolved socket destination; the Minecraft handshake still uses the original logical host.
+    /// @param endpoint selected host and effective TCP port
+    /// @param address first resolved IP address of the selected host
+    @NotNullByDefault
+    record PingTarget(ServerAddress endpoint, InetAddress address) { }
 
     /// Bounded HTTP exchange result; redirect locations are never followed by the HTTP client itself.
     /// @param status HTTP response status
@@ -238,28 +263,25 @@ final class SaoOnlineData implements AutoCloseable {
         return new SaoData.News(SaoData.NewsKind.UPDATE, "v" + embeddedVersion, "", body);
     }
 
-    /// Performs modern status handshake, JSON request and ping/pong under one three-second deadline.
+    /// Performs SRV/address resolution, status handshake and ping/pong under one three-second deadline.
     SaoData.ServerStatus ping(String address) throws Exception {
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
         ServerAddress parsed = ServerAddress.parse(address);
-        Future<InetAddress[]> lookup = resolver.submit(() -> InetAddress.getAllByName(parsed.host()));
-        InetAddress[] addresses;
-        try { addresses = lookup.get(remaining(deadline), TimeUnit.MILLISECONDS); }
-        finally { lookup.cancel(true); resolver.purge(); }
-        int port = parsed.port() < 0 ? 25565 : parsed.port();
+        PingTarget target = resolvePingTarget(parsed, deadline);
+        int port = target.endpoint().port();
         try (Socket socket = new Socket()) {
             ScheduledFuture<?> timeout = deadlines.schedule(() -> {
                 try { socket.close(); } catch (IOException ignored) { }
             }, remaining(deadline), TimeUnit.MILLISECONDS);
             try {
-            socket.connect(new InetSocketAddress(addresses[0], port), remaining(deadline));
+            socket.connect(new InetSocketAddress(target.address(), port), remaining(deadline));
             socket.setSoTimeout(remaining(deadline));
             DataOutputStream output = new DataOutputStream(socket.getOutputStream());
             DataInputStream input = new DataInputStream(socket.getInputStream());
             ByteArrayOutputStream handshakeBytes = new ByteArrayOutputStream();
             DataOutputStream handshake = new DataOutputStream(handshakeBytes);
             writeVarInt(handshake, 0); writeVarInt(handshake, 763);
-            byte[] host = parsed.host().getBytes(StandardCharsets.UTF_8);
+            byte @Unmodifiable [] host = parsed.host().getBytes(StandardCharsets.UTF_8);
             writeVarInt(handshake, host.length); handshake.write(host); handshake.writeShort(port); writeVarInt(handshake, 1);
             writeVarInt(output, handshakeBytes.size()); output.write(handshakeBytes.toByteArray());
             output.write(new byte[]{1, 0}); output.flush();
@@ -277,6 +299,18 @@ final class SaoOnlineData implements AutoCloseable {
             return status(status, milliseconds);
             } finally { timeout.cancel(false); }
         }
+    }
+
+    /// Keeps SRV and target-address DNS off the caller thread, including cancellation of queued expired work.
+    PingTarget resolvePingTarget(ServerAddress parsed, long deadline) throws Exception {
+        Future<PingTarget> lookup = resolver.submit(() -> {
+            ServerAddress endpoint = serverResolver.resolve(parsed, deadline);
+            InetAddress address = hostLookup.lookup(endpoint.host());
+            remaining(deadline);
+            return new PingTarget(endpoint, address);
+        });
+        try { return lookup.get(remaining(deadline), TimeUnit.MILLISECONDS); }
+        finally { lookup.cancel(true); resolver.purge(); }
     }
 
     /// Converts public status JSON into immutable screen values, tolerating an absent player sample.
