@@ -364,15 +364,22 @@ final class SaoFriendsApp {
         TextField say = field(chat.group() ? "发到 " + chat.title() : "发给 " + chat.title());
         HBox.setHgrow(say, Priority.ALWAYS);
         Button go = accent("发送");
+        Text failed = dim("", 12);
         Runnable send = () -> {
             String t = say.getText().strip();
             if (t.isEmpty()) return;
             say.clear();
-            s.sendMessage(chat.id(), t);
+            failed.setText("");
+            // A message that did not go out comes back to the field instead of vanishing.
+            s.sendMessage(chat.id(), t).whenComplete((ok, failure) -> Platform.runLater(() -> {
+                if (failure == null) return;
+                if (say.getText().isEmpty()) say.setText(t);
+                failed.setText("! 发送失败");
+            }));
         };
         go.setOnAction(e -> send.run());
         say.setOnAction(e -> send.run());
-        HBox write = new HBox(8, say, go);
+        HBox write = new HBox(8, say, failed, go);
         write.setAlignment(Pos.CENTER_LEFT);
 
         VBox pane = new VBox(8, head, rule(), sp, write);
