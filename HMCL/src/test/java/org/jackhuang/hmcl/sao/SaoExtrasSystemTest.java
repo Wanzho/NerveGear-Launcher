@@ -92,4 +92,16 @@ class SaoExtrasSystemTest {
             assertEquals(SaoData.GraphicsPreset.BALANCED, engine.graphicsPreset());
         }
     }
+
+    /// A settings file cut short by a crash is set aside and the defaults are used instead of failing startup.
+    @Test void corruptSettingsFallBackToDefaults() throws Exception {
+        Files.writeString(temporary.resolve("launcher-settings.json"), "");
+        SaoSettings settings = new SaoSettings(temporary);
+        assertEquals(8192, settings.number("memoryMiB", 8192));
+        try (var listing = Files.list(temporary)) {
+            assertTrue(listing.anyMatch(path -> path.getFileName().toString().startsWith("launcher-settings.json.corrupt-")));
+        }
+        settings.put("memoryMiB", 4096);
+        assertEquals(4096, new SaoSettings(temporary).number("memoryMiB", 8192));
+    }
 }
