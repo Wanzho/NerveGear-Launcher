@@ -300,9 +300,10 @@ class SaoQuickUpdateTest {
                 valid.replace("\"from\":\"0.8.2\"", "\"from\":\"0.8.4\""),
                 valid.replace("\"to\":\"0.8.1\"", "\"to\":\"0.8\""),
                 valid.replace("\"to\":\"0.8.3\"", "\"to\":\"0.8.4\""),
-                valid.replace("\"updates\":[", "\"unused\":1,\"updates\":["),
                 valid.replace("\"size\":1,", "\"size\":1.0,")))
             assertThrows(IOException.class, () -> SaoUpdates.parse(invalid), invalid);
+        // A newer release's unknown field is ignored (B-2).
+        assertEquals(3, SaoUpdates.parse(valid.replace("\"updates\":[", "\"unused\":1,\"updates\":[")).updates().size());
         assertThrows(IOException.class, () -> policy(finalPack, List.of(first, third)));
     }
 
