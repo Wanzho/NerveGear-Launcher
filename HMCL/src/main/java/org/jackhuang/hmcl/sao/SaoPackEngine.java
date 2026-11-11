@@ -467,6 +467,18 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
         startGame(SaoGameBridge.offlineAccount(name), null, true);
     }
 
+    /// Online launch failure text: the launcher's own Chinese reason from the cause chain when there is one, else the
+    /// exception type with the usual hint.
+    static String launchFailure(Throwable failure) {
+        @Nullable Throwable cause = failure;
+        for (int depth = 0; cause != null && depth < 10; depth++, cause = cause.getCause()) {
+            @Nullable String message = cause.getMessage();
+            if (message != null && message.length() <= 120 && message.indexOf('\n') < 0 && message.codePoints().anyMatch(c -> c >= 0x4E00 && c <= 0x9FFF))
+                return "Link Start 失败：" + message;
+        }
+        return "Link Start 失败（" + failure.getClass().getSimpleName() + "）。请检查账户、网络和 Java 17 设置。";
+    }
+
     /// States from which Link Start may begin; a failed attempt can be retried without Repair or a restart.
     private static boolean launchable(SaoPackState current) {
         return current == SaoPackState.NOT_INSTALLED || current == SaoPackState.UPDATE_READY
@@ -549,7 +561,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
                 if (offline) publish(() -> { error.set("离线启动失败，请检查整合包和 Java 17 设置");
                     state.set(SaoPackState.FAILED); step.set(""); progress.set(-1); });
                 else if (source == null) fail("Link Start 失败", failure);
-                else publish(() -> { error.set("Link Start 失败（" + failure.getClass().getSimpleName() + "）。请检查账户、网络和 Java 17 设置。");
+                else publish(() -> { error.set(launchFailure(failure));
                     state.set(SaoPackState.FAILED); step.set(""); progress.set(-1); });
             } finally {
                 if (password != null) Arrays.fill(password, '\0');

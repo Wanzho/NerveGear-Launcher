@@ -52,4 +52,12 @@ final class SaoRuntimeFailureTest {
         var failure = new IOException("Download timed out");
         assertSame(failure, SaoGameBridge.runtimeDownloadFailure(failure));
     }
+
+    /// Online launch failures show the launcher's own reason; unknown failures keep the type and hint.
+    @Test void launchFailureShowsCuratedReason() {
+        Exception wrapped = new RuntimeException("wrapper", new SaoAccountException("登录已失效，请重新登录", "invalidSession"));
+        assertEquals("Link Start 失败：登录已失效，请重新登录", SaoPackEngine.launchFailure(wrapped));
+        assertEquals("Link Start 失败（IllegalStateException）。请检查账户、网络和 Java 17 设置。",
+                SaoPackEngine.launchFailure(new IllegalStateException("token abc")));
+    }
 }
