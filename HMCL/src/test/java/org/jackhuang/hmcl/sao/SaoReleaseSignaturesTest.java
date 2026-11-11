@@ -88,7 +88,7 @@ class SaoReleaseSignaturesTest {
             }
         }
         assertThrows(IOException.class, () -> SaoOnlineData.parseNews("{\"news\":[]}"));
-        for (String malformed : List.of(news(0, "Strict").replace("\"Strict\"", "1"), news(0, "Strict").replace("\"title\":", "\"unknown\":1,\"title\":")))
+        for (String malformed : List.of(news(0, "Strict").replace("\"Strict\"", "1"), news(0, "Strict").replace("\"title\":", "\"heading\":")))
             assertThrows(IOException.class, () -> SaoOnlineData.parseNews(malformed));
     }
 

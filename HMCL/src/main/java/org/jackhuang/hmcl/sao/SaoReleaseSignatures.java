@@ -77,7 +77,7 @@ final class SaoReleaseSignatures {
         if (document.getBytes(StandardCharsets.UTF_8).length > MAX_NEWS_BYTES) throw new IOException("News document is too large");
         try {
             JsonObject root = object(document);
-            fields(root, Set.of("schema", "sequence", "news"));
+            required(root, Set.of("schema", "sequence", "news"));
             if (number(root, "schema") != 2) throw new IOException("Unsupported news schema");
             long sequence = number(root, "sequence");
             JsonElement items = root.get("news");
@@ -89,7 +89,7 @@ final class SaoReleaseSignatures {
                 Set<String> expected = new HashSet<>(Set.of("kind", "title"));
                 if (entry.has("date")) expected.add("date");
                 if (entry.has("body")) expected.add("body");
-                fields(entry, expected);
+                required(entry, expected);
                 SaoData.NewsKind kind = SaoData.NewsKind.valueOf(text(entry, "kind"));
                 String title = text(entry, "title"), date = entry.has("date") ? text(entry, "date") : "";
                 String body = entry.has("body") ? text(entry, "body") : "";
@@ -153,6 +153,11 @@ final class SaoReleaseSignatures {
     }
 
     /// Requires the complete known field set, including mandatory sequence fields.
+    /// Requires the known fields of a signed release document; unknown fields from newer releases are ignored.
+    static void required(JsonObject object, Set<String> fields) throws IOException {
+        if (!object.keySet().containsAll(fields)) throw new IOException("Missing release fields");
+    }
+
     static void fields(JsonObject object, Set<String> fields) throws IOException {
         if (!object.keySet().equals(fields)) throw new IOException("Unexpected or missing release fields");
     }

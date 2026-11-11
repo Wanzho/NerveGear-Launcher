@@ -85,12 +85,14 @@ class SaoProductionPolicyTest {
         assertNotNull(SaoUpdates.parse(document(0, ",\"maintenance\":{\"message\":\"m\",\"until\":\"" + "时".repeat(40) + "\"}")).maintenance());
         for (String value : List.of("null", "false", "1", "\"on\"", "[]", "{}", "{\"message\":\"\"}",
                 "{\"message\":\"" + "a".repeat(201) + "\"}", "{\"message\":1}", "{\"message\":null}",
-                "{\"message\":\"m\",\"extra\":\"x\"}", "{\"message\":\"m\",\"until\":null}", "{\"message\":\"m\",\"until\":1}",
+                "{\"message\":\"m\",\"until\":null}", "{\"message\":\"m\",\"until\":1}",
                 "{\"message\":\"m\",\"until\":\"" + "a".repeat(41) + "\"}", "{\"message\":\"m\",\"message\":\"n\"}",
                 "{\"message\":\"m\\nline\"}", "{\"message\":\"m\\u0000\"}", "{\"message\":\"m\\u0085\"}",
                 "{\"message\":\"m\",\"until\":\"now\\t\"}"))
             assertThrows(IOException.class, () -> SaoUpdates.parse(document(0, ",\"maintenance\":" + value)), value);
-        assertThrows(IOException.class, () -> SaoUpdates.parse(document(0, ",\"maintenence\":{}")));
+        // Fields unknown to this launcher (B-2: a newer release's additions) are ignored rather than rejected.
+        assertNull(SaoUpdates.parse(document(0, ",\"maintenence\":{}")).maintenance());
+        assertEquals("m", Objects.requireNonNull(SaoUpdates.parse(document(0, ",\"maintenance\":{\"message\":\"m\",\"extra\":\"x\"}")).maintenance()).message());
     }
 
     /// Authentic legacy docs, maintenance enable/disable and rollback rejection all survive full service restart.
