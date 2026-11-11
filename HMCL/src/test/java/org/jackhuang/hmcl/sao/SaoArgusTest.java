@@ -166,9 +166,15 @@ class SaoArgusTest {
         JsonObject reply = ticket(System.currentTimeMillis() - 2 * SaoOathLaunchTicket.MAX_CLOCK_SKEW);
         assertThrows(SaoAccountException.class, () -> new SaoOathLaunchTicket(temporary.resolve("expired"), "http://127.0.0.1/", "a".repeat(32), "localhost", reply));
         // A PC clock a few minutes fast sees a fresh ticket as already expired; the server decides, so it is written.
-        Path skewed = Files.createDirectory(temporary.resolve("skewed"));
-        try (SaoOathLaunchTicket ignored = new SaoOathLaunchTicket(skewed, "http://127.0.0.1/", "a".repeat(32), "localhost", ticket(System.currentTimeMillis() - 300_000))) {
-            assertTrue(Files.exists(skewed.resolve(SaoOathLaunchTicket.FILE_NAME)));
+        // The game mod checks the written expiry against the PC clock (now, now + 10 min], so it is written on that clock.
+        for (long offset : new long[]{-300_000, 3_600_000, 120_000}) {
+            Path skewed = Files.createDirectory(temporary.resolve("skewed" + offset));
+            try (SaoOathLaunchTicket ignored = new SaoOathLaunchTicket(skewed, "http://127.0.0.1/", "a".repeat(32), "localhost", ticket(System.currentTimeMillis() + offset))) {
+                assertTrue(Files.exists(skewed.resolve(SaoOathLaunchTicket.FILE_NAME)));
+                long written = JsonParser.parseString(Files.readString(skewed.resolve(SaoOathLaunchTicket.FILE_NAME))).getAsJsonObject().get("expiresAtMillis").getAsLong();
+                long now = System.currentTimeMillis();
+                assertTrue(written > now && written - now <= 600_000, "Expiry on the PC clock for server offset " + offset);
+            }
         }
         Path instance = Files.createDirectory(temporary.resolve("expiry"));
         try (SaoOathLaunchTicket ignored = new SaoOathLaunchTicket(instance, "http://127.0.0.1/", "a".repeat(32), "localhost", ticket(System.currentTimeMillis() + 500))) {

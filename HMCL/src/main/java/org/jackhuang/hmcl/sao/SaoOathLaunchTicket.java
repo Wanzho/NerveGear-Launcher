@@ -54,7 +54,10 @@ final class SaoOathLaunchTicket implements AutoCloseable {
         Logger.registerAccessToken(ticket);
         JsonObject file = new JsonObject(); file.addProperty("version", 1); file.addProperty("apiRoot", api);
         file.addProperty("profileId", profileId); file.addProperty("targetServer", server);
-        file.addProperty("ticket", ticket); file.addProperty("expiresAtMillis", expires);
+        // The game mod (packui LaunchTicket.take) checks this expiry against the PC clock and refuses anything outside
+        // (now, now + 10 min]. The server checks its own clock and never reads this field, so write the expiry on the
+        // PC's clock: identical when the clock is right, and still accepted by the game when it is off (C-3).
+        file.addProperty("ticket", ticket); file.addProperty("expiresAtMillis", System.currentTimeMillis() + remaining);
         expected = file.toString().getBytes(StandardCharsets.UTF_8);
         path = instance.resolve(FILE_NAME);
         SaoUninstaller.rejectLinksBelowRoot(path);
