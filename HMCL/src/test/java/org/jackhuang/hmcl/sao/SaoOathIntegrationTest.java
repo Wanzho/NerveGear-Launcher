@@ -140,9 +140,15 @@ class SaoOathIntegrationTest {
             assertTrue(arguments.stream().anyMatch(value -> value.startsWith("-Dauthlibinjector.yggdrasil.prefetched=")));
             assertTrue(arguments.stream().noneMatch(value -> value.contains(last) || value.contains(replacement) || value.contains(original)));
             assertThrows(AuthenticationException.class, account::playOffline);
-            JsonObject revoke = new JsonObject(); revoke.addProperty("accessToken", info.getAccessToken());
-            new SaoAccountClient(() -> endpoint, () -> "zh_cn").json("POST", "authserver/invalidate", revoke, null);
-            revoke.remove("accessToken");
+            // Since C-6 the game holds only a game-scoped token; a failed refresh means the launcher session itself died.
+            SaoAccountClient client = new SaoAccountClient(() -> endpoint, () -> "zh_cn");
+            String gameToken = info.getAccessToken();
+            String sessionToken = sessionToken(engine.accounts());
+            assertNotEquals(sessionToken, gameToken, "The game must not receive the launcher session token");
+            client.json("POST", "authserver/validate", token(gameToken), null);
+            client.json("POST", "authserver/invalidate", token(sessionToken), null);
+            assertThrows(SaoAccountException.class, () -> client.json("POST", "authserver/validate", token(gameToken), null),
+                    "The game token must die with its launcher session");
             assertThrows(SaoAccountException.class, () -> engine.accounts().prepareLaunchAccount());
             assertNull(engine.oathAccount().get(), "A failed refresh must sign the player out");
             await(engine.oathLogin(name, null, true));
@@ -158,6 +164,21 @@ class SaoOathIntegrationTest {
             assertNull(engine.rememberedOathName());
             assertNull(credentials.read());
         }
+    }
+
+    /// One access-token request body.
+    private static JsonObject token(String accessToken) {
+        JsonObject body = new JsonObject(); body.addProperty("accessToken", accessToken); return body;
+    }
+
+    /// The launcher's own session token, which the engine never hands to the game.
+    private static String sessionToken(SaoOathAccounts accounts) throws Exception {
+        var field = SaoOathAccounts.class.getDeclaredField("session");
+        field.setAccessible(true);
+        Object session = java.util.Objects.requireNonNull(field.get(accounts), "signed in");
+        var access = session.getClass().getDeclaredMethod("access");
+        access.setAccessible(true);
+        return (String) access.invoke(session);
     }
 
     /// A local skin library stays available while signed out, survives an engine restart, and never needs a server call.
