@@ -232,8 +232,13 @@ class SaoUninstallerTest {
             awaitIdle(engine);
             AtomicBoolean busy = flag(engine, "busy");
             busy.set(true);
+            java.util.concurrent.atomic.AtomicInteger refusals = new java.util.concurrent.atomic.AtomicInteger();
+            engine.lastError().addListener((o, a, b) -> { if (b != null) refusals.incrementAndGet(); });
             engine.uninstall(false);
             assertNotNull(engine.lastError().get());
+            // The same refusal twice still reaches the dialog twice.
+            engine.uninstall(false);
+            assertEquals(2, refusals.get());
             busy.set(false);
             flag(engine, "gameRunning").set(true);
             engine.uninstall(false);

@@ -1008,20 +1008,26 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
 
     /// Accepts uninstall only while all game, file and room/download work is idle.
     /// Failed validation or preservation never stops settings persistence or removes an original file.
+    /// Reports an uninstall refusal as a fresh error event, so the dialog sees a repeat of the same refusal too.
+    private void refuseUninstall(IOException reason) {
+        publish(() -> error.set(null));
+        windowFailure("卸载被拒绝", reason);
+    }
+
     @Override public void uninstall(boolean keepSaves) {
         synchronized (org.jackhuang.hmcl.terracotta.TerracottaManager.class) {
             if (closed.get() || uninstalling.get()) {
-                windowFailure("卸载被拒绝", new IOException("启动器已关闭或正在卸载")); return;
+                refuseUninstall(new IOException("启动器已关闭或正在卸载")); return;
             }
             boolean taskBusy;
             synchronized (taskRecords) { taskBusy = taskRecords.values().stream().anyMatch(task -> !task.done()); }
             if (gameRunning.get() || state.get() == SaoPackState.RUNNING || taskBusy || oath.busy()
                     || org.jackhuang.hmcl.terracotta.TerracottaManager.hasRequestedRoom() || !busy.compareAndSet(false, true)) {
-                windowFailure("卸载被拒绝", new IOException("请先退出游戏、离开联机房间并等待所有任务完成")); return;
+                refuseUninstall(new IOException("请先退出游戏、离开联机房间并等待所有任务完成")); return;
             }
             if (!oath.tryFreeze()) {
                 busy.set(false);
-                windowFailure("卸载被拒绝", new IOException("请等待账号操作完成")); return;
+                refuseUninstall(new IOException("请等待账号操作完成")); return;
             }
             uninstalling.set(true);
         }
