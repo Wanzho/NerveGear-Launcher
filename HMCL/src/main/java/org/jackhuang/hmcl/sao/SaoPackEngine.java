@@ -697,7 +697,12 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     /// {@inheritDoc}
     @Override public void linkStartOath() {
         // An install or a game already running owns this launch; a repeat click must not refresh the session again.
-        if (!closed.get() && !uninstalling.get() && !busy.get() && launchable(state.get()) && launcherPermitted()) oath.linkStart();
+        if (closed.get() || uninstalling.get() || busy.get() || !launchable(state.get()) || !launcherPermitted()) return;
+        // A refused account refresh never reaches startGame; FAILED makes the helmet show its reason.
+        oath.linkStart().exceptionally(failure -> {
+            publish(() -> { if (!busy.get() && launchable(state.get())) { state.set(SaoPackState.FAILED); step.set(""); progress.set(-1); } });
+            return null;
+        });
     }
     /// {@inheritDoc}
     @Override public @Nullable Path oathSkin() { return oath.skin(); }

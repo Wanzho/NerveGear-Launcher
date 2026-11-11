@@ -410,19 +410,25 @@ final class SaoOathAccounts implements AutoCloseable {
     /// Root from which launch-ticket ancestors are hardened; it must contain the game instance.
     Path ticketRoot() { return launcherRoot; }
 
-    void linkStart() {
+    /// Refreshes the session and hands a launch account to the engine; the future fails with the shown reason.
+    CompletableFuture<Void> linkStart() {
         SaoData.@Nullable OathAccount checked = current;
-        if (checked == null) return;
-        if (checked.mustRename()) { errors.accept("昵称已被正版玩家使用，请在启动器里更换昵称"); return; }
-        if (checked.locked()) return;
+        if (checked == null) return CompletableFuture.completedFuture(null);
+        if (checked.mustRename()) {
+            errors.accept("昵称已被正版玩家使用，请在启动器里更换昵称");
+            return CompletableFuture.failedFuture(new SaoAccountException("昵称已被正版玩家使用，请在启动器里更换昵称", "mustRename"));
+        }
+        if (checked.locked()) return CompletableFuture.completedFuture(null);
         // A second click while the first refresh is in flight would rotate the token under the first launch.
-        if (!launching.compareAndSet(false, true)) return;
-        submit(() -> { try { launch.accept(prepareLaunchAccount()); } finally { launching.set(false); } }).exceptionally(failure -> {
+        if (!launching.compareAndSet(false, true)) return CompletableFuture.completedFuture(null);
+        CompletableFuture<Void> future = submit(() -> { try { launch.accept(prepareLaunchAccount()); } finally { launching.set(false); } });
+        future.exceptionally(failure -> {
             launching.set(false);
             Throwable cause = failure instanceof CompletionException && failure.getCause() != null ? failure.getCause() : failure;
             errors.accept(cause instanceof SaoAccountException accountFailure ? accountFailure.getMessage() : "启动验证失败，请重新登录");
             return null;
         });
+        return future;
     }
 
     /// Production launch preparation shared with headless tests; issues no game process and never falls back offline.
