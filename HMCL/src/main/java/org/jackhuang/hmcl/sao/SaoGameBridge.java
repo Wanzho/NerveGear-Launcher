@@ -232,12 +232,34 @@ final class SaoGameBridge {
 
     /// Uses the player's verified Java 17 or selects a compatible local runtime before downloading one.
     private JavaRuntime selectJava() throws Exception {
+        @Nullable JavaRuntime found = findJava();
+        return found != null ? found : downloadJava();
+    }
+
+    /// The player's verified Java 17 or a compatible local runtime, never downloading; null when there is none.
+    private @Nullable JavaRuntime findJava() throws Exception {
         @Nullable Path selected = selectedJava;
         if (selected != null) return validateJava(selected, selected.startsWith(root.resolve("java")));
         if (java != null && Files.isRegularFile(java.getBinary())) return java;
         @Unmodifiable List<JavaRuntime> available = availableJava();
         if (!available.isEmpty()) { java = available.get(0); return java; }
-        return downloadJava();
+        return null;
+    }
+
+    /// Link Start's cheap check: the fixed instance exists with the exact loader and a Java 17 is there.
+    /// Library and asset completeness stays with [#ensureInstalled(boolean)]; nothing is downloaded here.
+    ///
+    /// @return a short reason, or null when both are present
+    @Nullable String readinessProblem() throws Exception {
+        try {
+            repository.refresh();
+            @Nullable DefaultGameInstance installed = repository.getSnapshot().findInstance(INSTANCE_ID);
+            if (installed == null) return SaoReadinessCheck.INCOMPLETE;
+            validateInstance(installed);
+        } catch (IOException | RuntimeException broken) { return SaoReadinessCheck.INCOMPLETE; }
+        try { if (findJava() == null) return SaoReadinessCheck.NO_JAVA; }
+        catch (IOException wrongJava) { return SaoReadinessCheck.NO_JAVA; }
+        return null;
     }
 
     /// Sets an explicit choice only after checking its executable version and architecture.

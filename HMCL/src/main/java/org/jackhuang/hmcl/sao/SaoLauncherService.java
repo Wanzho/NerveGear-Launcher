@@ -52,16 +52,31 @@ public interface SaoLauncherService {
     /// The pack version embedded in this launcher.
     String embeddedVersion();
 
-    /// Link Start: installs or updates when needed, then launches the game with this account and
-    /// joins the 誓约 server. Ignored unless the state is NOT_INSTALLED, UPDATE_READY or READY.
+    /// Whether Link Start can launch now and what 下载/更新 does. A cheap check (versions against the signed release,
+    /// the instance, Java 17, pack file presence and size), recomputed off the UI thread after start-up, import,
+    /// update, repair, uninstall, 下载 and each new signed release; changes on the JavaFX thread.
+    default ReadOnlyObjectProperty<SaoReadiness> readiness() {
+        return new SimpleObjectProperty<>(SaoReadiness.READY);
+    }
+
+    /// 下载/更新 (James, 11 Nov: "下载还是老实叫下载吧"): prepares everything Link Start needs (Java 17, Minecraft,
+    /// NeoForge, the pack and its mods, required resources) with the usual progress, then stops. Never launches and
+    /// needs no account. When [#readiness()] says [SaoReadiness.Action#QUARK] it opens the Quark link and watches
+    /// Downloads instead. Ignored while busy or running, and while a launcher update is mandatory.
+    default void download() {
+    }
+
+    /// Link Start: re-runs the [#readiness()] check, then launches the game with this account and joins the 誓约
+    /// server. Not ready, it does not launch or download: the state becomes FAILED with the reason in [#lastError()]
+    /// and readiness turns the button back to 下载/更新. Ignored unless the state is NOT_INSTALLED, UPDATE_READY or READY.
     ///
     /// @param account the selected HMCL account (offline or Microsoft)
     /// @param authPassword the sao_auth password to hand to the client mod for the 誓约 server only,
     ///        or null to type it in game; never written to disk in plain text, never in process arguments
     void linkStart(Account account, char @Nullable [] authPassword);
 
-    /// 离线游玩: installs or
-    /// updates when needed, then starts the game with an offline account of this name, without ARGUS ID, without a
+    /// 离线游玩: the same readiness check as Link Start (not ready: no launch, the reason in [#lastError()]),
+    /// then starts the game with an offline account of this name, without ARGUS ID, without a
     /// launch ticket and without joining the 誓约 server. Ignored unless the state is NOT_INSTALLED, UPDATE_READY or
     /// READY.
     ///
