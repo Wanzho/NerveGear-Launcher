@@ -385,15 +385,29 @@ final class SaoAccountApp {
             then.run();
             return;
         }
+        // Only the latest request waits; a cancelled sign-in drops its action instead of firing it later.
+        @Nullable ListChangeListener<Account> previous = pendingMicrosoft;
+        if (previous != null) Accounts.getAccounts().removeListener(previous);
         @SuppressWarnings("unchecked") ListChangeListener<Account>[] once = new ListChangeListener[1];
         once[0] = c -> {
             if (microsoftAccount() == null) return;
             Accounts.getAccounts().removeListener(once[0]);
+            if (pendingMicrosoft == once[0]) pendingMicrosoft = null;
             then.run();
         };
+        pendingMicrosoft = once[0];
         Accounts.getAccounts().addListener(once[0]);
-        Controllers.dialog(new CreateAccountPane(Accounts.FACTORY_MICROSOFT));
+        CreateAccountPane pane = new CreateAccountPane(Accounts.FACTORY_MICROSOFT);
+        pane.addEventHandler(org.jackhuang.hmcl.ui.construct.DialogCloseEvent.CLOSE, e -> {
+            if (microsoftAccount() != null || pendingMicrosoft != once[0]) return;
+            Accounts.getAccounts().removeListener(once[0]);
+            pendingMicrosoft = null;
+        });
+        Controllers.dialog(pane);
     }
+
+    /// The one Microsoft sign-in currently waiting to run its follow-up step, or null.
+    private static @Nullable ListChangeListener<Account> pendingMicrosoft;
 
     /// "47 小时" or "12 分钟".
     static String hours(long seconds) {
