@@ -43,6 +43,9 @@ class SaoModDownloadsTest {
                 urls(provider.getPackDownloadCandidates(List.of(edge, media, modrinth, media, second))));
         assertEquals(List.of(media, edge), urls(provider.getPackDownloadCandidates(List.of(edge, media))));
         assertEquals(List.of(modrinth), urls(provider.getPackDownloadCandidates(List.of(modrinth))));
+        // Raw brackets in a file name must not break host ordering (E-2).
+        String bracketMedia = "https://mediafilez.forgecdn.net/files/1/2/[1.20.1]Foo.jar", bracketModrinth = "https://cdn.modrinth.com/data/a/versions/b/[1.20.1]Foo.jar";
+        assertEquals(List.of(bracketModrinth, bracketMedia), urls(provider.getPackDownloadCandidates(List.of(bracketMedia, bracketModrinth))));
         assertTrue(provider.getPackDownloadCandidates(List.of(media)).getCandidates().stream()
                 .allMatch(candidate -> candidate.retry() == 2 && Duration.ofSeconds(10).equals(candidate.readTimeout())));
     }
