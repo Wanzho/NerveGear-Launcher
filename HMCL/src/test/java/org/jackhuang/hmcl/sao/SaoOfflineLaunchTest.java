@@ -118,7 +118,8 @@ class SaoOfflineLaunchTest {
             engine.linkStartOffline("Offline_Only");
             awaitFailure(engine);
             assertFalse(Files.exists(ticket));
-            assertEquals("离线启动失败，请检查整合包和 Java 17 设置", engine.lastError().get());
+            // 11 Nov: Link Start no longer installs; a missing pack is refused with the readiness line.
+            assertEquals("还没下载", engine.lastError().get());
             engine.linkStartOffline("invalid name");
             assertEquals("名字须为 3–16 位英文字母、数字或下划线", engine.lastError().get());
             assertNull(engine.oathAccount().get());

@@ -24,13 +24,13 @@ import org.jetbrains.annotations.NotNullByDefault;
 public enum SaoPackState {
     /// Still checking the instance (first moments after start).
     CHECKING,
-    /// Nothing installed yet; Link Start runs the first install, then launches.
+    /// Nothing installed yet; 下载 runs the first install (Link Start refuses).
     NOT_INSTALLED,
-    /// The embedded pack is newer than the installed one; Link Start updates, then launches.
+    /// The pack this launcher has is newer than the installed one; 更新 installs it (Link Start refuses).
     UPDATE_READY,
     /// Install, update or repair is running; progress comes from [SaoLauncherService#progress()].
     WORKING,
-    /// Installed and current; Link Start launches straight away.
+    /// Installed and current; Link Start launches once [SaoLauncherService#readiness()] agrees.
     READY,
     /// The game is running.
     RUNNING,
