@@ -35,6 +35,24 @@ class SaoPrivateAclTest {
             assertEquals(instance,SaoWindowsPrivatePaths.plan(accounts.ticketRoot(),instance).get(3));
         }
     }
+        /// A PC clock a few minutes off still gets its launch ticket written; a ticket days out of range is refused.
+    @Test void ticketToleratesClockSkew() throws Exception {
+        java.nio.file.Path instance = java.nio.file.Files.createDirectories(temporary.resolve("skew"));
+        try (SaoOathLaunchTicket ignored = new SaoOathLaunchTicket(instance, "http://127.0.0.1/", "a".repeat(32), "localhost",
+                reply(System.currentTimeMillis() - 300_000))) {
+            assertTrue(java.nio.file.Files.exists(instance.resolve(SaoOathLaunchTicket.FILE_NAME)));
+        }
+        assertThrows(SaoAccountException.class, () -> new SaoOathLaunchTicket(instance, "http://127.0.0.1/", "a".repeat(32), "localhost",
+                reply(System.currentTimeMillis() - 2 * SaoOathLaunchTicket.MAX_CLOCK_SKEW)));
+    }
+
+    /// Minimal server reply for a ticket fixture; the ticket value is synthetic.
+    private static com.google.gson.JsonObject reply(long expiry) {
+        com.google.gson.JsonObject reply = new com.google.gson.JsonObject();
+        reply.addProperty("launchTicket", "T".repeat(43)); reply.addProperty("expiresAtMillis", expiry); reply.addProperty("id", "a".repeat(32));
+        return reply;
+    }
+
         /// D:P removes inheritance and the single full-control ACE belongs only to the current token SID.
     @Test void protectedDaclHasExactlyOneOwnerGrant() {
         String sid="S-1-5-21-11-22-33-1001";

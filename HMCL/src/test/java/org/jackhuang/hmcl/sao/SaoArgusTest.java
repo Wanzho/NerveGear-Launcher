@@ -163,8 +163,13 @@ class SaoArgusTest {
 
     /// Expired handoffs fail before writing and valid files are removed automatically when their bounded lifetime ends.
     @Test void handoffExpiryAndSymlinkRefusal() throws Exception {
-        JsonObject reply = ticket(System.currentTimeMillis() - 1);
+        JsonObject reply = ticket(System.currentTimeMillis() - 2 * SaoOathLaunchTicket.MAX_CLOCK_SKEW);
         assertThrows(SaoAccountException.class, () -> new SaoOathLaunchTicket(temporary.resolve("expired"), "http://127.0.0.1/", "a".repeat(32), "localhost", reply));
+        // A PC clock a few minutes fast sees a fresh ticket as already expired; the server decides, so it is written.
+        Path skewed = Files.createDirectory(temporary.resolve("skewed"));
+        try (SaoOathLaunchTicket ignored = new SaoOathLaunchTicket(skewed, "http://127.0.0.1/", "a".repeat(32), "localhost", ticket(System.currentTimeMillis() - 300_000))) {
+            assertTrue(Files.exists(skewed.resolve(SaoOathLaunchTicket.FILE_NAME)));
+        }
         Path instance = Files.createDirectory(temporary.resolve("expiry"));
         try (SaoOathLaunchTicket ignored = new SaoOathLaunchTicket(instance, "http://127.0.0.1/", "a".repeat(32), "localhost", ticket(System.currentTimeMillis() + 500))) {
             assertTimeoutPreemptively(Duration.ofSeconds(3), () -> { while (Files.exists(instance.resolve(SaoOathLaunchTicket.FILE_NAME))) Thread.sleep(10); });
