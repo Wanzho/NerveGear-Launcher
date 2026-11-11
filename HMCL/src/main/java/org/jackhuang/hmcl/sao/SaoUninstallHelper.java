@@ -38,9 +38,52 @@ final class SaoUninstallHelper {
 
     /// Determines the actual packaged source; development class directories are deliberately excluded.
     static @Unmodifiable List<Path> runningApplication() throws IOException {
+        // The bootstrap names the native install; a self-updated JAR runs from the data folder instead.
+        @Nullable String install = System.getProperty("sao.installRoot");
+        if (install != null && !install.isBlank()) {
+            @Unmodifiable List<Path> shipped = installTargets(Path.of(install));
+            if (!shipped.isEmpty()) return shipped;
+        }
         @Nullable Path source = JarUtils.thisJarPath();
         @Nullable String command = ProcessHandle.current().info().command().orElse(null);
         return discover(source, command == null ? null : Path.of(command), System.getenv("APPIMAGE"), System.getProperty("os.name"));
+    }
+
+    /// Entries the portable Windows and Linux bundles ship beside `app/`; the folder itself may hold other files.
+    static final @Unmodifiable List<String> SHIPPED = List.of("NerveGear启动器.exe", "NerveGear-Launcher.sh", "icon.png",
+            "app", "runtime", "licenses", "README-zh.txt");
+
+    /// Native install that owns a bundled `app/launcher.jar`: the `.app` on macOS, else the bundle's folder; null otherwise.
+    static @Nullable Path installRoot(Path jar) {
+        Path absolute = jar.toAbsolutePath().normalize();
+        @Nullable Path app = absolute.getParent();
+        if (app == null || app.getFileName() == null || !app.getFileName().toString().equals("app")) return null;
+        @Nullable Path install = app.getParent();
+        if (install == null || install.getParent() == null) return null;
+        @Nullable Path bundle = install.getParent();
+        if (install.getFileName() != null && install.getFileName().toString().equals("Contents")
+                && bundle.getFileName() != null && bundle.getFileName().toString().endsWith(".app")) return bundle;
+        return install;
+    }
+
+    /// Removal targets for a verified native install: the whole `.app`, or only the shipped entries of a portable folder.
+    static @Unmodifiable List<Path> installTargets(Path root) throws IOException {
+        Path absolute = root.toAbsolutePath().normalize();
+        if (absolute.getParent() == null || !Files.isDirectory(absolute, LinkOption.NOFOLLOW_LINKS)) return List.of();
+        SaoUninstaller.rejectSymlinkAncestors(absolute);
+        if (absolute.getFileName().toString().endsWith(".app")) {
+            return Files.isRegularFile(absolute.resolve("Contents/Info.plist"), LinkOption.NOFOLLOW_LINKS)
+                    && Files.isRegularFile(absolute.resolve("Contents/app/launcher.jar"), LinkOption.NOFOLLOW_LINKS)
+                    ? List.of(absolute) : List.of();
+        }
+        if (!Files.isRegularFile(absolute.resolve("app/launcher.jar"), LinkOption.NOFOLLOW_LINKS)
+                || !Files.isDirectory(absolute.resolve("runtime"), LinkOption.NOFOLLOW_LINKS)) return List.of();
+        List<Path> targets = new ArrayList<>();
+        for (String name : SHIPPED) {
+            Path entry = absolute.resolve(name);
+            if (Files.exists(entry, LinkOption.NOFOLLOW_LINKS)) targets.add(entry);
+        }
+        return List.copyOf(targets);
     }
 
     /// Selects a complete macOS bundle or actual executable/JAR, with a conservative AppImage identity check.

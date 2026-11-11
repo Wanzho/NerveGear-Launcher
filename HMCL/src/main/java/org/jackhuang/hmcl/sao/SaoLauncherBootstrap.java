@@ -40,7 +40,7 @@ public final class SaoLauncherBootstrap {
             System.err.println("Launcher update state unavailable; using bundled launcher: " + failure.getClass().getSimpleName());
             selection = new SaoSelfUpdate.Selection(bundled, Metadata.VERSION, null);
         }
-        Process child = new ProcessBuilder(command(selection, args)).inheritIO().start();
+        Process child = new ProcessBuilder(command(selection, bundled, args)).inheritIO().start();
         @Nullable String token = selection.token();
         if (token == null) return;
         updates.attach(token, child.pid());
@@ -58,13 +58,13 @@ public final class SaoLauncherBootstrap {
         updates.finish(token, healthy);
         if (!healthy) {
             SaoSelfUpdate.Selection restored = updates.select(bundled, Metadata.VERSION);
-            new ProcessBuilder(command(restored, args)).inheritIO().start();
+            new ProcessBuilder(command(restored, bundled, args)).inheritIO().start();
         }
     }
 
     /// Forwards relevant JVM module, headless and storage options to the selected JAR process.
     /// Inherited environment preserves all native package storage overrides.
-    static @Unmodifiable List<String> command(SaoSelfUpdate.Selection selection, String[] args) {
+    static @Unmodifiable List<String> command(SaoSelfUpdate.Selection selection, Path bundled, String[] args) {
         List<String> command = new ArrayList<>();
         boolean windows = System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
         boolean headless = Boolean.getBoolean("java.awt.headless");
@@ -80,6 +80,9 @@ public final class SaoLauncherBootstrap {
         command.add("-Dsao.home=" + Metadata.HMCL_USER_HOME);
         // The selected JAR may live in the per-user update folder, so the install-relative data root is fixed here.
         command.add("-Dsao.dir=" + Metadata.HMCL_LOCAL_HOME);
+        // Uninstall removes the native install even when the selected JAR is a per-user self-update.
+        @Nullable Path install = SaoUninstallHelper.installRoot(bundled);
+        if (install != null) command.add("-Dsao.installRoot=" + install);
         command.add("-Dsao.selfUpdateRoot=" + SaoSelfUpdate.defaultRoot());
         if (selection.token() != null) command.add("-Dsao.selfUpdateAttempt=" + selection.token());
         command.add("-jar"); command.add(selection.jar().toString()); command.addAll(Arrays.asList(args));

@@ -389,4 +389,24 @@ class SaoUninstallerTest {
         assertEquals("$p = 'C:\\Users\\张三'", new String(windows, 3, windows.length - 3, java.nio.charset.StandardCharsets.UTF_8));
         assertEquals('#', (char) SaoUninstallHelper.scriptBytes("#!/bin/sh", false)[0]);
     }
+
+    /// Uninstall targets the native install's shipped entries (or the whole .app), never the folder's other files.
+    @Test void installTargetsCoverShippedEntriesOnly() throws Exception {
+        Path install = Files.createDirectories(temporary.resolve("Games/NerveGear-Launcher"));
+        Files.createDirectories(install.resolve("app")); Files.writeString(install.resolve("app/launcher.jar"), "jar");
+        Files.createDirectories(install.resolve("runtime/bin"));
+        Files.writeString(install.resolve("NerveGear启动器.exe"), "exe");
+        Files.writeString(install.resolve("other-game.txt"), "keep");
+        assertEquals(install, SaoUninstallHelper.installRoot(install.resolve("app/launcher.jar")));
+        assertEquals(List.of(install.resolve("NerveGear启动器.exe"), install.resolve("app"), install.resolve("runtime")),
+                SaoUninstallHelper.installTargets(install));
+        assertEquals(List.of(), SaoUninstallHelper.installTargets(temporary.resolve("Games")));
+        Path bundle = temporary.resolve("Applications/NerveGear启动器.app");
+        Files.createDirectories(bundle.resolve("Contents/app"));
+        Files.writeString(bundle.resolve("Contents/Info.plist"), "plist");
+        Files.writeString(bundle.resolve("Contents/app/launcher.jar"), "jar");
+        assertEquals(bundle, SaoUninstallHelper.installRoot(bundle.resolve("Contents/app/launcher.jar")));
+        assertEquals(List.of(bundle), SaoUninstallHelper.installTargets(bundle));
+        assertNull(SaoUninstallHelper.installRoot(temporary.resolve("self-update/abc.jar")));
+    }
 }
