@@ -82,7 +82,17 @@ class SaoPackInstallerTest {
         assertEquals("0.8", Objects.requireNonNull(installer.installed()).version());
     }
 
-    /// A failed download batch keeps its verified files; the retry downloads only what is still missing.
+    /// A release that only changes a file name's case keeps exactly one copy, on case-insensitive filesystems too.
+    @Test void caseOnlyRenameKeepsTheMod() throws Exception {
+        Path instance = temporary.resolve("instance");
+        SaoPackInstaller installer = installer(instance, new AtomicInteger());
+        installer.apply(fixture("0.8", Map.of("mods/Foo.jar", "foo-bytes"), List.of(), false), false);
+        installer.apply(fixture("0.9", Map.of("mods/foo.jar", "foo-bytes"), List.of(), false), false);
+        assertEquals("foo-bytes", Files.readString(instance.resolve("mods/foo.jar")));
+        try (var listing = Files.list(instance.resolve("mods"))) { assertEquals(1, listing.count()); }
+    }
+
+        /// A failed download batch keeps its verified files; the retry downloads only what is still missing.
     @Test void failedBatchKeepsVerifiedDownloadsForRetry() throws Exception {
         Path instance = temporary.resolve("instance");
         SaoPackManifest.PackFile good = remote("mods/good.jar", "good-payload"), bad = remote("mods/bad.jar", "bad-payload");

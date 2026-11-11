@@ -175,10 +175,13 @@ public final class SaoPackInstaller {
         if (previous != null) {
             Set<String> obsolete = new TreeSet<>(manifest.removals());
             for (String path : oldFiles.keySet()) if (!newPaths.contains(path)) obsolete.add(path);
+            Map<String, String> folded = new HashMap<>();
+            for (String path : newPaths) folded.put(path.toLowerCase(Locale.ROOT), path);
             for (String path : obsolete) {
                 // Explicit removals cannot delete an arbitrary file that this launcher never owned.
                 if (oldFiles.containsKey(path) && !SaoPackManifest.isPlayerFile(path)
-                        && Files.exists(SaoPackFiles.resolve(instance, path), LinkOption.NOFOLLOW_LINKS)) removed.add(path);
+                        && Files.exists(SaoPackFiles.resolve(instance, path), LinkOption.NOFOLLOW_LINKS)
+                        && !sameFileAsNewPath(path, folded)) removed.add(path);
             }
         }
         Path stage = Files.createTempDirectory(instance, ".sao-stage-");
@@ -241,6 +244,15 @@ public final class SaoPackInstaller {
         } finally {
             if (cleanStage) SaoPackFiles.deleteTree(stage);
         }
+    }
+
+    /// A case-only rename on a case-insensitive filesystem names the same file as its new path; removing it would
+    /// delete the new file too.
+    private boolean sameFileAsNewPath(String path, Map<String, String> folded) throws IOException {
+        @Nullable String renamed = folded.get(path.toLowerCase(Locale.ROOT));
+        if (renamed == null || renamed.equals(path)) return false;
+        Path current = SaoPackFiles.resolve(instance, renamed);
+        return Files.exists(current, LinkOption.NOFOLLOW_LINKS) && Files.isSameFile(current, SaoPackFiles.resolve(instance, path));
     }
 
     /// Moves every verified file of a failed batch into the SHA-1 cache so the next attempt does not download it again.
