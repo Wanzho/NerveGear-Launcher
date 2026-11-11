@@ -84,7 +84,16 @@ public final class SaoPackInstaller {
         Path receipt = instance.resolve(RECEIPT);
         if (!Files.exists(receipt, LinkOption.NOFOLLOW_LINKS)) return null;
         if (!Files.isRegularFile(receipt, LinkOption.NOFOLLOW_LINKS)) throw new IOException("Invalid installed pack receipt");
-        try (Reader reader = Files.newBufferedReader(receipt, StandardCharsets.UTF_8)) { return SaoPackManifest.read(reader); }
+        String text;
+        try { text = Files.readString(receipt, StandardCharsets.UTF_8); }
+        catch (java.nio.charset.CharacterCodingException damaged) { return null; }
+        try { return SaoPackManifest.read(new StringReader(text)); }
+        catch (IOException strict) {
+            // A receipt from another launcher version, or a damaged one, must not lock the player out of Repair and
+            // updates: keep its inventory when it still parses, otherwise treat the pack as not installed (re-hash all).
+            try { return SaoPackManifest.readReceipt(new StringReader(text)); }
+            catch (IOException damaged) { return null; }
+        }
     }
 
     /// Installs or incrementally updates a pack. Repair hashes every file and restores managed damage.

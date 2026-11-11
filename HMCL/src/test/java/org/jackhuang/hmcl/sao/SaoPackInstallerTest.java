@@ -82,7 +82,21 @@ class SaoPackInstallerTest {
         assertEquals("0.8", Objects.requireNonNull(installer.installed()).version());
     }
 
-    /// A commit cut off by a crash is rolled back on the next start; a commit whose receipt landed is kept.
+    /// A receipt from another loader version keeps its inventory; a damaged receipt reads as not installed.
+    @Test void unreadableReceiptDoesNotLockOutRepair() throws Exception {
+        Path instance = temporary.resolve("instance");
+        SaoPackInstaller installer = installer(instance, new AtomicInteger());
+        installer.apply(fixture("0.8", Map.of("mods/a.jar", "a"), List.of(), false), false);
+        Path receipt = instance.resolve(SaoPackInstaller.RECEIPT);
+        Files.writeString(receipt, Files.readString(receipt).replace(SaoPackManifest.NEOFORGE, "47.9.9"));
+        assertEquals(List.of("mods/a.jar"), Objects.requireNonNull(installer.installed()).files().stream().map(SaoPackManifest.PackFile::path).toList());
+        Files.writeString(receipt, "{broken");
+        assertNull(installer.installed());
+        installer.apply(fixture("0.8", Map.of("mods/a.jar", "a"), List.of(), false), true);
+        assertEquals("0.8", Objects.requireNonNull(installer.installed()).version());
+    }
+
+        /// A commit cut off by a crash is rolled back on the next start; a commit whose receipt landed is kept.
     @Test void interruptedCommitIsRolledBack() throws Exception {
         Path instance = temporary.resolve("instance");
         SaoPackInstaller installer = installer(instance, new AtomicInteger());

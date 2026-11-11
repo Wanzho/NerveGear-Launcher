@@ -159,7 +159,14 @@ public record SaoPackManifest(String version, String minecraft, String neoforge,
     }
 
     /// Decodes an explicit manifest without Gson reflection or nullable record construction.
-    public static SaoPackManifest read(Reader reader) throws IOException {
+    public static SaoPackManifest read(Reader reader) throws IOException { return read(reader, false); }
+
+    /// Reads an installed receipt written by another launcher version: the loader constants are taken as the current
+    /// ones and server/news/account fields are dropped, keeping the version, inventory and removals.
+    static SaoPackManifest readReceipt(Reader reader) throws IOException { return read(reader, true); }
+
+    /// Shared parser; `receipt` relaxes only fields that do not describe installed files.
+    private static SaoPackManifest read(Reader reader, boolean receipt) throws IOException {
         try {
             JsonObject root = JsonParser.parseReader(reader).getAsJsonObject();
             List<PackFile> files = new ArrayList<>();
@@ -175,6 +182,7 @@ public record SaoPackManifest(String version, String minecraft, String neoforge,
             if (root.has("removals")) for (JsonElement item : root.getAsJsonArray("removals")) removals.add(item.getAsString());
             List<String> nodes = new ArrayList<>();
             if (root.has("serverNodes")) for (JsonElement item : root.getAsJsonArray("serverNodes")) nodes.add(item.getAsString());
+            if (receipt) return new SaoPackManifest(root.get("version").getAsString(), MINECRAFT, NEOFORGE, "", "", "", List.of(), files, removals);
             return new SaoPackManifest(root.get("version").getAsString(), root.get("minecraft").getAsString(),
                     root.get("neoforge").getAsString(), root.has("server") ? root.get("server").getAsString() : "",
                     root.has("newsUrl") ? root.get("newsUrl").getAsString() : "",
