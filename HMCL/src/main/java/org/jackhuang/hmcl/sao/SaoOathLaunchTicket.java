@@ -18,8 +18,9 @@ import java.util.concurrent.TimeUnit;
 final class SaoOathLaunchTicket implements AutoCloseable {
     /// Largest local clock error tolerated when checking the server's absolute expiry.
     static final long MAX_CLOCK_SKEW = 24L * 60 * 60 * 1000;
-    /// Cleanup delay for a ticket whose expiry cannot be trusted against the local clock.
-    static final long SKEWED_LIFETIME = 120_000;
+    /// Cleanup delay for a ticket whose expiry cannot be trusted against the local clock; the full 10-minute server
+    /// lifetime, so a slow modded-game start can still read the file.
+    static final long SKEWED_LIFETIME = 600_000;
     /// Fixed instance-relative filename; the client deletes it immediately after reading.
     static final String FILE_NAME = ".sao-launch-ticket.json";
     /// Exact file created for this launch.
