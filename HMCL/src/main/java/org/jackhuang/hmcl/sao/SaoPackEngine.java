@@ -1119,23 +1119,23 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     /// {@inheritDoc}
     @Override public @UnmodifiableView ObservableList<SaoData.Backup> backups() { refreshLocal(); return backupsView; }
     /// {@inheritDoc}
-    @Override public void backupWorld(SaoData.World world) { mutate(() -> { files.backup(world); refreshLocalNow(); }); }
+    @Override public CompletableFuture<Void> backupWorld(SaoData.World world) { return mutate(() -> { files.backup(world); refreshLocalNow(); }); }
     /// {@inheritDoc}
-    @Override public void restoreBackup(SaoData.Backup backup) { mutate(() -> { files.restore(backup); refreshLocalNow(); }); }
+    @Override public CompletableFuture<Void> restoreBackup(SaoData.Backup backup) { return mutate(() -> { files.restore(backup); refreshLocalNow(); }); }
     /// {@inheritDoc}
-    @Override public void exportWorld(SaoData.World world, Path zip) { mutate(() -> files.export(world, zip)); }
+    @Override public CompletableFuture<Void> exportWorld(SaoData.World world, Path zip) { return mutate(() -> files.export(world, zip)); }
     /// {@inheritDoc}
     @Override public @UnmodifiableView ObservableList<SaoData.Pack> shaderPacks() { refreshLocal(); return shadersView; }
     /// {@inheritDoc}
-    @Override public void setShader(SaoData.@Nullable Pack pack) { mutate(() -> { files.setShader(pack); refreshLocalNow(); }); }
+    @Override public CompletableFuture<Void> setShader(SaoData.@Nullable Pack pack) { return mutate(() -> { files.setShader(pack); refreshLocalNow(); }); }
     /// {@inheritDoc}
     @Override public @UnmodifiableView ObservableList<SaoData.Pack> resourcePacks() { refreshLocal(); return resourcesView; }
     /// {@inheritDoc}
-    @Override public void setResourcePackEnabled(SaoData.Pack pack, boolean enabled) { mutate(() -> { files.setResource(pack, enabled); refreshLocalNow(); }); }
+    @Override public CompletableFuture<Void> setResourcePackEnabled(SaoData.Pack pack, boolean enabled) { return mutate(() -> { files.setResource(pack, enabled); refreshLocalNow(); }); }
     /// {@inheritDoc}
-    @Override public void addPacks(List<Path> dropped, boolean shaders) {
+    @Override public CompletableFuture<Void> addPacks(List<Path> dropped, boolean shaders) {
         @Unmodifiable List<Path> copy = List.copyOf(dropped);
-        mutate(() -> { files.addPacks(copy, shaders); refreshLocalNow(); });
+        return mutate(() -> { files.addPacks(copy, shaders); refreshLocalNow(); });
     }
     /// {@inheritDoc}
     @Override public @UnmodifiableView ObservableList<Path> screenshots() { refreshLocal(); return screenshotsView; }
@@ -1173,11 +1173,11 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
         catch (InvalidPathException invalid) { return null; }
     }
     /// {@inheritDoc}
-    @Override public void setJava(@Nullable Path executable) {
-        background(() -> { game.setJava(executable); saveSetting("java", executable == null ? null : executable.toRealPath().toString()); refreshJavaNow(); });
+    @Override public CompletableFuture<Void> setJava(@Nullable Path executable) {
+        return background(() -> { game.setJava(executable); saveSetting("java", executable == null ? null : executable.toRealPath().toString()); refreshJavaNow(); });
     }
     /// {@inheritDoc}
-    @Override public void downloadJava() { mutate(() -> { game.downloadJava(); refreshJavaNow(); }); }
+    @Override public CompletableFuture<Void> downloadJava() { return mutate(() -> { game.downloadJava(); refreshJavaNow(); }); }
     /// {@inheritDoc}
     @Override public SaoData.Source downloadSource() {
         try { return SaoData.Source.valueOf(settings.text("downloadSource", "AUTO")); }
@@ -1318,20 +1318,32 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     }
 
     /// Serializes a local mutation with install/repair and reports contention instead of silently losing a request.
-    private void mutate(Operation operation) {
-        if (!allowMutation()) return;
-        if (!busy.compareAndSet(false, true)) { windowFailure("操作被拒绝", new IOException("请等待当前任务完成")); return; }
+    /// The returned future completes on the JavaFX thread; a failure carries the same text as the error property.
+    private CompletableFuture<Void> mutate(Operation operation) {
+        CompletableFuture<Void> result = new CompletableFuture<>();
+        if (!allowMutation()) {
+            result.completeExceptionally(new IOException(closed.get() || uninstalling.get() ? "启动器正在关闭"
+                    : "操作被拒绝: 游戏运行中，请退出游戏后修改存档、皮肤或资源包"));
+            return result;
+        }
+        if (!busy.compareAndSet(false, true)) { result.completeExceptionally(new IOException(windowFailure("操作被拒绝", new IOException("请等待当前任务完成")))); return result; }
         worker.execute(() -> {
-            try { operation.run(); publish(() -> error.set(null)); }
-            catch (Exception failure) { windowFailure("操作失败", failure); }
+            try { operation.run(); publish(() -> { error.set(null); result.complete(null); }); }
+            catch (Exception failure) { String message = windowFailure("操作失败", failure); publish(() -> result.completeExceptionally(new IOException(message))); }
             finally { busy.set(false); }
         });
+        return result;
     }
 
     /// Runs read/export/settings work in the serialized background queue without altering pack state.
-    private void background(Operation operation) {
-        if (closed.get() || uninstalling.get()) return;
-        worker.execute(() -> { try { operation.run(); } catch (Exception failure) { windowFailure("操作失败", failure); } });
+    private CompletableFuture<Void> background(Operation operation) {
+        CompletableFuture<Void> result = new CompletableFuture<>();
+        if (closed.get() || uninstalling.get()) { result.completeExceptionally(new IOException("启动器正在关闭")); return result; }
+        worker.execute(() -> {
+            try { operation.run(); publish(() -> result.complete(null)); }
+            catch (Exception failure) { String message = windowFailure("操作失败", failure); publish(() -> result.completeExceptionally(new IOException(message))); }
+        });
+        return result;
     }
 
     /// Persists one small setting and keeps errors in the service property instead of throwing into a UI handler.
@@ -1413,9 +1425,10 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     }
 
     /// Reports a window error without pretending that an installed pack has become broken.
-    private void windowFailure(String context, Exception failure) {
+    private String windowFailure(String context, Exception failure) {
         String message = SaoGameLogs.sanitize(context + ": " + Objects.toString(failure.getMessage(), failure.getClass().getSimpleName()));
         publish(() -> error.set(message));
+        return message;
     }
 
     /// Returns the available release or a clear missing-pack error for a launcher built without -PsaoPack.

@@ -162,6 +162,17 @@ class SaoOfflineLaunchTest {
         }
     }
 
+    /// A failing window action reports its reason through the returned future instead of only the error property.
+    @Test void failedActionReportsThroughItsFuture() throws Exception {
+        try (SaoPackEngine engine = new SaoPackEngine(temporary, null, false)) {
+            awaitInspection(engine);
+            var failure = assertThrows(java.util.concurrent.ExecutionException.class,
+                    () -> engine.addPacks(List.of(temporary.resolve("missing.zip")), true).get(10, java.util.concurrent.TimeUnit.SECONDS));
+            assertInstanceOf(java.io.IOException.class, failure.getCause());
+            assertFalse(java.util.Objects.toString(failure.getCause().getMessage(), "").isBlank());
+        }
+    }
+
     /// Validation rejects Unicode, whitespace, separators and out-of-range lengths without touching the instance.
     @Test void invalidNamesFailLocallyAndKeepReadyState() throws Exception {
         @Unmodifiable List<String> invalid = List.of("", "ab", "abcdefghijklmnopq", " 玩家 ", "Player-1", "a b", " abc", "abc ", "abc\n", "Ａbc", "a/b", "a\\b");

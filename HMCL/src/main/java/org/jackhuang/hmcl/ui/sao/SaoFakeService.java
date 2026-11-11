@@ -384,16 +384,19 @@ public final class SaoFakeService implements SaoLauncherService {
     @Override public ReadOnlyObjectProperty<SaoData.@Nullable ServerStatus> serverStatus() { return server; }
     @Override public ObservableList<SaoData.World> worlds() { return worlds; }
     @Override public ObservableList<SaoData.Backup> backups() { return backups; }
-    @Override public void backupWorld(SaoData.World w) {
+    @Override public CompletableFuture<Void> backupWorld(SaoData.World w) {
         backups.add(0, new SaoData.Backup(Path.of("backups/" + w.name() + ".zip"), w.folder(), System.currentTimeMillis(), w.sizeBytes() / 2));
+        return CompletableFuture.completedFuture(null);
     }
     @Override public ObservableList<SaoData.Pack> shaderPacks() { return shaders; }
-    @Override public void setShader(SaoData.@Nullable Pack pack) {
+    @Override public CompletableFuture<Void> setShader(SaoData.@Nullable Pack pack) {
         shaders.replaceAll(p -> new SaoData.Pack(p.name(), p.file(), p.description(), pack != null && p.file().equals(pack.file()), p.icon()));
+        return CompletableFuture.completedFuture(null);
     }
     @Override public ObservableList<SaoData.Pack> resourcePacks() { return resources; }
-    @Override public void setResourcePackEnabled(SaoData.Pack pack, boolean on) {
+    @Override public CompletableFuture<Void> setResourcePackEnabled(SaoData.Pack pack, boolean on) {
         resources.replaceAll(p -> p.file().equals(pack.file()) ? new SaoData.Pack(p.name(), p.file(), p.description(), on, p.icon()) : p);
+        return CompletableFuture.completedFuture(null);
     }
     @Override public ObservableList<Path> screenshots() {
         if (shots.isEmpty()) {
@@ -433,7 +436,7 @@ public final class SaoFakeService implements SaoLauncherService {
     public void forceRoom(SaoData.Room r) { room.set(r); }
     @Override public ObservableList<SaoData.JavaRuntime> javas() { return javas; }
     @Override public @Nullable Path java() { return java; }
-    @Override public void setJava(@Nullable Path p) { java = p; }
+    @Override public CompletableFuture<Void> setJava(@Nullable Path p) { java = p; return CompletableFuture.completedFuture(null); }
     @Override public SaoData.Source downloadSource() { return source; }
     @Override public void setDownloadSource(SaoData.Source s) { source = s; }
     @Override public int downloadThreads() { return threads; }
