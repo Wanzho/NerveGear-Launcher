@@ -321,6 +321,12 @@ public final class SaoHelmetPage extends StackPane {
         characterLayer.setPickOnBounds(false);
         characterBox.getTransforms().addAll(characterAt, characterFit);
         screen.getChildren().setAll(glass, world, characterLayer, frame, pad, cover, glint, black);
+        // Friend messages, requests and invites that arrive while the launcher is in the background.
+        toast.setManaged(false);
+        toast.setVisible(false);
+        toast.setOnMouseClicked(e -> { toast.setVisible(false); openFriendsApp(); });
+        screen.getChildren().add(toast);
+        service.notification().addListener((o, a, n) -> { if (n != null) showNotification(n); });
         getChildren().setAll(screen);
 
         setOnKeyPressed(e -> {
@@ -1397,10 +1403,49 @@ public final class SaoHelmetPage extends StackPane {
             return;
         }
         watched = win;
-        win.showingProperty().addListener((o, a, b) -> checkAwake());
-        if (win instanceof javafx.stage.Stage st) st.iconifiedProperty().addListener((o, a, b) -> checkAwake());
+        win.showingProperty().addListener((o, a, b) -> { checkAwake(); reportAttention(win); });
+        win.focusedProperty().addListener((o, a, b) -> reportAttention(win));
+        if (win instanceof javafx.stage.Stage st) st.iconifiedProperty().addListener((o, a, b) -> { checkAwake(); reportAttention(win); });
         checkAwake();
+        reportAttention(win);
     }
+
+    /// Tells the service whether the player can see the launcher, so social notifications are raised only when not.
+    private void reportAttention(javafx.stage.Window win) {
+        boolean visible = win.isShowing() && !(win instanceof javafx.stage.Stage st && st.isIconified());
+        service.setLauncherAttention(visible, visible && win.isFocused());
+    }
+
+    /// One line at the top of the helmet for a background social event (click opens 好友), plus a taskbar/Dock
+    /// attention request where the system supports it; the window is never brought to the front.
+    private void showNotification(SaoData.Notification n) {
+        String what = switch (n.kind()) {
+            case MESSAGE -> n.title() + "：" + n.preview();
+            case FRIEND_REQUEST -> n.title() + " 想加你为好友";
+            case INVITE -> n.title() + " 邀请你一起玩";
+        };
+        toast.setText(what.length() > 60 ? what.substring(0, 60) + "…" : what);
+        toast.applyCss();
+        toast.relocate((EW - toast.getLayoutBounds().getWidth()) / 2, 46);
+        toast.setVisible(true);
+        PauseTransition hide = new PauseTransition(Duration.seconds(8));
+        hide.setOnFinished(e -> { if (toast.getText().equals(what.length() > 60 ? what.substring(0, 60) + "…" : what)) toast.setVisible(false); });
+        hide.play();
+        try {
+            if (!java.awt.GraphicsEnvironment.isHeadless() && java.awt.Taskbar.isTaskbarSupported()
+                    && java.awt.Taskbar.getTaskbar().isSupported(java.awt.Taskbar.Feature.USER_ATTENTION))
+                java.awt.Taskbar.getTaskbar().requestUserAttention(true, false);
+        } catch (RuntimeException | LinkageError ignored) { /* The in-window line is enough. */ }
+    }
+
+    /// Opens the 好友 app from the dock.
+    private void openFriendsApp() {
+        for (int i = 0; i < SaoApps.APPS.length; i++)
+            if (SaoApps.APPS[i].label().equals("好友")) openApp(SaoApps.APPS[i], dockButtons[i]);
+    }
+
+    /// The background social event line.
+    private final Text toast = dim("", 13);
 
     /// Wakes or stills the page. With no window at all (the screen-shot tools) it stays awake.
     private void checkAwake() {
