@@ -132,7 +132,9 @@ final class SaoOathAccounts implements AutoCloseable {
     private final Object gate = new Object();
     /// Refuses new work once uninstall has atomically observed an idle account worker.
     private boolean frozen;
-    /// Stops accepting work after close or uninstall.
+    /// Set while a Link Start account refresh is queued or running.
+    private final AtomicBoolean launching = new AtomicBoolean();
+        /// Stops accepting work after close or uninstall.
     private final AtomicBoolean closed = new AtomicBoolean();
     /// Counts queued and active operations so uninstall cannot race credential or library writes.
     private final AtomicInteger pending = new AtomicInteger();
@@ -413,7 +415,10 @@ final class SaoOathAccounts implements AutoCloseable {
         if (checked == null) return;
         if (checked.mustRename()) { errors.accept("昵称已被正版玩家使用，请在启动器里更换昵称"); return; }
         if (checked.locked()) return;
-        submit(() -> launch.accept(prepareLaunchAccount())).exceptionally(failure -> {
+        // A second click while the first refresh is in flight would rotate the token under the first launch.
+        if (!launching.compareAndSet(false, true)) return;
+        submit(() -> { try { launch.accept(prepareLaunchAccount()); } finally { launching.set(false); } }).exceptionally(failure -> {
+            launching.set(false);
             Throwable cause = failure instanceof CompletionException && failure.getCause() != null ? failure.getCause() : failure;
             errors.accept(cause instanceof SaoAccountException accountFailure ? accountFailure.getMessage() : "启动验证失败，请重新登录");
             return null;

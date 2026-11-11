@@ -695,7 +695,10 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     /// {@inheritDoc}
     @Override public void oathLogout() { oath.logout(); }
     /// {@inheritDoc}
-    @Override public void linkStartOath() { if (!closed.get() && !uninstalling.get() && launcherPermitted()) oath.linkStart(); }
+    @Override public void linkStartOath() {
+        // An install or a game already running owns this launch; a repeat click must not refresh the session again.
+        if (!closed.get() && !uninstalling.get() && !busy.get() && launchable(state.get()) && launcherPermitted()) oath.linkStart();
+    }
     /// {@inheritDoc}
     @Override public @Nullable Path oathSkin() { return oath.skin(); }
     /// Publishes the server-owned appearance choices and inherited previews.
