@@ -314,7 +314,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
         uninstallQuit = quit;
         @Unmodifiable List<Path> uninstallRoots = production
                 ? List.of(root, Metadata.HMCL_USER_HOME, Metadata.DEPENDENCIES_DIRECTORY) : List.of(root);
-        Path desktop = production ? Path.of(System.getProperty("user.home"), "Desktop")
+        Path desktop = production ? SaoUninstaller.realDesktop()
                 : Objects.requireNonNull(root.getParent()).resolve("kept-saves");
         uninstaller = suppliedUninstaller != null ? suppliedUninstaller
                 : new SaoUninstaller(uninstallRoots, game.instanceDir(), desktop, SaoUninstaller.desktopTrash(), production);

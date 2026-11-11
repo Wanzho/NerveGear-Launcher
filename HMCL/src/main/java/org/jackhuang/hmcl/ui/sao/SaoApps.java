@@ -353,7 +353,7 @@ final class SaoApps {
                 new javafx.animation.KeyFrame(javafx.util.Duration.millis(500), e -> sizeText.run()));
         poll.setCycleCount(javafx.animation.Animation.INDEFINITE);
         ToggleButton keep = toggle(true);
-        Text where = dim("复制到桌面「" + s.keptSavesFolder().getFileName() + "」", 12);
+        Text where = dim("复制到「" + s.keptSavesFolder() + "」", 12);
         where.visibleProperty().bind(keep.selectedProperty());
         HBox keepRow = row(ink("保留存档和截图", 14), keep);
         keepRow.setMaxWidth(560);

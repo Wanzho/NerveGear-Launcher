@@ -260,4 +260,49 @@ final class SaoUninstaller {
             }
         });
     }
+
+    /// The player's real desktop: the Windows shell folder (OneDrive or moved desktops), the XDG desktop on Linux
+    /// (for example `~/桌面`), else `~/Desktop`.
+    static Path realDesktop() {
+        Path home = Path.of(System.getProperty("user.home"));
+        try {
+            if (com.sun.jna.Platform.isWindows()) {
+                char[] buffer = new char[1024];
+                // CSIDL_DESKTOPDIRECTORY, SHGFP_TYPE_CURRENT
+                if (com.sun.jna.Native.load("shell32", ShellFolders.class).SHGetFolderPathW(null, 0x10, null, 0, buffer) == 0) {
+                    Path desktop = Path.of(com.sun.jna.Native.toString(buffer));
+                    if (desktop.isAbsolute() && Files.isDirectory(desktop)) return desktop;
+                }
+            } else if (com.sun.jna.Platform.isLinux()) {
+                @Nullable String config = System.getenv("XDG_CONFIG_HOME");
+                @Nullable Path desktop = xdgDesktop((config == null || config.isBlank() ? home.resolve(".config") : Path.of(config))
+                        .resolve("user-dirs.dirs"), home);
+                if (desktop != null && Files.isDirectory(desktop)) return desktop;
+            }
+        } catch (IOException | RuntimeException | LinkageError ignored) { /* Fall back to the conventional folder. */ }
+        return home.resolve("Desktop");
+    }
+
+    /// Reads `XDG_DESKTOP_DIR` from a `user-dirs.dirs` file; only `$HOME/...` and absolute values are accepted.
+    static @Nullable Path xdgDesktop(Path file, Path home) throws IOException {
+        if (!Files.isRegularFile(file)) return null;
+        for (String line : Files.readAllLines(file, java.nio.charset.StandardCharsets.UTF_8)) {
+            String trimmed = line.trim();
+            if (!trimmed.startsWith("XDG_DESKTOP_DIR=")) continue;
+            String value = trimmed.substring("XDG_DESKTOP_DIR=".length());
+            if (value.length() >= 2 && value.startsWith("\"") && value.endsWith("\"")) value = value.substring(1, value.length() - 1);
+            if (value.equals("$HOME") || value.equals("$HOME/")) return null;
+            if (value.startsWith("$HOME/")) return home.resolve(value.substring("$HOME/".length())).normalize();
+            if (value.startsWith("/")) return Path.of(value).normalize();
+            return null;
+        }
+        return null;
+    }
+
+    /// Shell32 folder lookup, loaded only on Windows.
+    @NotNullByDefault
+    private interface ShellFolders extends com.sun.jna.win32.StdCallLibrary {
+        /// Writes the current path of a CSIDL folder into a MAX_PATH-or-larger buffer; returns S_OK on success.
+        int SHGetFolderPathW(com.sun.jna.@Nullable Pointer owner, int folder, com.sun.jna.@Nullable Pointer token, int flags, char[] path);
+    }
 }

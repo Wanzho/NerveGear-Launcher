@@ -409,4 +409,15 @@ class SaoUninstallerTest {
         assertEquals(List.of(bundle), SaoUninstallHelper.installTargets(bundle));
         assertNull(SaoUninstallHelper.installRoot(temporary.resolve("self-update/abc.jar")));
     }
+
+    /// A localized XDG desktop such as ~/桌面 is used instead of a missing ~/Desktop.
+    @Test void xdgDesktopIsRead() throws Exception {
+        Path home = temporary.resolve("home");
+        Path dirs = Files.createDirectories(home.resolve(".config")).resolve("user-dirs.dirs");
+        Files.writeString(dirs, "# comment\nXDG_DESKTOP_DIR=\"$HOME/桌面\"\n");
+        assertEquals(home.resolve("桌面"), SaoUninstaller.xdgDesktop(dirs, home));
+        Files.writeString(dirs, "XDG_DESKTOP_DIR=\"$HOME/\"\n");
+        assertNull(SaoUninstaller.xdgDesktop(dirs, home));
+        assertNull(SaoUninstaller.xdgDesktop(home.resolve("missing"), home));
+    }
 }
