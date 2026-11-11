@@ -82,7 +82,20 @@ class SaoPackInstallerTest {
         assertEquals("0.8", Objects.requireNonNull(installer.installed()).version());
     }
 
-    /// A receipt from another loader version keeps its inventory; a damaged receipt reads as not installed.
+    /// A player-linked shaderpacks/ folder is left alone instead of failing the install.
+    @Test void linkedPlayerFolderDoesNotBlockInstall() throws Exception {
+        Path instance = temporary.resolve("instance");
+        Path shared = Files.createDirectories(temporary.resolve("shared-shaders"));
+        Files.createDirectories(instance);
+        Files.createSymbolicLink(instance.resolve("shaderpacks"), shared);
+        SaoPackInstaller installer = installer(instance, new AtomicInteger());
+        SaoPackInstaller.Result result = installer.apply(fixture("0.8", Map.of("mods/a.jar", "a", "shaderpacks/MakeUp.zip", "shader"), List.of(), false), false);
+        assertEquals("a", Files.readString(instance.resolve("mods/a.jar")));
+        assertEquals(1, result.preserved());
+        assertFalse(Files.exists(shared.resolve("MakeUp.zip")));
+    }
+
+        /// A receipt from another loader version keeps its inventory; a damaged receipt reads as not installed.
     @Test void unreadableReceiptDoesNotLockOutRepair() throws Exception {
         Path instance = temporary.resolve("instance");
         SaoPackInstaller installer = installer(instance, new AtomicInteger());

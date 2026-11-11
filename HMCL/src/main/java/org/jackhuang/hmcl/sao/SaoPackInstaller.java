@@ -194,6 +194,13 @@ public final class SaoPackInstaller {
         int checked = 0;
         for (var file : manifest.files()) {
             newPaths.add(file.path());
+            // A player may link a folder of their own (shaderpacks/, saves/) elsewhere; it is theirs, so it is left
+            // alone instead of failing every install, update and repair.
+            if (SaoPackManifest.isPlayerFile(file.path()) && linkedAncestor(file.path())) {
+                preserved++;
+                progress.accept("检查整合包 " + (++checked) + "/" + manifest.files().size(), checked / (double) manifest.files().size() * 0.15);
+                continue;
+            }
             Path target = SaoPackFiles.resolve(instance, file.path());
             boolean playerOwned = SaoPackManifest.isPlayerFile(file.path()) && Files.exists(target, LinkOption.NOFOLLOW_LINKS);
             @Nullable SaoPackManifest.PackFile old = oldFiles.get(file.path());
@@ -347,6 +354,15 @@ public final class SaoPackInstaller {
             while (buffer.hasRemaining()) channel.write(buffer);
             channel.force(true);
         }
+    }
+
+    /// Whether a folder on the way to this instance path is a symbolic link.
+    private boolean linkedAncestor(String path) {
+        Path absolute = instance.toAbsolutePath().normalize();
+        for (Path current = absolute.resolve(path).normalize().getParent(); current != null && current.startsWith(absolute) && !current.equals(absolute);
+             current = current.getParent())
+            if (Files.isSymbolicLink(current)) return true;
+        return false;
     }
 
     /// A case-only rename on a case-insensitive filesystem names the same file as its new path; removing it would
