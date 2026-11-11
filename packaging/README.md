@@ -62,7 +62,7 @@ the selected launcher's manifest JVM options still apply. Updates live under the
 existing user data root's `self-update` directory; no update writes inside the
 signed app or EXE tree. SHA-256-named JARs retain the previous version even while
 Windows has it open. A new version must acknowledge its initialized window within
-60 seconds. Failed startup restores the previous verified JAR, or the bundled JAR,
+300 seconds. Failed startup restores the previous verified JAR, or the bundled JAR,
 and retains a Chinese result message for the service/UI. `--self-update-status`
 prints persisted status without loading JavaFX or launching a child.
 

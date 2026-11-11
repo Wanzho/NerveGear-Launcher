@@ -17,8 +17,9 @@ import java.util.concurrent.TimeUnit;
 /// Chooses a verified per-user JAR and rolls back a replacement that fails to show its initialized primary stage.
 @NotNullByDefault
 public final class SaoLauncherBootstrap {
-    /// Startup timeout for a newly staged JAR; normal launches have no watchdog.
-    private static final int STARTUP_SECONDS = 60;
+    /// Startup timeout for a newly staged JAR; normal launches have no watchdog. A slow first start (antivirus scanning,
+    /// a cold disk, a startup dialog left open) must not be mistaken for a broken update.
+    private static final int STARTUP_SECONDS = 300;
 
     /// Utility entry point.
     private SaoLauncherBootstrap() { }
