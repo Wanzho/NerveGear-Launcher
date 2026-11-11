@@ -458,14 +458,18 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     /// Validates the exact ephemeral name without persisting it or consulting ARGUS ID.
     @Override public void linkStartOffline(String name) {
         if (closed.get() || uninstalling.get()) return;
-        SaoPackState current = state.get();
-        if (current != SaoPackState.NOT_INSTALLED && current != SaoPackState.UPDATE_READY && current != SaoPackState.READY
-                || busy.get()) return;
+        if (!launchable(state.get()) || busy.get()) return;
         if (!name.matches("[A-Za-z0-9_]{3,16}")) {
             publish(() -> error.set("名字须为 3–16 位英文字母、数字或下划线"));
             return;
         }
         startGame(SaoGameBridge.offlineAccount(name), null, true);
+    }
+
+    /// States from which Link Start may begin; a failed attempt can be retried without Repair or a restart.
+    private static boolean launchable(SaoPackState current) {
+        return current == SaoPackState.NOT_INSTALLED || current == SaoPackState.UPDATE_READY
+                || current == SaoPackState.READY || current == SaoPackState.FAILED;
     }
 
     /// Runs the shared install/update/launch lifecycle; offline mode suppresses server authentication and joining.
@@ -480,9 +484,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
         }
         char @Nullable [] password = authPassword == null ? null : authPassword.clone();
         if (authPassword != null) Arrays.fill(authPassword, '\0');
-        SaoPackState current = state.get();
-        if (current != SaoPackState.NOT_INSTALLED && current != SaoPackState.UPDATE_READY && current != SaoPackState.READY
-                || !busy.compareAndSet(false, true)) {
+        if (!launchable(state.get()) || !busy.compareAndSet(false, true)) {
             if (password != null) Arrays.fill(password, '\0');
             return;
         }

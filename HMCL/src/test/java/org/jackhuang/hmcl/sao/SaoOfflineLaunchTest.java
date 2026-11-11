@@ -120,7 +120,7 @@ class SaoOfflineLaunchTest {
             assertFalse(Files.exists(ticket));
             assertEquals("离线启动失败，请检查整合包和 Java 17 设置", engine.lastError().get());
             engine.linkStartOffline("invalid name");
-            assertEquals("离线启动失败，请检查整合包和 Java 17 设置", engine.lastError().get());
+            assertEquals("名字须为 3–16 位英文字母、数字或下划线", engine.lastError().get());
             assertNull(engine.oathAccount().get());
             assertNull(engine.rememberedOathName());
             assertFalse(Files.exists(temporary.resolve("launcher-settings.json")));
@@ -139,6 +139,26 @@ class SaoOfflineLaunchTest {
             assertEquals("keep", Files.readString(keep));
             assertTrue(engine.tasks().isEmpty());
             assertNull(engine.installedVersion().get());
+        }
+    }
+
+    /// A failed Link Start can be retried directly: the second click runs again instead of being ignored.
+    @Test void failedLaunchCanBeRetried() throws Exception {
+        try (SaoPackEngine engine = new SaoPackEngine(temporary, null, false)) {
+            awaitInspection(engine);
+            Path ticket = engine.instanceDir().resolve(SaoOathLaunchTicket.FILE_NAME);
+            Files.createDirectories(ticket);
+            Files.writeString(ticket.resolve("keep.txt"), "keep");
+            // The inspection worker may still hold the busy flag briefly; a click during it is ignored.
+            assertTimeoutPreemptively(Duration.ofSeconds(10), () -> {
+                while (engine.state().get() != SaoPackState.FAILED) { engine.linkStartOffline("Player_1"); Thread.sleep(20); }
+            });
+            Files.delete(ticket.resolve("keep.txt"));
+            Files.delete(ticket);
+            Files.writeString(ticket, "stale");
+            engine.linkStartOffline("Player_1");
+            assertTimeoutPreemptively(Duration.ofSeconds(10), () -> { while (Files.exists(ticket)) Thread.sleep(5); });
+            awaitFailure(engine);
         }
     }
 
