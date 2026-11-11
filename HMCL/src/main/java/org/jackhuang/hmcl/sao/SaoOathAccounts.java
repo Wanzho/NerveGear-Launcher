@@ -468,7 +468,8 @@ final class SaoOathAccounts implements AutoCloseable {
                         finally { ticket.remove("launchTicket"); }
                     });
         } catch (Exception failure) {
-            if (!(failure instanceof SaoAccountException accountFailure && (accountFailure.code().equals("needVerify") || accountFailure.code().equals("mustRename")))) invalidSession();
+            if (!(failure instanceof SaoAccountException accountFailure && (accountFailure.code().equals("needVerify") || accountFailure.code().equals("mustRename")))
+                    && !transientFailure(failure)) invalidSession();
             throw failure;
         }
     }
@@ -549,7 +550,7 @@ final class SaoOathAccounts implements AutoCloseable {
             refreshSkin(active);
             refreshInheritedState(active);
             refreshCardNow();
-        } catch (Exception failure) { clear(); throw failure; }
+        } catch (Exception failure) { if (!transientFailure(failure)) clear(); throw failure; }
     }
 
     /// Refreshes optional appearance support without turning an older service or cosmetic outage into signout.
@@ -686,6 +687,12 @@ final class SaoOathAccounts implements AutoCloseable {
     /// Invalidates state from a launch-token check and publishes the signout.
     private void invalidSession() { clear(); publish(this::publishState); }
 
+    /// A network drop, server error or rate limit says nothing about the session; the player stays signed in.
+    static boolean transientFailure(Throwable failure) {
+        return failure instanceof SaoAccountException account
+                && (account.code().equals("network") || account.code().equals("unavailable") || account.code().equals("rateLimited"));
+    }
+
     /// Takes ownership immediately, wiping the caller's input before any asynchronous operation can fail.
     private char @Nullable [] own(char @Nullable [] supplied) {
         if (supplied == null) return null;
@@ -723,7 +730,7 @@ final class SaoOathAccounts implements AutoCloseable {
                 if (closed.get() || expected != generation.get()) clear();
                 // A failed mutation may have committed and revoked the old epoch before its response was lost.
                 if (problem != null && session != null && !closed.get() && expected == generation.get())
-                    try { refresh(); } catch (Exception invalid) { clear(); }
+                    try { refresh(); } catch (Exception invalid) { if (!transientFailure(invalid)) clear(); }
                 for (char @Nullable [] password : owned) if (password != null) { Arrays.fill(password, '\0'); passwords.remove(password); }
                 pending.decrementAndGet();
             }

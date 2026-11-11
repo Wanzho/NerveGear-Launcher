@@ -53,6 +53,14 @@ class SaoPrivateAclTest {
         return reply;
     }
 
+        /// Only authorization failures end the session; a network drop or server error keeps the player signed in.
+    @Test void transientAccountFailuresKeepTheSession() {
+        assertTrue(SaoOathAccounts.transientFailure(new SaoAccountException("连接账号服务器失败", "network")));
+        assertTrue(SaoOathAccounts.transientFailure(new SaoAccountException("账号服务暂不可用，请稍后重试", "unavailable")));
+        assertFalse(SaoOathAccounts.transientFailure(new SaoAccountException("登录已失效，请重新登录", "invalidCredentials")));
+        assertFalse(SaoOathAccounts.transientFailure(new IllegalStateException("x")));
+    }
+
         /// D:P removes inheritance and the single full-control ACE belongs only to the current token SID.
     @Test void protectedDaclHasExactlyOneOwnerGrant() {
         String sid="S-1-5-21-11-22-33-1001";
