@@ -96,7 +96,7 @@ Strict validation rejects unknown fields, duplicate JSON keys, nulls, comments, 
 1. **开始维护**：从当前完整 `version.json` 修改，将它自己的 `sequence` 加 1，设置 `server: "mc.saooath.com"`（或保留字段缺省），加入 `maintenance.message` 和可选 `until`。保留真实 `pack` / `updates` / `launcher` 身份。`news.json` 可同步写玩家公告；若修改新闻内容，将新闻自己的 `sequence` 也加 1。
 2. **部署生产账号 API**：为 ARGUS HTTPS 服务配置实际 DNS 名称、实际监听/反向代理端口和受玩家 Java 信任且域名匹配的 TLS 证书。例如最终选择标准 443 端口时可用 `https://auth.saooath.com/`；只有部署确认后才能填。2026-11-10 的已提供 DNS 事实中 `auth.saooath.com` 无记录，61784 是游戏 SRV 端口，不能直接当成 HTTPS API 端口。不要填写测试接口。将真实 API 写入 `accountApi`，再把版本 `sequence` 加 1。这样已经发出的新启动器能在验签后采用接口，无需再发启动器。
 3. 在正式服维护窗口安装并配置服务端 `sao_auth` / ARGUS 验证，确保客户端 launch ticket 的验证流程与该正式 API 配套。在部署后的实际环境另行验证登录和入服；本后端修改不部署服务端，也不能证明入服成功。
-4. **签名与校验**：UI 合并并完成最终重建后，使用包含本修改的最终可信 JAR 执行下面四个命令。私钥保留在本地受保护位置；JSON 若签名后改任何一个字节，必须重新签名。已经存在 `.sig` 时，确认 JSON/sequence 后显式加 `--force`。
+4. **签名与校验**：UI 合并并完成最终重建后，使用包含本修改的最终可信 JAR 执行下面四个命令。私钥保留在本地受保护位置；JSON 若签名后改任何一个字节，必须先把 `sequence` 加 1 再重新签名（启动器拒绝同一 sequence 的不同内容）。已经存在 `.sig` 时，确认 JSON/sequence 后显式加 `--force`。
 
 ```sh
 JAVA_TOOL_OPTIONS=-Djava.awt.headless=true java -Djava.awt.headless=true \
@@ -251,6 +251,6 @@ The child uses the same `java.home` runtime. JVM module flags, headless settings
 5. 普通启动器 Java 代码升级可发布经过校验的薄 JAR 或仅含一个 JAR 的 ZIP，填入 `launcher.file/size/sha256`。更新 `latest`，按实际兼容性设置 `min`。运行时或原生外壳变化时设置 `nativeRequired: true`，发布完整平台启动器。
 6. 将薄启动器分别放入“启动器”文件夹；发布前在隔离目录检查无包首次导入、乱序两跳更新、损坏回滚、重启后修复及玩家文件保留。JAR 更新检查健康标记成功和失败回退。
 7. 编辑 `version.json` 与 `news.json`（均使用 schema 2），填入真实文件身份；每次改动都增加对应文件的 `sequence`，不要回退。两个文件各自计数，可以使用不同的序号。
-8. 在保存最终 JSON 后，用上面的 `--sign-release <file> --key <private.pem>` 分别签名两个文件，生成 `version.json.sig` 与 `news.json.sig`。已有签名需要重签时显式加 `--force`。私钥始终留在本地安全目录，绝不能上传 Gitee 或写入源码、日志、公告。
+8. 在保存最终 JSON 后，用上面的 `--sign-release <file> --key <private.pem>` 分别签名两个文件，生成 `version.json.sig` 与 `news.json.sig`。已有签名需要重签时显式加 `--force`；内容有任何改动都要先把 `sequence` 加 1，否则已收到旧版本的启动器会拒绝新文件。私钥始终留在本地安全目录，绝不能上传 Gitee 或写入源码、日志、公告。
 9. 对两个文件分别运行 `--verify-release`，确认输出 `OK` 和预期序号。签名后不要再格式化或编辑 JSON；如需修改，增加序号并重新签名。
 10. 把 JSON 和各自的 `.sig` 一起上传至同一个 Gitee raw 目录，共四个文件。上传过程中的不匹配会被客户端忽略，旧的有效缓存继续使用。不要发布示例零哈希、虚构历史版本或验证用合成更新包。
