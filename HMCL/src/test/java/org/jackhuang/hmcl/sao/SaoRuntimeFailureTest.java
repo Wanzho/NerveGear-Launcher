@@ -60,4 +60,15 @@ final class SaoRuntimeFailureTest {
         assertEquals("Link Start 失败（IllegalStateException）。请检查账户、网络和 Java 17 设置。",
                 SaoPackEngine.launchFailure(new IllegalStateException("token abc")));
     }
+
+    /// A maintenance notice or sequence bump does not count as a new release for dropped files.
+    @Test void maintenanceChangeIsTheSameRelease() throws Exception {
+        String sha = "a".repeat(64);
+        String base = "{\"schema\":2,\"sequence\":1,\"quark\":\"" + SaoUpdates.QUARK_URL + "\",\"pack\":{\"version\":\"0.9\",\"file\":\"pack.zip\",\"size\":1,\"sha256\":\"" + sha
+                + "\"},\"updates\":[],\"launcher\":{\"latest\":\"0.1.0\",\"min\":\"0.1.0\"}}";
+        SaoData.VersionMetadata first = SaoUpdates.parse(base);
+        SaoData.VersionMetadata notice = SaoUpdates.parse(base.replace("\"sequence\":1", "\"sequence\":2").replace("\"updates\"", "\"maintenance\":{\"message\":\"m\"},\"updates\""));
+        assertTrue(SaoPackEngine.sameRelease(first, notice));
+        assertFalse(SaoPackEngine.sameRelease(first, SaoUpdates.parse(base.replace("0.9", "0.10"))));
+    }
 }

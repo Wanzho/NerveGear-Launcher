@@ -483,6 +483,13 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
         return "Link Start 失败（" + failure.getClass().getSimpleName() + "）。请检查账户、网络和 Java 17 设置。";
     }
 
+    /// Whether two policies name the same pack, quick updates and launcher release; a maintenance notice or sequence
+    /// bump alone keeps dropped files and an open download.
+    static boolean sameRelease(SaoData.@Nullable VersionMetadata a, SaoData.@Nullable VersionMetadata b) {
+        if (a == null || b == null) return a == b;
+        return a.pack().equals(b.pack()) && a.updates().equals(b.updates()) && a.launcher().equals(b.launcher());
+    }
+
     /// States from which Link Start may begin; a failed attempt can be retried without Repair or a restart.
     private static boolean launchable(SaoPackState current) {
         return current == SaoPackState.NOT_INSTALLED || current == SaoPackState.UPDATE_READY
@@ -807,7 +814,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
                         else throw new IOException(SaoUpdates.INVALID_ARCHIVE);
                     } catch (IOException failure) { rejected = failure; }
                 }
-                if (!metadata.equals(versionMetadata)) throw new IOException("版本信息已更新，请重新拖入文件");
+                if (!sameRelease(metadata, versionMetadata)) throw new IOException("版本信息已更新，请重新拖入文件");
                 if (full != null) {
                     applyPackNow(full); session.close(); dropSession = null;
                 } else if (!session.ready().isEmpty()) {
@@ -845,7 +852,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
         @Nullable SaoPackManifest installed = installer.installed();
         @Nullable String version = installed == null ? null : installed.version();
         @Nullable SaoDropSession session = dropSession;
-        if (session == null || !session.metadata.equals(metadata) || !Objects.equals(session.installedVersion, version)) {
+        if (session == null || !sameRelease(session.metadata, metadata) || !Objects.equals(session.installedVersion, version)) {
             if (session != null) session.close();
             session = new SaoDropSession(metadata, version, root.resolve("pack-cache")); dropSession = session;
         }
@@ -962,7 +969,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
                 catch (Exception failure) { SaoOnlineData.rejected("news fetch", failure); }
                 if (fetchPolicy) try {
                     SaoData.VersionMetadata metadata = online.fetchVersion(System.getProperty("sao.versionUrl", SaoUpdates.VERSION_URL));
-                    if (!metadata.equals(versionMetadata)) cancelPackDownload();
+                    if (!sameRelease(metadata, versionMetadata)) cancelPackDownload();
                     versionMetadata = metadata; applyAccountPolicy(metadata); extras.updateQuark(metadata.quark()); publishUpdates();
                 } catch (Exception failure) { SaoOnlineData.rejected("version fetch", failure); }
             } finally { updatesRefreshing.set(false); }
