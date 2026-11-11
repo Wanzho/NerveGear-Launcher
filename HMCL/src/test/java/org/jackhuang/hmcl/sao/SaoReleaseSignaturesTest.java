@@ -131,7 +131,7 @@ class SaoReleaseSignaturesTest {
     }
 
     /// A cache entry that no longer verifies is dropped but keeps its sequence floor: older documents stay refused, the
-    /// same or newer ones are accepted again. An unreadable transaction is set aside and the state starts empty.
+    /// same or newer ones are accepted again. An unreadable transaction is set aside, keeping only legible high-water marks.
     @Test void alteredCachesAndCorruptStateRecoverWithoutLoweringTheFloor() throws Exception {
         for (SaoReleaseState.Kind kind : SaoReleaseState.Kind.values()) {
             Path root = temporary.resolve(kind.field); String original = kind == SaoReleaseState.Kind.VERSION ? version(8) : news(8, "Good");
@@ -151,6 +151,10 @@ class SaoReleaseSignaturesTest {
             assertEquals(8, state.accept(kind, bytes(original), SaoReleaseTestSupport.sign(original)));
             damaged = JsonParser.parseString(good).getAsJsonObject(); damaged.getAsJsonObject(kind.field).addProperty("highWater", 0);
             Files.writeString(file, damaged.toString());
+            assertNull(state.cached(kind));
+            assertThrows(IOException.class, () -> state.accept(kind, bytes(older), SaoReleaseTestSupport.sign(older)));
+            // A torn write keeps the high-water still legible in its text.
+            Files.writeString(file, good.substring(0, good.indexOf("\"document\"") + 20));
             assertNull(state.cached(kind));
             assertThrows(IOException.class, () -> state.accept(kind, bytes(older), SaoReleaseTestSupport.sign(older)));
             Files.writeString(file, "{corrupt");

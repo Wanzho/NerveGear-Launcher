@@ -92,7 +92,7 @@ final class SaoReleaseState {
     /// Validates the persisted transaction per kind, rechecking each signature before its document is parsed.
     /// An entry that no longer verifies or parses (a removed key, another launcher version, damage) keeps only its
     /// sequence floor, so newer signed documents are still accepted and older ones still refused. A transaction that
-    /// cannot be read at all is set aside and the state starts empty.
+    /// cannot be read at all is set aside and the state restarts from any high-water marks still legible in its text.
     private JsonObject read() throws IOException {
         JsonObject initial = new JsonObject(); initial.addProperty("schema", 1);
         if (!Files.exists(state, LinkOption.NOFOLLOW_LINKS)) return initial;
@@ -107,9 +107,11 @@ final class SaoReleaseState {
             if (expected.size() == 1) throw new IOException("Empty release state transaction");
             if (SaoReleaseSignatures.number(root, "schema") != 1) throw new IOException("Unsupported release state");
         } catch (IOException | RuntimeException damaged) {
-            org.jackhuang.hmcl.util.logging.Logger.LOG.warning("Release state unreadable; starting empty: " + damaged.getClass().getSimpleName());
+            org.jackhuang.hmcl.util.logging.Logger.LOG.warning("Release state unreadable; keeping legible floors: " + damaged.getClass().getSimpleName());
+            JsonObject salvaged = salvage();
             Files.move(state, state.resolveSibling(NAME + ".corrupt-" + System.currentTimeMillis()), StandardCopyOption.REPLACE_EXISTING);
-            return initial;
+            if (salvaged.size() > 1) write(salvaged);
+            return salvaged;
         }
         for (Kind kind : Kind.values()) {
             if (!root.has(kind.field)) continue;
@@ -123,6 +125,25 @@ final class SaoReleaseState {
                 JsonObject floor = new JsonObject(); floor.addProperty("highWater", floor(element, kind));
                 root.add(kind.field, floor);
             }
+        }
+        return root;
+    }
+
+    /// Builds a floor-only transaction from high-water marks still legible in an unparseable state file, so a torn or
+    /// damaged write never lowers the rollback floor. Floors are only ever raised by later signed documents.
+    private JsonObject salvage() {
+        JsonObject root = new JsonObject(); root.addProperty("schema", 1);
+        String text;
+        try {
+            if (Files.size(state) > 2L * MAX_STATE_BYTES) return root;
+            text = new String(Files.readAllBytes(state), java.nio.charset.StandardCharsets.ISO_8859_1);
+        } catch (IOException | RuntimeException unreadable) { return root; }
+        for (Kind kind : Kind.values()) {
+            // Base64 documents contain no braces or quotes, so the entry's own highWater is the first one before '}'.
+            var match = java.util.regex.Pattern.compile("\"" + kind.field + "\"\\s*:\\s*\\{[^}]*?\"highWater\"\\s*:\\s*(\\d{1,18})").matcher(text);
+            if (!match.find()) continue;
+            JsonObject floor = new JsonObject(); floor.addProperty("highWater", Long.parseLong(match.group(1)));
+            root.add(kind.field, floor);
         }
         return root;
     }
