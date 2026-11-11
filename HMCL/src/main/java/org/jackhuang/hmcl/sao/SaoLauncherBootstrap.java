@@ -17,8 +17,9 @@ import java.util.concurrent.TimeUnit;
 /// Chooses a verified per-user JAR and rolls back a replacement that fails to show its initialized primary stage.
 @NotNullByDefault
 public final class SaoLauncherBootstrap {
-    /// Startup timeout for a newly staged JAR; normal launches have no watchdog.
-    private static final int STARTUP_SECONDS = 60;
+    /// Startup timeout for a newly staged JAR; normal launches have no watchdog. A slow first start (antivirus scanning,
+    /// a cold disk, a startup dialog left open) must not be mistaken for a broken update.
+    private static final int STARTUP_SECONDS = 300;
 
     /// Utility entry point.
     private SaoLauncherBootstrap() { }
@@ -34,13 +35,14 @@ public final class SaoLauncherBootstrap {
         if (!Files.isRegularFile(bundled, LinkOption.NOFOLLOW_LINKS)) throw new IOException("Native launcher requires a bundled JAR");
         SaoSelfUpdate.Selection selection;
         try { selection = updates.select(bundled, Metadata.VERSION); }
-        catch (IOException failure) {
+        // A RuntimeException (for example an unparsable version) must not stop the bundled launcher from opening.
+        catch (IOException | RuntimeException failure) {
             // Refuse concurrent startup attempts; a damaged local state still leaves the packaged JAR usable.
             if (failure.getMessage() != null && failure.getMessage().contains("另一个启动器")) throw failure;
             System.err.println("Launcher update state unavailable; using bundled launcher: " + failure.getClass().getSimpleName());
             selection = new SaoSelfUpdate.Selection(bundled, Metadata.VERSION, null);
         }
-        Process child = new ProcessBuilder(command(selection, args)).inheritIO().start();
+        Process child = new ProcessBuilder(command(selection, bundled, args)).inheritIO().start();
         @Nullable String token = selection.token();
         if (token == null) return;
         updates.attach(token, child.pid());
@@ -58,13 +60,13 @@ public final class SaoLauncherBootstrap {
         updates.finish(token, healthy);
         if (!healthy) {
             SaoSelfUpdate.Selection restored = updates.select(bundled, Metadata.VERSION);
-            new ProcessBuilder(command(restored, args)).inheritIO().start();
+            new ProcessBuilder(command(restored, bundled, args)).inheritIO().start();
         }
     }
 
     /// Forwards relevant JVM module, headless and storage options to the selected JAR process.
     /// Inherited environment preserves all native package storage overrides.
-    static @Unmodifiable List<String> command(SaoSelfUpdate.Selection selection, String[] args) {
+    static @Unmodifiable List<String> command(SaoSelfUpdate.Selection selection, Path bundled, String[] args) {
         List<String> command = new ArrayList<>();
         boolean windows = System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
         boolean headless = Boolean.getBoolean("java.awt.headless");
@@ -78,6 +80,11 @@ public final class SaoLauncherBootstrap {
         if (System.getProperty("os.name", "").startsWith("Mac") && command.stream().noneMatch(value -> value.startsWith("-Xdock:name=")))
             command.add("-Xdock:name=NerveGear启动器");
         command.add("-Dsao.home=" + Metadata.HMCL_USER_HOME);
+        // The selected JAR may live in the per-user update folder, so the install-relative data root is fixed here.
+        command.add("-Dsao.dir=" + Metadata.HMCL_LOCAL_HOME);
+        // Uninstall removes the native install even when the selected JAR is a per-user self-update.
+        @Nullable Path install = SaoUninstallHelper.installRoot(bundled);
+        if (install != null) command.add("-Dsao.installRoot=" + install);
         command.add("-Dsao.selfUpdateRoot=" + SaoSelfUpdate.defaultRoot());
         if (selection.token() != null) command.add("-Dsao.selfUpdateAttempt=" + selection.token());
         command.add("-jar"); command.add(selection.jar().toString()); command.addAll(Arrays.asList(args));

@@ -28,7 +28,7 @@ final class SaoOathInjector implements AuthlibInjectorArtifactProvider {
 
     /// Extracts and verifies the bundled agent atomically, also detecting later on-disk modifications.
     @Override public synchronized AuthlibInjectorArtifactInfo getArtifactInfo() throws IOException {
-        SaoUninstaller.rejectSymlinkAncestors(destination);
+        SaoUninstaller.rejectLinksBelowRoot(destination);
         if (!Files.isRegularFile(destination, LinkOption.NOFOLLOW_LINKS) || !valid(destination)) {
             Files.createDirectories(destination.getParent());
             Path temporary = Files.createTempFile(destination.getParent(), "agent-", ".tmp");

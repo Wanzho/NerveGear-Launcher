@@ -25,6 +25,10 @@ final class SaoCommunityLinks {
             new SaoData.CommunityLink("quark", "夸克网盘", SaoUpdates.QUARK_URL),
             new SaoData.CommunityLink("qq", "QQ群", null, "1104279677"));
 
+    /// links.json is unsigned, so its buttons may only point at the team's known community sites (and their subdomains);
+    /// a changed Gitee file cannot add a button to an arbitrary download site.
+    static final @Unmodifiable Set<String> ALLOWED_HOSTS = Set.of("afdian.com", "afdian.net", "bilibili.com", "b23.tv", "qm.qq.com");
+
     /// Utility class.
     private SaoCommunityLinks() { }
 
@@ -55,7 +59,7 @@ final class SaoCommunityLinks {
                 if (!id.matches("[a-z][a-z0-9_-]{0,31}") || !ids.add(id) || label.isBlank() || label.length() > 40
                         || label.codePoints().anyMatch(c -> Character.isISOControl(c) || c == '<' || c == '>'))
                     throw new IOException("Invalid link label/id");
-                if (url != null) checkedUrl(url);
+                if (url != null && !allowedHost(checkedUrl(url))) throw new IOException("Community link host is not allowed");
                 result.add(new SaoData.CommunityLink(id, label, url, copy));
             }
             reader.endArray();
@@ -76,6 +80,13 @@ final class SaoCommunityLinks {
         }
         if (quark != null) result.add(Math.min(1, result.size()), new SaoData.CommunityLink("quark", "夸克网盘", quark));
         return List.copyOf(result);
+    }
+
+    /// Whether the link's host is an allowed community site or one of its subdomains.
+    static boolean allowedHost(URI uri) {
+        String host = Objects.requireNonNull(uri.getHost()).toLowerCase(Locale.ROOT);
+        for (String allowed : ALLOWED_HOSTS) if (host.equals(allowed) || host.endsWith("." + allowed)) return true;
+        return false;
     }
 
     /// Requires an absolute HTTPS URL without credentials, custom ports, controls or local IP literals.

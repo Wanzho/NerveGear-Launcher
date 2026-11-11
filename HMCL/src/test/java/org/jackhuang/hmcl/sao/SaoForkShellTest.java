@@ -41,6 +41,19 @@ final class SaoForkShellTest {
         assertNull(Metadata.findBundledModpackFile());
     }
 
+    /// The portable data root follows the installed launcher, not the process working directory.
+    @Test
+    void dataRootFollowsInstallNotWorkingDirectory(@org.junit.jupiter.api.io.TempDir Path temporary) {
+        Path user = temporary.resolve("user/.sao-oath-launcher"), elsewhere = temporary.resolve("elsewhere");
+        Path windows = temporary.resolve("Games/NerveGear");
+        assertEquals(windows.resolve(".sao-oath-launcher"),
+                Metadata.defaultLocalHome(windows.resolve("app/launcher.jar"), elsewhere, user));
+        Path mac = temporary.resolve("Applications/NerveGear启动器.app/Contents/app/launcher.jar");
+        assertEquals(user.resolve("local"), Metadata.defaultLocalHome(mac, Path.of("/"), user));
+        assertEquals(user.resolve("local"), Metadata.defaultLocalHome(null, Path.of("/"), user));
+        assertEquals(temporary.resolve(".sao-oath-launcher"), Metadata.defaultLocalHome(null, temporary, user));
+    }
+
     /// Even direct legacy calls remain inert without a JavaFX toolkit or network connection.
     @Test
     void updaterDoesNotScheduleWork() {

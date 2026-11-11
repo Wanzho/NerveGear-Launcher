@@ -88,11 +88,11 @@ class SaoReleaseSignaturesTest {
             }
         }
         assertThrows(IOException.class, () -> SaoOnlineData.parseNews("{\"news\":[]}"));
-        for (String malformed : List.of(news(0, "Strict").replace("\"Strict\"", "1"), news(0, "Strict").replace("\"title\":", "\"unknown\":1,\"title\":")))
+        for (String malformed : List.of(news(0, "Strict").replace("\"Strict\"", "1"), news(0, "Strict").replace("\"title\":", "\"heading\":")))
             assertThrows(IOException.class, () -> SaoOnlineData.parseNews(malformed));
     }
 
-    /// Independent high-water marks survive restart, reject lower sequences, and permit equal signed refreshes.
+    /// Independent high-water marks survive restart, reject lower sequences, and permit identical equal-sequence refreshes.
     @Test void independentHighWaterRejectsRollbackAndAllowsEqualAfterRestart() throws Exception {
         SaoReleaseState state = new SaoReleaseState(temporary, SaoReleaseTestSupport.TRUST);
         state.accept(SaoReleaseState.Kind.NEWS, bytes(news(50, "First")), SaoReleaseTestSupport.sign(news(50, "First")));
@@ -101,8 +101,10 @@ class SaoReleaseSignaturesTest {
         assertThrows(IOException.class, () -> restarted.accept(SaoReleaseState.Kind.VERSION, bytes(version(3)), SaoReleaseTestSupport.sign(version(3))));
         assertThrows(IOException.class, () -> restarted.accept(SaoReleaseState.Kind.NEWS, bytes(news(49, "Old")), SaoReleaseTestSupport.sign(news(49, "Old"))));
         assertEquals(4, restarted.accept(SaoReleaseState.Kind.VERSION, bytes(version(4)), SaoReleaseTestSupport.sign(version(4))));
-        assertEquals(50, restarted.accept(SaoReleaseState.Kind.NEWS, bytes(news(50, "Equal")), SaoReleaseTestSupport.sign(news(50, "Equal"))));
-        assertArrayEquals(bytes(news(50, "Equal")), restarted.cached(SaoReleaseState.Kind.NEWS));
+        // Equal sequences refresh only the identical document; changed content must raise the sequence (B-5).
+        assertThrows(IOException.class, () -> restarted.accept(SaoReleaseState.Kind.NEWS, bytes(news(50, "Equal")), SaoReleaseTestSupport.sign(news(50, "Equal"))));
+        assertEquals(50, restarted.accept(SaoReleaseState.Kind.NEWS, bytes(news(50, "First")), SaoReleaseTestSupport.sign(news(50, "First"))));
+        assertArrayEquals(bytes(news(50, "First")), restarted.cached(SaoReleaseState.Kind.NEWS));
         assertArrayEquals(bytes(version(4)), restarted.cached(SaoReleaseState.Kind.VERSION));
     }
 
@@ -128,10 +130,12 @@ class SaoReleaseSignaturesTest {
         } finally { workers.shutdownNow(); }
     }
 
-    /// Cache bytes and high-water corruption fail closed and cannot be healed by silently resetting the trusted sequence.
-    @Test void alteredCachesAndCorruptStateFailClosedForBothKinds() throws Exception {
+    /// A cache entry that no longer verifies is dropped but keeps its sequence floor: older documents stay refused, the
+    /// same or newer ones are accepted again. An unreadable transaction is set aside, keeping only legible high-water marks.
+    @Test void alteredCachesAndCorruptStateRecoverWithoutLoweringTheFloor() throws Exception {
         for (SaoReleaseState.Kind kind : SaoReleaseState.Kind.values()) {
             Path root = temporary.resolve(kind.field); String original = kind == SaoReleaseState.Kind.VERSION ? version(8) : news(8, "Good");
+            String older = kind == SaoReleaseState.Kind.VERSION ? version(7) : news(7, "Old");
             SaoReleaseState state = new SaoReleaseState(root, SaoReleaseTestSupport.TRUST);
             state.accept(kind, bytes(original), SaoReleaseTestSupport.sign(original));
             Path file = root.resolve(SaoReleaseState.NAME);
@@ -142,15 +146,21 @@ class SaoReleaseSignaturesTest {
             try (SaoOnlineData online = new SaoOnlineData(root, SaoReleaseTestSupport.TRUST)) {
                 assertNull(online.cachedVersion()); assertTrue(online.cached().isEmpty());
             }
-            assertThrows(IOException.class, () -> state.accept(kind, bytes(original), SaoReleaseTestSupport.sign(original)));
+            assertNull(state.cached(kind));
+            assertThrows(IOException.class, () -> state.accept(kind, bytes(older), SaoReleaseTestSupport.sign(older)));
+            assertEquals(8, state.accept(kind, bytes(original), SaoReleaseTestSupport.sign(original)));
             damaged = JsonParser.parseString(good).getAsJsonObject(); damaged.getAsJsonObject(kind.field).addProperty("highWater", 0);
             Files.writeString(file, damaged.toString());
-            assertThrows(IOException.class, () -> state.cached(kind));
+            assertNull(state.cached(kind));
+            assertThrows(IOException.class, () -> state.accept(kind, bytes(older), SaoReleaseTestSupport.sign(older)));
+            // A torn write keeps the high-water still legible in its text.
+            Files.writeString(file, good.substring(0, good.indexOf("\"document\"") + 20));
+            assertNull(state.cached(kind));
+            assertThrows(IOException.class, () -> state.accept(kind, bytes(older), SaoReleaseTestSupport.sign(older)));
             Files.writeString(file, "{corrupt");
-            assertThrows(IOException.class, () -> state.accept(kind, bytes(original), SaoReleaseTestSupport.sign(original)));
-            Files.writeString(file, "{\"schema\":1}");
-            assertThrows(IOException.class, () -> state.cached(kind));
-            assertThrows(IOException.class, () -> state.accept(kind, bytes(original), SaoReleaseTestSupport.sign(original)));
+            assertNull(state.cached(kind));
+            assertEquals(8, state.accept(kind, bytes(original), SaoReleaseTestSupport.sign(original)));
+            assertArrayEquals(bytes(original), state.cached(kind));
         }
     }
 

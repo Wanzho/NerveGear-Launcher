@@ -130,6 +130,30 @@ final class SaoUninstaller {
         }
     }
 
+    /// Routine (sign-in, Link Start, skins) check: rejects links and aliases only below the launcher data root that holds
+    /// the path, so a junction or moved profile above the launcher does not block play. Uninstall keeps the full check.
+    static void rejectLinksBelowRoot(Path path) throws IOException {
+        Path absolute = path.toAbsolutePath().normalize();
+        @Nullable Path base = null;
+        for (Path root : List.of(org.jackhuang.hmcl.Metadata.HMCL_LOCAL_HOME, org.jackhuang.hmcl.Metadata.HMCL_USER_HOME))
+            if (absolute.startsWith(root) && !absolute.equals(root) && (base == null || root.getNameCount() > base.getNameCount())) base = root;
+        if (base == null) { rejectSymlinkAncestors(absolute); return; }
+        rejectLinksBelow(base, absolute);
+    }
+
+    /// Rejects symbolic links, reparse points and aliases strictly below `base`; `base` and its ancestors may be links.
+    static void rejectLinksBelow(Path base, Path path) throws IOException {
+        Path absolute = path.toAbsolutePath().normalize();
+        @Nullable Path real = Files.exists(base) ? base.toRealPath() : null;
+        for (@Nullable Path current = absolute; current != null && !current.equals(base); current = current.getParent()) {
+            if (Files.isSymbolicLink(current)) throw new IOException("启动器文件夹「" + current.getFileName() + "」是链接，已停止操作");
+            if (!Files.exists(current, LinkOption.NOFOLLOW_LINKS)) continue;
+            BasicFileAttributes attributes = Files.readAttributes(current, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+            if (attributes.isOther() || real != null && !current.toRealPath().equals(real.resolve(base.relativize(current))))
+                throw new IOException("启动器文件夹「" + current.getFileName() + "」是链接或别名，已停止操作");
+        }
+    }
+
     /// Measures regular file bytes without following links or counting a nested root twice.
     long installedBytes() throws IOException {
         validate();
@@ -153,7 +177,7 @@ final class SaoUninstaller {
         return bytes;
     }
 
-    /// Copies only saves/screenshots and verifies the complete source and destination inventories and SHA-256.
+    /// Copies only saves, screenshots and world backups, and verifies the complete source and destination inventories and SHA-256.
     /// A failed copy is retained for recovery, while all original data remains untouched.
     void preserve() throws IOException {
         validate();
@@ -165,7 +189,7 @@ final class SaoUninstaller {
             catch (FileAlreadyExistsException collision) { candidate = desktop.resolve("刀剑神域·誓约 存档 (" + suffix + ")"); }
         }
         kept = candidate;
-        for (String name : List.of("saves", "screenshots")) {
+        for (String name : List.of("saves", "screenshots", "backups")) {
             Path from = instance.resolve(name);
             @Unmodifiable Map<String, String> before = fingerprint(from);
             if (before.isEmpty()) continue;
@@ -259,5 +283,60 @@ final class SaoUninstaller {
                 return FileVisitResult.CONTINUE;
             }
         });
+    }
+
+    /// The player's real desktop: the Windows shell folder (OneDrive or moved desktops), the XDG desktop on Linux
+    /// (for example `~/桌面`), else `~/Desktop`.
+    static Path realDesktop() {
+        Path home = Path.of(System.getProperty("user.home"));
+        try {
+            if (com.sun.jna.Platform.isWindows()) {
+                char[] buffer = new char[1024];
+                // CSIDL_DESKTOPDIRECTORY, SHGFP_TYPE_CURRENT
+                if (com.sun.jna.Native.load("shell32", ShellFolders.class).SHGetFolderPathW(null, 0x10, null, 0, buffer) == 0) {
+                    Path desktop = Path.of(com.sun.jna.Native.toString(buffer));
+                    if (desktop.isAbsolute() && safeDesktop(desktop)) return desktop;
+                }
+            } else if (com.sun.jna.Platform.isLinux()) {
+                @Nullable String config = System.getenv("XDG_CONFIG_HOME");
+                @Nullable Path desktop = xdgDesktop((config == null || config.isBlank() ? home.resolve(".config") : Path.of(config))
+                        .resolve("user-dirs.dirs"), home);
+                if (desktop != null && safeDesktop(desktop)) return desktop;
+            }
+        } catch (IOException | RuntimeException | LinkageError ignored) { /* Fall back to the conventional folder. */ }
+        return home.resolve("Desktop");
+    }
+
+    /// Whether a shell-reported desktop exists and passes the uninstall link check; a redirected (for example
+    /// OneDrive) desktop behind a reparse point falls back to the home Desktop instead of blocking uninstall.
+    private static boolean safeDesktop(Path desktop) {
+        try {
+            if (!Files.isDirectory(desktop)) return false;
+            rejectSymlinkAncestors(desktop);
+            return true;
+        } catch (IOException | RuntimeException rejected) { return false; }
+    }
+
+    /// Reads `XDG_DESKTOP_DIR` from a `user-dirs.dirs` file; only `$HOME/...` and absolute values are accepted.
+    static @Nullable Path xdgDesktop(Path file, Path home) throws IOException {
+        if (!Files.isRegularFile(file)) return null;
+        for (String line : Files.readAllLines(file, java.nio.charset.StandardCharsets.UTF_8)) {
+            String trimmed = line.trim();
+            if (!trimmed.startsWith("XDG_DESKTOP_DIR=")) continue;
+            String value = trimmed.substring("XDG_DESKTOP_DIR=".length());
+            if (value.length() >= 2 && value.startsWith("\"") && value.endsWith("\"")) value = value.substring(1, value.length() - 1);
+            if (value.equals("$HOME") || value.equals("$HOME/")) return null;
+            if (value.startsWith("$HOME/")) return home.resolve(value.substring("$HOME/".length())).normalize();
+            if (value.startsWith("/")) return Path.of(value).normalize();
+            return null;
+        }
+        return null;
+    }
+
+    /// Shell32 folder lookup, loaded only on Windows.
+    @NotNullByDefault
+    private interface ShellFolders extends com.sun.jna.win32.StdCallLibrary {
+        /// Writes the current path of a CSIDL folder into a MAX_PATH-or-larger buffer; returns S_OK on success.
+        int SHGetFolderPathW(com.sun.jna.@Nullable Pointer owner, int folder, com.sun.jna.@Nullable Pointer token, int flags, char[] path);
     }
 }

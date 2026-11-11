@@ -47,6 +47,10 @@ Windows ICO and macOS ICNS are derived from that source. Its current 256-pixel
 resolution is preserved for Windows and upscaled for larger macOS icon slots.
 
 The product name is **NerveGear启动器**; the ASCII fallback is **NerveGear Launcher**.
+There is no windows-arm64 bundle. Windows 11 on ARM runs the x64 bundle through
+its built-in x64 emulation; Windows 10 on ARM cannot run it. The game itself still
+receives a native ARM64 Java from the runtime selector.
+
 The Windows bootstrap is the target JDK's real x64 jpackage executable template,
 with its icon resources replaced. `NerveGear启动器.exe` is paired with an identically
 named UTF-8 `.cfg` in `app/`. Its `app.mainclass` and `app.classpath` invoke the fixed
@@ -58,14 +62,16 @@ the selected launcher's manifest JVM options still apply. Updates live under the
 existing user data root's `self-update` directory; no update writes inside the
 signed app or EXE tree. SHA-256-named JARs retain the previous version even while
 Windows has it open. A new version must acknowledge its initialized window within
-60 seconds. Failed startup restores the previous verified JAR, or the bundled JAR,
+300 seconds. Failed startup restores the previous verified JAR, or the bundled JAR,
 and retains a Chinese result message for the service/UI. `--self-update-status`
 prints persisted status without loading JavaFX or launching a child.
 
 Existing data roots remain `.sao-oath-launcher` on macOS/Linux and
 `.sao-oath-launcher` under Windows AppData, including the existing `sao.home` /
-`SAO_OATH_USER_HOME` override. The portable data and fixed `sao-oath` instance paths
-are unchanged. A release that requires a different native shell/runtime advertises
+`SAO_OATH_USER_HOME` override. The portable data root is fixed by the bootstrap
+(`-Dsao.dir`), never the working directory: `<install>/.sao-oath-launcher` beside
+`app/` on Windows and Linux, and the per-user `.sao-oath-launcher/local` on macOS
+(the `.app` stays read-only). The fixed `sao-oath` instance path is unchanged. A release that requires a different native shell/runtime advertises
 `launcher.nativeRequired=true`; clients below `launcher.min` also ask for the full
 launcher from the shared Quark link's 启动器 folder.
 

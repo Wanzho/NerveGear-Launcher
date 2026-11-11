@@ -44,13 +44,17 @@ class SaoProofOfWorkTest {
             for (char item : password) assertEquals('\0', item);
             accounts.resend().get(10, TimeUnit.SECONDS);
             accounts.forgot("ReCoVeR_Name").get(10, TimeUnit.SECONDS);
-            accounts.changeEmail("New+Tag@Example.TEST").get(10, TimeUnit.SECONDS);
+            // C-6 (sao_auth 1.9.3): the mailbox change re-proves the current password and still solves the mail proof.
+            char[] current = "synthetic-current-password".toCharArray();
+            accounts.changeEmail("New+Tag@Example.TEST", current).get(10, TimeUnit.SECONDS);
+            for (char item : current) assertEquals('\0', item);
             assertEquals(List.of("register:mixed_name", "resend:mixed_name", "forgot:recover_name", "email:new+tag@example.test"), fixture.challenges);
             assertEquals(List.of("register", "resend", "forgot", "email"), fixture.submissions);
             assertEquals(4, fixture.validProofs.get());
             assertEquals(0, fixture.invalidRequests.get());
             assertEquals("MiXeD_Name", fixture.registered);
             assertEquals("New+Tag@Example.TEST", fixture.changedEmail);
+            assertEquals("synthetic-current-password", fixture.changedEmailPassword);
         }
     }
 
@@ -254,6 +258,8 @@ class SaoProofOfWorkTest {
         private volatile String registered = "";
         /// Captures the original entered replacement mailbox spelling.
         private volatile String changedEmail = "";
+        /// Captures the current password sent with the mailbox change, or empty when the request carried none.
+        private volatile String changedEmailPassword = "";
         /// Can change launcher settings after this origin has issued its challenge.
         private volatile Runnable afterChallenge = () -> { };
         /// Retains the last issued proof metadata only inside this disposable fixture.
@@ -298,7 +304,10 @@ class SaoProofOfWorkTest {
                     } else if (request.has("pow")) invalidRequests.incrementAndGet();
                     if (!operationCode.isEmpty()) { send(exchange, 403, "{\"error\":\"" + operationCode + "\",\"errorMessage\":\"private fixture text\"}"); return; }
                     if (purpose.equals("register")) { registered = request.get("username").getAsString(); send(exchange, 200, "{\"accessToken\":\"fixture-access\",\"clientToken\":\"fixture-client\",\"selectedProfile\":{\"name\":\"MiXeD_Name\",\"id\":\"" + "a".repeat(32) + "\"}}"); }
-                    else { if (purpose.equals("email")) changedEmail = request.get("email").getAsString(); send(exchange, 200, "{}"); }
+                    else { if (purpose.equals("email")) {
+                        changedEmail = request.get("email").getAsString();
+                        changedEmailPassword = request.has("password") ? request.get("password").getAsString() : "";
+                    } send(exchange, 200, "{}"); }
                     return;
                 }
                 if (path.equals("/sao/account")) send(exchange, 200, "{\"id\":\"" + "a".repeat(32) + "\",\"name\":\"MiXeD_Name\",\"state\":\"ready\",\"emailVerified\":true,\"graceSeconds\":0}");

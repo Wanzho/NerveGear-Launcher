@@ -42,7 +42,8 @@ final class SaoUpdates {
             if (reader.peek() != JsonToken.END_DOCUMENT) throw new IOException("Trailing version data");
             Set<String> rootFields = new HashSet<>(Set.of("schema", "sequence", "quark", "pack", "updates", "launcher"));
             for (String optional : List.of("server", "accountApi", "maintenance")) if (root.has(optional)) rootFields.add(optional);
-            if (!root.keySet().equals(rootFields)) throw new IOException("Unexpected or missing version fields");
+            // Unknown fields from newer releases are ignored (they are signed too); every known field stays strict.
+            if (!root.keySet().containsAll(rootFields)) throw new IOException("Unexpected or missing version fields");
             @Nullable String server = root.has("server") ? server(string(root, "server")) : null;
             @Nullable String accountApi = root.has("accountApi") ? accountApi(string(root, "accountApi")) : null;
             @Nullable SaoData.Maintenance maintenance = null;
@@ -73,7 +74,7 @@ final class SaoUpdates {
             boolean artifactPresent = launcher.has("file") || launcher.has("size") || launcher.has("sha256");
             if (artifactPresent) launcherFields.addAll(Set.of("file", "size", "sha256"));
             if (launcher.has("nativeRequired")) launcherFields.add("nativeRequired");
-            if (!launcher.keySet().equals(launcherFields)) throw new IOException("Unexpected or missing launcher fields");
+            if (!launcher.keySet().containsAll(launcherFields)) throw new IOException("Unexpected or missing launcher fields");
             String latest = version(string(launcher, "latest"));
             String minimum = version(string(launcher, "min"));
             if (compare(latest, minimum) < 0) throw new IOException("Launcher latest is below min");
@@ -216,7 +217,7 @@ final class SaoUpdates {
 
     /// Requires the entire known field set, so misspellings never silently weaken update checks.
     private static void fields(JsonObject object, String @Unmodifiable ... names) throws IOException {
-        if (!object.keySet().equals(Set.of(names))) throw new IOException("Unexpected or missing version fields");
+        if (!object.keySet().containsAll(Set.of(names))) throw new IOException("Unexpected or missing version fields");
     }
 
     /// Requires an actual JSON object.

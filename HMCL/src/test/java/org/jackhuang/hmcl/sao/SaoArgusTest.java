@@ -161,10 +161,48 @@ class SaoArgusTest {
         }
     }
 
+    /// C-6 against the real sao_auth router: the token handed to the game joins, but cannot read or change the account;
+    /// the email change needs the current password.
+    @Test void realServerGameTokenJoinsButCannotTouchTheAccount() throws Exception {
+        try (SaoLocalPremiumFixture server = fixture("game-token"); SaoPackEngine engine = engine(temporary.resolve("game-token-client"), server)) {
+            char[] password = secret(); String kept = new String(password);
+            await(engine.oathRegister("GameTokenFixture", "game@example.test", password));
+            SaoOathLaunchAccount prepared = (SaoOathLaunchAccount) engine.accounts().prepareLaunchAccount();
+            AuthInfo info = prepared.logIn();
+            SaoAccountClient client = new SaoAccountClient(server::root, () -> "zh_cn");
+            JsonObject join = new JsonObject(); join.addProperty("accessToken", info.getAccessToken());
+            join.addProperty("selectedProfile", account(engine).profileId()); join.addProperty("serverId", "c6-fixture");
+            client.json("POST", "sessionserver/session/minecraft/join", join, null);
+            assertThrows(SaoAccountException.class, () -> client.json("GET", "sao/account", null, info.getAccessToken()));
+            JsonObject steal = new JsonObject(); steal.addProperty("email", "thief@example.test"); steal.addProperty("password", kept);
+            assertThrows(SaoAccountException.class, () -> client.json("POST", "sao/email", steal, info.getAccessToken()));
+            assertThrows(SaoAccountException.class, () -> client.json("POST", "sao/launch", new JsonObject(), info.getAccessToken()));
+            JsonObject refresh = new JsonObject(); refresh.addProperty("accessToken", info.getAccessToken());
+            assertThrows(SaoAccountException.class, () -> client.json("POST", "authserver/refresh", refresh, null));
+            assertNotNull(engine.oathAccount().get(), "Refused game-token calls leave the launcher session");
+            failure(engine.oathChangeEmail("next@example.test", secret()), "wrongPassword");
+            assertNotNull(engine.oathAccount().get(), "A wrong current password keeps the session");
+            failure(engine.oathChangeEmail("next@example.test", new char[0]), "missingPassword");
+            await(engine.oathChangeEmail("next@example.test", kept.toCharArray()));
+            assertNull(engine.oathAccount().get(), "The email change revokes the session as before");
+        }
+    }
+
     /// Expired handoffs fail before writing and valid files are removed automatically when their bounded lifetime ends.
     @Test void handoffExpiryAndSymlinkRefusal() throws Exception {
-        JsonObject reply = ticket(System.currentTimeMillis() - 1);
+        JsonObject reply = ticket(System.currentTimeMillis() - 2 * SaoOathLaunchTicket.MAX_CLOCK_SKEW);
         assertThrows(SaoAccountException.class, () -> new SaoOathLaunchTicket(temporary.resolve("expired"), "http://127.0.0.1/", "a".repeat(32), "localhost", reply));
+        // A PC clock a few minutes fast sees a fresh ticket as already expired; the server decides, so it is written.
+        // The game mod checks the written expiry against the PC clock (now, now + 10 min], so it is written on that clock.
+        for (long offset : new long[]{-300_000, 3_600_000, 120_000}) {
+            Path skewed = Files.createDirectory(temporary.resolve("skewed" + offset));
+            try (SaoOathLaunchTicket ignored = new SaoOathLaunchTicket(skewed, "http://127.0.0.1/", "a".repeat(32), "localhost", ticket(System.currentTimeMillis() + offset))) {
+                assertTrue(Files.exists(skewed.resolve(SaoOathLaunchTicket.FILE_NAME)));
+                long written = JsonParser.parseString(Files.readString(skewed.resolve(SaoOathLaunchTicket.FILE_NAME))).getAsJsonObject().get("expiresAtMillis").getAsLong();
+                long now = System.currentTimeMillis();
+                assertTrue(written > now && written - now <= 600_000, "Expiry on the PC clock for server offset " + offset);
+            }
+        }
         Path instance = Files.createDirectory(temporary.resolve("expiry"));
         try (SaoOathLaunchTicket ignored = new SaoOathLaunchTicket(instance, "http://127.0.0.1/", "a".repeat(32), "localhost", ticket(System.currentTimeMillis() + 500))) {
             assertTimeoutPreemptively(Duration.ofSeconds(3), () -> { while (Files.exists(instance.resolve(SaoOathLaunchTicket.FILE_NAME))) Thread.sleep(10); });

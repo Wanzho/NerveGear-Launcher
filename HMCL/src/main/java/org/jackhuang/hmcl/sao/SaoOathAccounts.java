@@ -75,6 +75,8 @@ final class SaoOathAccounts implements AutoCloseable {
     final SaoFriends friends;
     /// Root enclosing only this launcher's credentials, texture cache and libraries.
     private final Path root;
+    /// Launcher data root that owns the game instance; launch tickets are hardened from here down.
+    private final Path launcherRoot;
     /// Explicit protected storage implementation, replaceable in isolated tests.
     private final SaoOathCredentials credentials;
     /// Original local Microsoft session acquisition.
@@ -120,6 +122,9 @@ final class SaoOathAccounts implements AutoCloseable {
     private volatile @Nullable Path skin;
     /// Arm model read from the current server profile texture metadata.
     private volatile boolean slim;
+    /// Whether the signed-in account is passwordless (created by Microsoft sign-in); it proves Microsoft ownership
+    /// instead of a current password when changing the mailbox.
+    private volatile boolean premiumOnly;
     /// Per-user local library, available independently of account sign-in.
     private final SaoOathSkins library;
     /// Current server profile cache, separated from the per-user local library.
@@ -130,7 +135,9 @@ final class SaoOathAccounts implements AutoCloseable {
     private final Object gate = new Object();
     /// Refuses new work once uninstall has atomically observed an idle account worker.
     private boolean frozen;
-    /// Stops accepting work after close or uninstall.
+    /// Set while a Link Start account refresh is queued or running.
+    private final AtomicBoolean launching = new AtomicBoolean();
+        /// Stops accepting work after close or uninstall.
     private final AtomicBoolean closed = new AtomicBoolean();
     /// Counts queued and active operations so uninstall cannot race credential or library writes.
     private final AtomicInteger pending = new AtomicInteger();
@@ -149,7 +156,13 @@ final class SaoOathAccounts implements AutoCloseable {
     /// Fully injectable controller for literal-loopback headless contracts, without a game process or windows.
     SaoOathAccounts(Path root, Supplier<URI> endpoint, Supplier<String> language, SaoOathCredentials credentials,
                     PremiumProof premium, URI mojangJoin, Consumer<Account> launch, Consumer<String> errors) {
-        this.root = root; this.fallbackEndpoint = endpoint;
+        this(root, root, endpoint, language, credentials, premium, mojangJoin, launch, errors);
+    }
+
+    /// Production layout: per-user account storage and the launcher data root that holds the instance may differ.
+    SaoOathAccounts(Path root, Path launcherRoot, Supplier<URI> endpoint, Supplier<String> language, SaoOathCredentials credentials,
+                    PremiumProof premium, URI mojangJoin, Consumer<Account> launch, Consumer<String> errors) {
+        this.root = root; this.launcherRoot = launcherRoot; this.fallbackEndpoint = endpoint;
         this.client = new SaoAccountClient(this::accountEndpoint, language); this.credentials = credentials;
         this.friends = new SaoFriends(root, client, errors);
         this.premium = premium; this.mojangJoin = mojangJoin; this.launch = launch; this.errors = errors;
@@ -298,12 +311,31 @@ final class SaoOathAccounts implements AutoCloseable {
         }, password);
     }
 
-    /// Changes the mailbox, then clears the session if the server revoked its credential epoch as specified.
-    CompletableFuture<Void> changeEmail(String email) { return submit(() -> {
-        Session active = requireSession();
-        mailPost("sao/email", "email", email, object("email", email), active.access());
-        refreshRevoked();
-    }); }
+    /// Changes the mailbox after re-proving the current password, then observes the server's session revocation. A
+    /// passwordless (Microsoft-created) account leaves the password empty and proves Microsoft ownership instead.
+    /// A bearer alone is never enough (sao_auth 1.9.3), so a mod holding any token cannot move the mailbox. The request
+    /// still goes through the mail proof of work (sao_auth 1.9.2) because it sends a verification code to the new mailbox.
+    CompletableFuture<Void> changeEmail(String email, char[] supplied) {
+        if (supplied.length == 0) {
+            if (!premiumOnly) return CompletableFuture.failedFuture(new SaoAccountException("请输入当前密码", "missingPassword"));
+            return submit(() -> {
+                Session active = requireSession();
+                JsonObject proof = premiumProof(premium.session());
+                JsonObject body = object("email", email, "premiumToken", required(proof, "premiumToken"));
+                try { mailPost("sao/email", "email", email, body, active.access()); }
+                finally { body.remove("premiumToken"); proof.remove("premiumToken"); }
+                refreshRevoked();
+            });
+        }
+        char[] password = Objects.requireNonNull(own(supplied));
+        return submit(() -> {
+            Session active = requireSession();
+            JsonObject body = object("email", email, "password", new String(password));
+            try { mailPost("sao/email", "email", email, body, active.access()); }
+            finally { body.remove("password"); }
+            refreshRevoked();
+        }, password);
+    }
 
     /// Proves the current password, changes it, forgets the old protected pair and observes token revocation.
     CompletableFuture<Void> changePassword(char[] supplied, char[] suppliedNew) {
@@ -405,16 +437,28 @@ final class SaoOathAccounts implements AutoCloseable {
     }
 
     /// Refreshes before launch; accounts awaiting mailbox verification or a replacement nickname cannot start.
-    void linkStart() {
+    /// Root from which launch-ticket ancestors are hardened; it must contain the game instance.
+    Path ticketRoot() { return launcherRoot; }
+
+    /// Refreshes the session and hands a launch account to the engine; the future fails with the shown reason.
+    CompletableFuture<Void> linkStart() {
         SaoData.@Nullable OathAccount checked = current;
-        if (checked == null) return;
-        if (checked.mustRename()) { errors.accept("昵称已被正版玩家使用，请在启动器里更换昵称"); return; }
-        if (checked.locked()) return;
-        submit(() -> launch.accept(prepareLaunchAccount())).exceptionally(failure -> {
+        if (checked == null) return CompletableFuture.completedFuture(null);
+        if (checked.mustRename()) {
+            errors.accept("昵称已被正版玩家使用，请在启动器里更换昵称");
+            return CompletableFuture.failedFuture(new SaoAccountException("昵称已被正版玩家使用，请在启动器里更换昵称", "mustRename"));
+        }
+        if (checked.locked()) return CompletableFuture.completedFuture(null);
+        // A second click while the first refresh is in flight would rotate the token under the first launch.
+        if (!launching.compareAndSet(false, true)) return CompletableFuture.completedFuture(null);
+        CompletableFuture<Void> future = submit(() -> { try { launch.accept(prepareLaunchAccount()); } finally { launching.set(false); } });
+        future.exceptionally(failure -> {
+            launching.set(false);
             Throwable cause = failure instanceof CompletionException && failure.getCause() != null ? failure.getCause() : failure;
             errors.accept(cause instanceof SaoAccountException accountFailure ? accountFailure.getMessage() : "启动验证失败，请重新登录");
             return null;
         });
+        return future;
     }
 
     /// Production launch preparation shared with headless tests; issues no game process and never falls back offline.
@@ -449,12 +493,13 @@ final class SaoOathAccounts implements AutoCloseable {
                         JsonObject ticket = client.json("POST", "sao/launch", new JsonObject(), prepared.access());
                         try {
                             if (session != prepared || preparedGeneration != generation.get()) throw new SaoAccountException("请重新登录 ARGUS ID", "invalidSession");
-                            return new SaoOathLaunchTicket(root, instance, prepared.root().toString(), prepared.id(), server, ticket);
+                            return new SaoOathLaunchTicket(launcherRoot, instance, prepared.root().toString(), prepared.id(), server, ticket);
                         }
                         finally { ticket.remove("launchTicket"); }
                     });
         } catch (Exception failure) {
-            if (!(failure instanceof SaoAccountException accountFailure && (accountFailure.code().equals("needVerify") || accountFailure.code().equals("mustRename")))) invalidSession();
+            if (!(failure instanceof SaoAccountException accountFailure && (accountFailure.code().equals("needVerify") || accountFailure.code().equals("mustRename")))
+                    && !transientFailure(failure)) invalidSession();
             throw failure;
         }
     }
@@ -538,11 +583,12 @@ final class SaoOathAccounts implements AutoCloseable {
             current = new SaoData.OathAccount(name, id, optional(state, "maskedEmail") == null ? "" : Objects.requireNonNull(optional(state, "maskedEmail")),
                     state.get("emailVerified").getAsBoolean(), accountState.equals("lockedVerify"), Math.max(0, state.get("graceSeconds").getAsLong()), premiumName,
                     state.has("mustRename") && state.get("mustRename").getAsBoolean());
+            premiumOnly = state.has("premiumOnly") && state.get("premiumOnly").getAsBoolean();
             profileCache = new SaoOathSkins(root, namespace(active.root()), active.id());
             refreshSkin(active);
             refreshInheritedState(active);
             refreshCardNow();
-        } catch (Exception failure) { clear(); throw failure; }
+        } catch (Exception failure) { if (!transientFailure(failure)) clear(); throw failure; }
     }
 
     /// Refreshes optional appearance support without turning an older service or cosmetic outage into signout.
@@ -675,9 +721,15 @@ final class SaoOathAccounts implements AutoCloseable {
     /// Clears invalid credentials from protected storage, as required by an explicit forget or password change.
     private void forget() throws IOException { synchronized (gate) { credentials.delete(); remembered = null; } }
     /// Drops all ephemeral account/texture state without deleting an explicitly remembered password.
-    private void clear() { currentInherited = SaoTextureState.empty(); friends.session(null); session = null; current = null; currentCard = null; skin = null; slim = false; profileCache = null; }
+    private void clear() { currentInherited = SaoTextureState.empty(); friends.session(null); session = null; current = null; currentCard = null; skin = null; slim = false; premiumOnly = false; profileCache = null; }
     /// Invalidates state from a launch-token check and publishes the signout.
     private void invalidSession() { clear(); publish(this::publishState); }
+
+    /// A network drop, server error or rate limit says nothing about the session; the player stays signed in.
+    static boolean transientFailure(Throwable failure) {
+        return failure instanceof SaoAccountException account
+                && (account.code().equals("network") || account.code().equals("unavailable") || account.code().equals("rateLimited"));
+    }
 
     /// Takes ownership immediately, wiping the caller's input before any asynchronous operation can fail.
     private char @Nullable [] own(char @Nullable [] supplied) {
@@ -716,7 +768,7 @@ final class SaoOathAccounts implements AutoCloseable {
                 if (closed.get() || expected != generation.get()) clear();
                 // A failed mutation may have committed and revoked the old epoch before its response was lost.
                 if (problem != null && session != null && !closed.get() && expected == generation.get())
-                    try { refresh(); } catch (Exception invalid) { clear(); }
+                    try { refresh(); } catch (Exception invalid) { if (!transientFailure(invalid)) clear(); }
                 for (char @Nullable [] password : owned) if (password != null) { Arrays.fill(password, '\0'); passwords.remove(password); }
                 pending.decrementAndGet();
             }

@@ -3,6 +3,7 @@ package org.jackhuang.hmcl.sao;
 
 import org.glavo.url.WebURL;
 import org.jackhuang.hmcl.Metadata;
+import org.jackhuang.hmcl.download.DownloadCandidate;
 import org.jackhuang.hmcl.download.DownloadCandidates;
 import org.jackhuang.hmcl.download.HMCLDownloadProvider;
 import org.jackhuang.hmcl.task.FileDownloadTask;
@@ -30,6 +31,8 @@ final class SaoModDownloads implements SaoPackInstaller.Downloader, AutoCloseabl
     static final int PARALLELISM = 6;
     /// Identifies this launcher on every request and redirect, without account or machine identifiers.
     static final String USER_AGENT = "NerveGear-Launcher/" + Metadata.VERSION;
+    /// Attempts on the last remaining source: with nowhere else to go it resumes with backoff instead of failing.
+    static final int LAST_SOURCE_RETRY = 6;
     /// Production low-throughput window; a stalled candidate is discarded rather than resumed on that host.
     private final Duration stallWindow;
     /// Minimum sustained payload rate; catches the measured roughly 60 KB/s CloudFront stall.
@@ -151,7 +154,7 @@ final class SaoModDownloads implements SaoPackInstaller.Downloader, AutoCloseabl
         if (closed) throw new IOException("Pack downloader has closed");
         Thread worker = Thread.currentThread();
         long start = System.nanoTime();
-        DownloadCandidates resolved = candidates.apply(file.downloads());
+        DownloadCandidates resolved = patientLastSource(candidates.apply(file.downloads()));
         Files.createDirectories(destination.toAbsolutePath().getParent());
         Path staged = Files.createTempFile(destination.toAbsolutePath().getParent(), ".sao-download-", ".part");
         TransferTask task = new TransferTask(resolved, staged, file);
@@ -194,6 +197,16 @@ final class SaoModDownloads implements SaoPackInstaller.Downloader, AutoCloseabl
                         task.bytes / Math.max(seconds, 0.001), task.bytes, task.attempts, task.stalls, error));
             }
         }
+    }
+
+    /// Gives the last candidate extra resume attempts; a slow or briefly dropped only source must not fail the batch.
+    static DownloadCandidates patientLastSource(DownloadCandidates resolved) {
+        List<DownloadCandidate> list = new ArrayList<>(resolved.getCandidates());
+        if (list.isEmpty()) return resolved;
+        DownloadCandidate last = list.get(list.size() - 1);
+        if (last.retry() >= LAST_SOURCE_RETRY) return resolved;
+        list.set(list.size() - 1, new DownloadCandidate(last.url(), last.rawUrl(), LAST_SOURCE_RETRY, last.connectTimeout(), last.readTimeout()));
+        return DownloadCandidates.of(list);
     }
 
     /// Publishes measured counters at most five times/second, plus every file completion/failure.
@@ -240,6 +253,10 @@ final class SaoModDownloads implements SaoPackInstaller.Downloader, AutoCloseabl
         private long windowStart, windowBytes;
         /// Marks the current candidate as unsuitable for same-host retries.
         private volatile boolean stalled;
+        /// Final candidate URL; with no fallback left, slow transfers continue and failures resume on the same host.
+        private final @Nullable String lastUrl;
+        /// Whether the current request targets the final candidate.
+        private volatile boolean lastCandidate;
 
         /// A watchdog also catches bodies that send no bytes, rather than waiting for another write callback.
         private void runMonitored() throws Exception {
@@ -265,7 +282,7 @@ final class SaoModDownloads implements SaoPackInstaller.Downloader, AutoCloseabl
             @Nullable HttpURLConnection abort = null;
             synchronized (this) {
                 long now = System.nanoTime();
-                if (activeConnection == null || windowStart == 0 || stalled || bytes - windowBytes >= file.size()) return;
+                if (activeConnection == null || windowStart == 0 || stalled || lastCandidate || bytes - windowBytes >= file.size()) return;
                 double seconds = (now - windowStart) / 1_000_000_000.0;
                 if (now - windowStart < stallWindow.toNanos()) return;
                 long received = bytes - windowBytes;
@@ -280,12 +297,15 @@ final class SaoModDownloads implements SaoPackInstaller.Downloader, AutoCloseabl
         /// A new candidate or retry gets a fresh observation window; connection setup has its own timeout.
         @Override protected synchronized void beforeDownload(WebURL url) {
             activeConnection = null; windowStart = 0; stalled = false;
+            lastCandidate = url.toString().equals(lastUrl);
             super.beforeDownload(url);
         }
 
         /// Stalls and read timeouts switch hosts; ordinary transient failures keep bounded resume/backoff.
+        /// The last candidate always retries (with Range resume), since no other host remains.
         @Override protected boolean shouldRetry(Exception failure) {
             synchronized (this) {
+                if (lastCandidate) return true;
                 if (failure instanceof java.net.SocketTimeoutException && windowStart != 0 && !stalled) {
                     double seconds = (System.nanoTime() - windowStart) / 1_000_000_000.0;
                     long received = bytes - windowBytes;
@@ -300,6 +320,9 @@ final class SaoModDownloads implements SaoPackInstaller.Downloader, AutoCloseabl
         private TransferTask(DownloadCandidates candidates, Path path, SaoPackManifest.PackFile file) {
             super(candidates, path, new IntegrityCheck("SHA-1", file.sha1()));
             this.file = file;
+            @Unmodifiable List<DownloadCandidate> list = candidates.getCandidates();
+            @Nullable org.glavo.url.WebURL last = list.isEmpty() ? null : list.get(list.size() - 1).url();
+            this.lastUrl = last == null ? null : last.toString();
             addIntegrityCheckHandler((temporary, target) -> {
                 if (Files.size(temporary) != file.size()) throw new IOException("Index size mismatch: " + file.path());
             });

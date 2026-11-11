@@ -38,9 +38,52 @@ final class SaoUninstallHelper {
 
     /// Determines the actual packaged source; development class directories are deliberately excluded.
     static @Unmodifiable List<Path> runningApplication() throws IOException {
+        // The bootstrap names the native install; a self-updated JAR runs from the data folder instead.
+        @Nullable String install = System.getProperty("sao.installRoot");
+        if (install != null && !install.isBlank()) {
+            @Unmodifiable List<Path> shipped = installTargets(Path.of(install));
+            if (!shipped.isEmpty()) return shipped;
+        }
         @Nullable Path source = JarUtils.thisJarPath();
         @Nullable String command = ProcessHandle.current().info().command().orElse(null);
         return discover(source, command == null ? null : Path.of(command), System.getenv("APPIMAGE"), System.getProperty("os.name"));
+    }
+
+    /// Entries the portable Windows and Linux bundles ship beside `app/`; the folder itself may hold other files.
+    static final @Unmodifiable List<String> SHIPPED = List.of("NerveGear启动器.exe", "NerveGear-Launcher.sh", "icon.png",
+            "app", "runtime", "licenses", "README-zh.txt");
+
+    /// Native install that owns a bundled `app/launcher.jar`: the `.app` on macOS, else the bundle's folder; null otherwise.
+    static @Nullable Path installRoot(Path jar) {
+        Path absolute = jar.toAbsolutePath().normalize();
+        @Nullable Path app = absolute.getParent();
+        if (app == null || app.getFileName() == null || !app.getFileName().toString().equals("app")) return null;
+        @Nullable Path install = app.getParent();
+        if (install == null || install.getParent() == null) return null;
+        @Nullable Path bundle = install.getParent();
+        if (install.getFileName() != null && install.getFileName().toString().equals("Contents")
+                && bundle.getFileName() != null && bundle.getFileName().toString().endsWith(".app")) return bundle;
+        return install;
+    }
+
+    /// Removal targets for a verified native install: the whole `.app`, or only the shipped entries of a portable folder.
+    static @Unmodifiable List<Path> installTargets(Path root) throws IOException {
+        Path absolute = root.toAbsolutePath().normalize();
+        if (absolute.getParent() == null || !Files.isDirectory(absolute, LinkOption.NOFOLLOW_LINKS)) return List.of();
+        SaoUninstaller.rejectSymlinkAncestors(absolute);
+        if (absolute.getFileName().toString().endsWith(".app")) {
+            return Files.isRegularFile(absolute.resolve("Contents/Info.plist"), LinkOption.NOFOLLOW_LINKS)
+                    && Files.isRegularFile(absolute.resolve("Contents/app/launcher.jar"), LinkOption.NOFOLLOW_LINKS)
+                    ? List.of(absolute) : List.of();
+        }
+        if (!Files.isRegularFile(absolute.resolve("app/launcher.jar"), LinkOption.NOFOLLOW_LINKS)
+                || !Files.isDirectory(absolute.resolve("runtime"), LinkOption.NOFOLLOW_LINKS)) return List.of();
+        List<Path> targets = new ArrayList<>();
+        for (String name : SHIPPED) {
+            Path entry = absolute.resolve(name);
+            if (Files.exists(entry, LinkOption.NOFOLLOW_LINKS)) targets.add(entry);
+        }
+        return List.copyOf(targets);
     }
 
     /// Selects a complete macOS bundle or actual executable/JAR, with a conservative AppImage identity check.
@@ -96,8 +139,8 @@ final class SaoUninstallHelper {
         Path script = directory.resolve(windows ? "cleanup.ps1" : "cleanup.sh");
         Path log = directory.resolve("result.log");
         org.jackhuang.hmcl.util.logging.Logger.LOG.info("Uninstall helper report: " + log);
-        Files.writeString(script, script(roots, application, directory, ProcessHandle.current().pid(),
-                System.getProperty("os.name")), StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW);
+        Files.write(script, scriptBytes(script(roots, application, directory, ProcessHandle.current().pid(),
+                System.getProperty("os.name")), windows), StandardOpenOption.CREATE_NEW);
         @Unmodifiable List<String> command = windows
                 ? List.of("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script.toString())
                 : List.of("/bin/sh", script.toString());
@@ -127,6 +170,17 @@ final class SaoUninstallHelper {
                 catch (IOException ignored) { child.destroy(); }
             }
         };
+    }
+
+    /// Encodes the script as UTF-8; Windows PowerShell 5.1 `-File` reads BOM-less scripts in the ANSI code page,
+    /// which garbles non-ASCII user names and install paths, so the Windows script starts with a UTF-8 BOM.
+    static byte[] scriptBytes(String script, boolean windows) {
+        byte[] text = script.getBytes(StandardCharsets.UTF_8);
+        if (!windows) return text;
+        byte[] result = new byte[text.length + 3];
+        result[0] = (byte) 0xEF; result[1] = (byte) 0xBB; result[2] = (byte) 0xBF;
+        System.arraycopy(text, 0, result, 3, text.length);
+        return result;
     }
 
     /// Generates reviewable native code without spawning a process or removing any file.

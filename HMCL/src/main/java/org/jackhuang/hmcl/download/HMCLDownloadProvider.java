@@ -249,7 +249,16 @@ public final class HMCLDownloadProvider extends DownloadProvider {
     private static int packHostPriority(String url) {
         @Nullable WebURL parsed = WebURL.tryParse(url);
         if (parsed == null) return 4;
-        return switch (Objects.toString(java.net.URI.create(parsed.href()).getHost(), "")) {
+        String host;
+        // Raw characters such as [ ] in a file name are valid for WebURL but not for java.net.URI; never throw here.
+        try { host = Objects.toString(java.net.URI.create(parsed.href()).getHost(), ""); }
+        catch (IllegalArgumentException unparsable) {
+            String href = parsed.href();
+            int start = href.indexOf("://");
+            int end = start < 0 ? -1 : href.indexOf('/', start + 3);
+            host = start < 0 ? "" : href.substring(start + 3, end < 0 ? href.length() : end).toLowerCase(java.util.Locale.ROOT);
+        }
+        return switch (host) {
             case "cdn.modrinth.com" -> 0;
             case "mediafilez.forgecdn.net" -> 1;
             case "edge.forgecdn.net" -> 2;

@@ -98,11 +98,29 @@ public final class Metadata {
         }
         @Nullable String local = System.getProperty("sao.dir", System.getenv("SAO_OATH_LOCAL_HOME"));
         HMCL_LOCAL_HOME = StringUtils.isNotBlank(local) ? Path.of(local).toAbsolutePath().normalize()
-                : CURRENT_DIRECTORY.resolve(".sao-oath-launcher");
+                : defaultLocalHome(JarUtils.thisJarPath(), CURRENT_DIRECTORY, HMCL_USER_HOME);
         @Nullable String dependencies = System.getProperty("sao.dependencies.dir", System.getenv("SAO_OATH_DEPENDENCIES_DIR"));
         DEPENDENCIES_DIRECTORY = StringUtils.isNotBlank(dependencies) ? Path.of(dependencies).toAbsolutePath().normalize()
                 : HMCL_LOCAL_HOME.resolve("dependencies");
         MINECRAFT_DIRECTORY = HMCL_LOCAL_HOME.resolve("minecraft");
+    }
+
+    /// Portable data root fixed to the install, never the process working directory.
+    /// A packaged `<install>/app/launcher.jar` keeps data in `<install>/.sao-oath-launcher`; a macOS `.app`
+    /// (read-only, possibly translocated) keeps it under the per-user home. Development runs keep the working
+    /// directory unless it is a filesystem root or not writable (Finder starts apps in `/`).
+    public static Path defaultLocalHome(@Nullable Path jar, Path workingDirectory, Path userHome) {
+        @Nullable Path app = jar == null ? null : jar.toAbsolutePath().normalize().getParent();
+        @Nullable Path install = app == null ? null : app.getParent();
+        if (app != null && install != null && app.getFileName() != null && app.getFileName().toString().equals("app")) {
+            @Nullable Path bundle = install.getParent();
+            boolean macBundle = install.getFileName() != null && install.getFileName().toString().equals("Contents")
+                    && bundle != null && bundle.getFileName() != null && bundle.getFileName().toString().endsWith(".app");
+            return macBundle ? userHome.resolve("local") : install.resolve(".sao-oath-launcher");
+        }
+        if (workingDirectory.getParent() == null || !java.nio.file.Files.isWritable(workingDirectory))
+            return userHome.resolve("local");
+        return workingDirectory.resolve(".sao-oath-launcher");
     }
 
     /// This fork has no HMCL release channel announcements.

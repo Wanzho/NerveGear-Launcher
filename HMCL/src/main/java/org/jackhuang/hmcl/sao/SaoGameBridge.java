@@ -109,7 +109,7 @@ final class SaoGameBridge {
     /// Removes only the fixed ticket entry, never following a ticket symlink or accepting aliased parent folders.
     /// Any deletion failure aborts offline preparation before installation or process creation.
     void clearOfflineTicket() throws IOException {
-        SaoUninstaller.rejectSymlinkAncestors(instanceDir());
+        SaoUninstaller.rejectLinksBelowRoot(instanceDir());
         Files.deleteIfExists(instanceDir().resolve(SaoOathLaunchTicket.FILE_NAME));
     }
 
@@ -323,6 +323,9 @@ final class SaoGameBridge {
                 : JavaRuntime.of(real, JavaInfoUtils.fromExecutable(real), managed);
         if (runtime.getParsedVersion() != 17 || !org.jackhuang.hmcl.java.JavaManager.isCompatible(runtime.getPlatform()))
             throw new IOException("This pack requires a compatible Java 17 runtime");
+        // A 32-bit Java on a 64-bit system cannot hold the pack's heap; the managed 64-bit runtime is used instead.
+        if (runtime.getBits() != Platform.SYSTEM_PLATFORM.getBits())
+            throw new IOException("This pack requires a 64-bit Java 17 runtime");
         return runtime;
     }
 

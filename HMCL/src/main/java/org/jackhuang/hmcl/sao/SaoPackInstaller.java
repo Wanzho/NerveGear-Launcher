@@ -19,12 +19,18 @@ import java.util.function.BiConsumer;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
+import static org.jackhuang.hmcl.util.logging.Logger.LOG;
+
 /// Installs a complete pack inventory with staged, checksum-verified writes and rollback on commit errors.
 /// Does not select Java, install Minecraft, open JavaFX or start a game process.
 @NotNullByDefault
 public final class SaoPackInstaller {
     /// Receipt is launcher-owned and never supplied by a pack override.
     public static final String RECEIPT = ".sao-pack.json";
+    /// Commit journal written into a stage before its first instance mutation.
+    static final String JOURNAL = "journal.json";
+    /// SHA-1-named verified downloads kept after a failed batch, reused by the next attempt and removed on success.
+    static final String DOWNLOAD_CACHE = ".sao-download-cache";
     /// Fixed, isolated game directory managed by this installer.
     private final Path instance;
     /// Downloader injected by the HMCL bridge or deterministic tests.
@@ -80,7 +86,16 @@ public final class SaoPackInstaller {
         Path receipt = instance.resolve(RECEIPT);
         if (!Files.exists(receipt, LinkOption.NOFOLLOW_LINKS)) return null;
         if (!Files.isRegularFile(receipt, LinkOption.NOFOLLOW_LINKS)) throw new IOException("Invalid installed pack receipt");
-        try (Reader reader = Files.newBufferedReader(receipt, StandardCharsets.UTF_8)) { return SaoPackManifest.read(reader); }
+        String text;
+        try { text = Files.readString(receipt, StandardCharsets.UTF_8); }
+        catch (java.nio.charset.CharacterCodingException damaged) { return null; }
+        try { return SaoPackManifest.read(new StringReader(text)); }
+        catch (IOException strict) {
+            // A receipt from another launcher version, or a damaged one, must not lock the player out of Repair and
+            // updates: keep its inventory when it still parses, otherwise treat the pack as not installed (re-hash all).
+            try { return SaoPackManifest.readReceipt(new StringReader(text)); }
+            catch (IOException damaged) { return null; }
+        }
     }
 
     /// Installs or incrementally updates a pack. Repair hashes every file and restores managed damage.
@@ -94,6 +109,29 @@ public final class SaoPackInstaller {
              var lock = channel.tryLock()) {
             if (lock == null) throw new IOException("Another SAO launcher is updating this instance");
             return applyLocked(source, repair);
+        }
+    }
+
+    /// Applies a dropped full pack as an update: only files whose inventory entry changed are written, so player-edited
+    /// settings survive; replaced or removed game-written settings are kept in `.sao-config-backups`.
+    public Result applyUpdate(SaoPackArchive source) throws Exception {
+        SaoPackFiles.resolve(instance, "sao-pack-lock-check");
+        Files.createDirectories(instance);
+        Path lockPath = instance.resolve(".sao-pack.lock");
+        if (Files.isSymbolicLink(lockPath)) throw new IOException("Invalid pack lock file");
+        try (FileChannel channel = FileChannel.open(lockPath, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
+             var lock = channel.tryLock()) {
+            if (lock == null) throw new IOException("Another SAO launcher is updating this instance");
+            @Nullable SaoPackManifest previous = installed();
+            if (previous == null) return applyLocked(source, false);
+            Map<String, SaoPackManifest.PackFile> next = new HashMap<>();
+            for (var file : source.manifest().files()) next.put(file.path(), file);
+            Set<String> touched = new HashSet<>();
+            for (var old : previous.files()) {
+                @Nullable SaoPackManifest.PackFile replacement = next.get(old.path());
+                if (replacement == null || !replacement.sha1().equals(old.sha1()) || replacement.size() != old.size()) touched.add(old.path());
+            }
+            return applyLocked(source, false, touched);
         }
     }
 
@@ -143,6 +181,7 @@ public final class SaoPackInstaller {
     /// Commits a full inventory while forcing every quick-chain author change, even a later return to old seed bytes.
     /// Unchanged runtime settings retain their current contents or absence; replaced/removed settings get durable backups.
     private Result applyLocked(SaoPackArchive source, boolean repair, Set<String> quickTouched) throws Exception {
+        recoverLocked();
         @Nullable SaoPackManifest previous = installed();
         SaoPackManifest manifest = source.manifest();
         if (previous != null && org.jackhuang.hmcl.util.versioning.VersionNumber.compare(manifest.version(), previous.version()) < 0)
@@ -157,6 +196,13 @@ public final class SaoPackInstaller {
         int checked = 0;
         for (var file : manifest.files()) {
             newPaths.add(file.path());
+            // A player may link a folder of their own (shaderpacks/, saves/) elsewhere; it is theirs, so it is left
+            // alone instead of failing every install, update and repair.
+            if (SaoPackManifest.isPlayerFile(file.path()) && linkedAncestor(file.path())) {
+                preserved++;
+                progress.accept("检查整合包 " + (++checked) + "/" + manifest.files().size(), checked / (double) manifest.files().size() * 0.15);
+                continue;
+            }
             Path target = SaoPackFiles.resolve(instance, file.path());
             boolean playerOwned = SaoPackManifest.isPlayerFile(file.path()) && Files.exists(target, LinkOption.NOFOLLOW_LINKS);
             @Nullable SaoPackManifest.PackFile old = oldFiles.get(file.path());
@@ -173,10 +219,13 @@ public final class SaoPackInstaller {
         if (previous != null) {
             Set<String> obsolete = new TreeSet<>(manifest.removals());
             for (String path : oldFiles.keySet()) if (!newPaths.contains(path)) obsolete.add(path);
+            Map<String, String> folded = new HashMap<>();
+            for (String path : newPaths) folded.put(path.toLowerCase(Locale.ROOT), path);
             for (String path : obsolete) {
                 // Explicit removals cannot delete an arbitrary file that this launcher never owned.
                 if (oldFiles.containsKey(path) && !SaoPackManifest.isPlayerFile(path)
-                        && Files.exists(SaoPackFiles.resolve(instance, path), LinkOption.NOFOLLOW_LINKS)) removed.add(path);
+                        && Files.exists(SaoPackFiles.resolve(instance, path), LinkOption.NOFOLLOW_LINKS)
+                        && !sameFileAsNewPath(path, folded)) removed.add(path);
             }
         }
         Path stage = Files.createTempDirectory(instance, ".sao-stage-");
@@ -207,13 +256,24 @@ public final class SaoPackInstaller {
                 if (!SaoPackFiles.matches(destination, file)) throw new IOException("Pack checksum mismatch: " + file.path());
                 staged++;
             }
-            // All remote bytes stay in this transaction's stage until the entire batch verifies.
-            downloader.downloadAll(remote);
+            // All remote bytes stay in this transaction's stage until the entire batch verifies. Files verified by an
+            // earlier failed batch are reused from the SHA-1 cache, and this batch's verified files are kept there on failure.
+            Path cache = instance.resolve(DOWNLOAD_CACHE);
+            Map<SaoPackManifest.PackFile, Path> missing = new LinkedHashMap<>();
+            for (var item : remote.entrySet()) {
+                Path cached = SaoPackFiles.resolve(cache, item.getKey().sha1());
+                if (SaoPackFiles.matches(cached, item.getKey())) SaoPackFiles.atomicMove(cached, item.getValue());
+                else missing.put(item.getKey(), item.getValue());
+            }
+            try { downloader.downloadAll(missing); }
+            catch (Exception failure) { keepVerified(missing, cache, failure); throw failure; }
             for (var item : remote.entrySet()) {
                 if (!SaoPackFiles.matches(item.getValue(), item.getKey()))
                     throw new IOException("Pack checksum mismatch: " + item.getKey().path());
             }
             commit(stage, changed, removed, manifest, quickTouched);
+            try { if (Files.exists(cache, LinkOption.NOFOLLOW_LINKS)) SaoPackFiles.deleteTree(cache); }
+            catch (IOException ignored) { /* A leftover cache is reused or replaced by the next install. */ }
             verified += changed.size();
             if (!repair && previous != null) {
                 // Incremental update deliberately avoids rehashing unchanged managed payloads.
@@ -230,6 +290,118 @@ public final class SaoPackInstaller {
         }
     }
 
+    /// Rolls back any commit interrupted by a crash or closed window, under the instance lock; skipped while another
+    /// launcher holds the lock.
+    public void recover() throws IOException {
+        if (!Files.isDirectory(instance, LinkOption.NOFOLLOW_LINKS)) return;
+        Path lockPath = instance.resolve(".sao-pack.lock");
+        if (Files.isSymbolicLink(lockPath)) throw new IOException("Invalid pack lock file");
+        try (FileChannel channel = FileChannel.open(lockPath, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
+             var lock = channel.tryLock()) {
+            if (lock != null) recoverLocked();
+        }
+    }
+
+    /// Journaled stages are rolled back unless their version change already moved the receipt; finished, torn or
+    /// unjournaled stages are removed. A stage whose rollback fails is kept (and logged) so its backups are never lost.
+    private void recoverLocked() throws IOException {
+        if (!Files.isDirectory(instance, LinkOption.NOFOLLOW_LINKS)) return;
+        List<Path> stages = new ArrayList<>();
+        try (var listing = Files.newDirectoryStream(instance, ".sao-stage-*")) {
+            for (Path stage : listing) if (Files.isDirectory(stage, LinkOption.NOFOLLOW_LINKS)) stages.add(stage);
+        }
+        Path receipt = instance.resolve(RECEIPT);
+        @Nullable String installed;
+        try { installed = Files.isRegularFile(receipt, LinkOption.NOFOLLOW_LINKS) ? digest(Files.readString(receipt, StandardCharsets.UTF_8)) : null; }
+        catch (IOException unreadable) { installed = null; }
+        for (Path stage : stages) {
+            try {
+                Path journal = stage.resolve(JOURNAL);
+                if (Files.isRegularFile(journal, LinkOption.NOFOLLOW_LINKS)) {
+                    // A torn journal was cut off while being written, before any instance change: nothing to undo.
+                    @Nullable JsonObject entry;
+                    try { entry = JsonParser.parseString(Files.readString(journal, StandardCharsets.UTF_8)).getAsJsonObject(); }
+                    catch (IOException | RuntimeException torn) { entry = null; }
+                    // The journal is removed right after the receipt moves; a version change whose receipt already
+                    // landed is complete, anything else (including an interrupted Repair) is undone.
+                    if (entry != null) {
+                        String target = entry.get("manifest").getAsString();
+                        boolean landed = entry.has("previous") && !target.equals(entry.get("previous").getAsString()) && target.equals(installed);
+                        if (!landed) rollBack(stage, entry);
+                    }
+                }
+                SaoPackFiles.deleteTree(stage);
+            } catch (IOException | RuntimeException failure) {
+                // Keep the stage (and its backups) for the next start rather than blocking the launcher now.
+                LOG.warning("Pack recovery postponed for " + stage.getFileName(), failure);
+            }
+        }
+    }
+
+    /// Restores each backed-up file and removes newly added files whose staged copy was already moved in.
+    private void rollBack(Path stage, JsonObject journal) throws IOException {
+        List<String> paths = new ArrayList<>();
+        for (var path : journal.getAsJsonArray("paths")) paths.add(path.getAsString());
+        Set<String> added = new HashSet<>();
+        for (var path : journal.getAsJsonArray("changed")) added.add(path.getAsString());
+        Collections.reverse(paths);
+        for (String path : paths) {
+            Path target = SaoPackFiles.resolve(instance, path);
+            Path backup = SaoPackFiles.resolve(stage.resolve("backup"), path);
+            if (Files.isRegularFile(backup, LinkOption.NOFOLLOW_LINKS)) {
+                Files.createDirectories(target.getParent());
+                SaoPackFiles.atomicMove(backup, target);
+            } else if (added.contains(path) && !Files.exists(SaoPackFiles.resolve(stage.resolve("new"), path), LinkOption.NOFOLLOW_LINKS)) {
+                Files.deleteIfExists(target);
+            }
+        }
+    }
+
+    /// SHA-1 of UTF-8 text, identifying a manifest by its exact receipt bytes.
+    private static String digest(String text) throws IOException {
+        return SaoPackArchive.sha1(new ByteArrayInputStream(text.getBytes(StandardCharsets.UTF_8)));
+    }
+
+    /// Writes and flushes a small file to disk before it is relied on.
+    private static void writeDurably(Path path, String text) throws IOException {
+        try (FileChannel channel = FileChannel.open(path, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE)) {
+            java.nio.ByteBuffer buffer = java.nio.ByteBuffer.wrap(text.getBytes(StandardCharsets.UTF_8));
+            while (buffer.hasRemaining()) channel.write(buffer);
+            channel.force(true);
+        }
+    }
+
+    /// Whether a folder on the way to this instance path is a symbolic link.
+    private boolean linkedAncestor(String path) {
+        Path absolute = instance.toAbsolutePath().normalize();
+        for (Path current = absolute.resolve(path).normalize().getParent(); current != null && current.startsWith(absolute) && !current.equals(absolute);
+             current = current.getParent())
+            if (Files.isSymbolicLink(current)) return true;
+        return false;
+    }
+
+    /// A case-only rename on a case-insensitive filesystem names the same file as its new path; removing it would
+    /// delete the new file too.
+    private boolean sameFileAsNewPath(String path, Map<String, String> folded) throws IOException {
+        @Nullable String renamed = folded.get(path.toLowerCase(Locale.ROOT));
+        if (renamed == null || renamed.equals(path)) return false;
+        Path current = SaoPackFiles.resolve(instance, renamed);
+        return Files.exists(current, LinkOption.NOFOLLOW_LINKS) && Files.isSameFile(current, SaoPackFiles.resolve(instance, path));
+    }
+
+    /// Moves every verified file of a failed batch into the SHA-1 cache so the next attempt does not download it again.
+    private static void keepVerified(Map<SaoPackManifest.PackFile, Path> files, Path cache, Exception failure) {
+        try {
+            if (Files.isSymbolicLink(cache)) return;
+            Files.createDirectories(cache);
+            for (var item : files.entrySet()) {
+                Path cached = SaoPackFiles.resolve(cache, item.getKey().sha1());
+                if (!Files.exists(cached, LinkOption.NOFOLLOW_LINKS) && SaoPackFiles.matches(item.getValue(), item.getKey()))
+                    SaoPackFiles.atomicMove(item.getValue(), cached);
+            }
+        } catch (IOException | RuntimeException cacheFailure) { failure.addSuppressed(cacheFailure); }
+    }
+
     /// Replaces files and managed removals, restoring previous contents on failure.
     /// Quick-update settings backups survive success under a unique launcher-owned transaction directory.
     private void commit(Path stage, List<SaoPackManifest.PackFile> changed, List<String> removed,
@@ -240,6 +412,19 @@ public final class SaoPackInstaller {
         try {
             List<String> mutations = new ArrayList<>(removed);
             for (var file : changed) mutations.add(file.path());
+            // A crash after this point is rolled back (or, once the receipt moved, rolled forward) on the next start.
+            JsonObject journal = new JsonObject();
+            journal.addProperty("manifest", digest(manifest.toJson()));
+            Path current = instance.resolve(RECEIPT);
+            journal.addProperty("previous", Files.isRegularFile(current, LinkOption.NOFOLLOW_LINKS)
+                    ? digest(Files.readString(current, StandardCharsets.UTF_8)) : "");
+            JsonArray paths = new JsonArray(), added = new JsonArray();
+            mutations.forEach(paths::add);
+            // Only files that did not exist before are removed on rollback; replaced files come back from backup.
+            for (var file : changed)
+                if (!Files.exists(SaoPackFiles.resolve(instance, file.path()), LinkOption.NOFOLLOW_LINKS)) added.add(file.path());
+            journal.add("paths", paths); journal.add("changed", added);
+            writeDurably(stage.resolve(JOURNAL), journal.toString());
             int count = 0;
             for (String path : mutations) {
                 Path target = SaoPackFiles.resolve(instance, path);
@@ -272,8 +457,9 @@ public final class SaoPackInstaller {
                 Files.copy(SaoPackFiles.resolve(stage.resolve("backup"), path), destination);
             }
             Path receipt = stage.resolve("receipt.json");
-            Files.writeString(receipt, manifest.toJson(), StandardCharsets.UTF_8);
+            writeDurably(receipt, manifest.toJson());
             SaoPackFiles.atomicMove(receipt, instance.resolve(RECEIPT));
+            Files.deleteIfExists(stage.resolve(JOURNAL));
         } catch (IOException | RuntimeException failure) {
             Collections.reverse(committed);
             for (String path : committed) {

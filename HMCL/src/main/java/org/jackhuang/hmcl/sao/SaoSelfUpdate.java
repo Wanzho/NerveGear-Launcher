@@ -149,7 +149,7 @@ public final class SaoSelfUpdate {
                     state = new State(active, state.previous(), null, null, 0, 0, "启动器更新文件损坏，请重新下载");
                 } else {
                     String token = UUID.randomUUID().toString();
-                    write(new State(staged, active, null, token, ProcessHandle.current().pid(), System.currentTimeMillis() + 75000, "正在验证新版启动器启动"));
+                    write(new State(staged, active, null, token, ProcessHandle.current().pid(), System.currentTimeMillis() + 315_000, "正在验证新版启动器启动"));
                     return new Selection(artifactPath(staged), staged.version(), token);
                 }
             } else state = new State(active, state.previous(), null, null, 0, 0, state.message());
@@ -193,8 +193,16 @@ public final class SaoSelfUpdate {
         @Nullable String token = System.getProperty("sao.selfUpdateAttempt");
         @Nullable String directory = System.getProperty("sao.selfUpdateRoot");
         if (token == null || directory == null) return;
-        try { new SaoSelfUpdate(Path.of(directory)).acknowledge(token); }
-        catch (Exception failure) { System.err.println("Launcher update acknowledgement failed: " + failure.getClass().getSimpleName()); }
+        // The state lock may briefly be held by another reader; retry instead of letting a healthy update roll back.
+        for (int attempt = 0; ; attempt++) {
+            try { new SaoSelfUpdate(Path.of(directory)).acknowledge(token); return; }
+            catch (Exception failure) {
+                if (attempt < 9 && failure.getMessage() != null && failure.getMessage().contains("另一个启动器")) {
+                    try { Thread.sleep(200); continue; } catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
+                }
+                System.err.println("Launcher update acknowledgement failed: " + failure.getClass().getSimpleName()); return;
+            }
+        }
     }
 
     /// Isolated acknowledgement seam used by startup and headless state-machine tests.

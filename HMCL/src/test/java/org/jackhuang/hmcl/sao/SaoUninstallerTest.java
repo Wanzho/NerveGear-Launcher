@@ -37,7 +37,8 @@ class SaoUninstallerTest {
                 || actual.startsWith(evidence.resolve("gitee3/fixtures"))
                 || actual.startsWith(evidence.resolve("merge1/fixtures"))
                 || actual.startsWith(evidence.resolve("merge2/fixtures"))
-                || actual.startsWith(evidence.resolve("loginmail1/fixtures")), "Configure an isolated launcher fixture directory before these tests");
+                || actual.startsWith(evidence.resolve("loginmail1/fixtures"))
+                || actual.startsWith(evidence.resolve("fixreview1/fixtures")), "Configure an isolated launcher fixture directory before these tests");
     }
 
     /// Counts shared/nested roots once and never traverses a link into unrelated data.
@@ -63,6 +64,8 @@ class SaoUninstallerTest {
         Files.createDirectories(instance.resolve("screenshots"));
         Files.writeString(instance.resolve("saves/world/level.dat"), "synthetic world");
         Files.write(instance.resolve("screenshots/one.png"), new byte[]{1, 2, 3});
+        Files.createDirectories(instance.resolve("backups"));
+        Files.write(instance.resolve("backups/world-1.zip"), new byte[]{4, 5});
         Files.writeString(root.resolve("launcher-settings.json"), "fixture");
         SaoUninstaller uninstaller = plan(List.of(root), instance, noTrash());
         uninstaller.preserve();
@@ -75,6 +78,7 @@ class SaoUninstallerTest {
         uninstaller.remove(List.of());
         assertFalse(Files.exists(root));
         assertTrue(Files.isRegularFile(kept.resolve("saves/world/level.dat")));
+        assertTrue(Files.isRegularFile(kept.resolve("backups/world-1.zip")));
     }
 
     /// Existing recovery folders are never replaced; creation selects the first available numbered suffix atomically.
@@ -228,8 +232,13 @@ class SaoUninstallerTest {
             awaitIdle(engine);
             AtomicBoolean busy = flag(engine, "busy");
             busy.set(true);
+            java.util.concurrent.atomic.AtomicInteger refusals = new java.util.concurrent.atomic.AtomicInteger();
+            engine.lastError().addListener((o, a, b) -> { if (b != null) refusals.incrementAndGet(); });
             engine.uninstall(false);
             assertNotNull(engine.lastError().get());
+            // The same refusal twice still reaches the dialog twice.
+            engine.uninstall(false);
+            assertEquals(2, refusals.get());
             busy.set(false);
             flag(engine, "gameRunning").set(true);
             engine.uninstall(false);
@@ -379,5 +388,57 @@ class SaoUninstallerTest {
     private interface CheckedCondition {
         /// Returns true when the expected synthetic state has been observed.
         boolean get() throws Exception;
+    }
+
+    /// The Windows cleanup script carries a UTF-8 BOM so PowerShell 5.1 keeps Chinese paths intact.
+    @Test void windowsScriptHasUtf8Bom() {
+        byte[] windows = SaoUninstallHelper.scriptBytes("$p = 'C:\\Users\\张三'", true);
+        assertEquals((byte) 0xEF, windows[0]); assertEquals((byte) 0xBB, windows[1]); assertEquals((byte) 0xBF, windows[2]);
+        assertEquals("$p = 'C:\\Users\\张三'", new String(windows, 3, windows.length - 3, java.nio.charset.StandardCharsets.UTF_8));
+        assertEquals('#', (char) SaoUninstallHelper.scriptBytes("#!/bin/sh", false)[0]);
+    }
+
+    /// Uninstall targets the native install's shipped entries (or the whole .app), never the folder's other files.
+    @Test void installTargetsCoverShippedEntriesOnly() throws Exception {
+        Path install = Files.createDirectories(temporary.resolve("Games/NerveGear-Launcher"));
+        Files.createDirectories(install.resolve("app")); Files.writeString(install.resolve("app/launcher.jar"), "jar");
+        Files.createDirectories(install.resolve("runtime/bin"));
+        Files.writeString(install.resolve("NerveGear启动器.exe"), "exe");
+        Files.writeString(install.resolve("other-game.txt"), "keep");
+        assertEquals(install, SaoUninstallHelper.installRoot(install.resolve("app/launcher.jar")));
+        assertEquals(List.of(install.resolve("NerveGear启动器.exe"), install.resolve("app"), install.resolve("runtime")),
+                SaoUninstallHelper.installTargets(install));
+        assertEquals(List.of(), SaoUninstallHelper.installTargets(temporary.resolve("Games")));
+        Path bundle = temporary.resolve("Applications/NerveGear启动器.app");
+        Files.createDirectories(bundle.resolve("Contents/app"));
+        Files.writeString(bundle.resolve("Contents/Info.plist"), "plist");
+        Files.writeString(bundle.resolve("Contents/app/launcher.jar"), "jar");
+        assertEquals(bundle, SaoUninstallHelper.installRoot(bundle.resolve("Contents/app/launcher.jar")));
+        assertEquals(List.of(bundle), SaoUninstallHelper.installTargets(bundle));
+        assertNull(SaoUninstallHelper.installRoot(temporary.resolve("self-update/abc.jar")));
+    }
+
+    /// A localized XDG desktop such as ~/桌面 is used instead of a missing ~/Desktop.
+    @Test void xdgDesktopIsRead() throws Exception {
+        Path home = temporary.resolve("home");
+        Path dirs = Files.createDirectories(home.resolve(".config")).resolve("user-dirs.dirs");
+        Files.writeString(dirs, "# comment\nXDG_DESKTOP_DIR=\"$HOME/桌面\"\n");
+        assertEquals(home.resolve("桌面"), SaoUninstaller.xdgDesktop(dirs, home));
+        Files.writeString(dirs, "XDG_DESKTOP_DIR=\"$HOME/\"\n");
+        assertNull(SaoUninstaller.xdgDesktop(dirs, home));
+        assertNull(SaoUninstaller.xdgDesktop(home.resolve("missing"), home));
+    }
+
+    /// A link above the launcher's data root (a moved profile or junctioned folder) does not block play; one inside does.
+    @Test void routineCheckIgnoresLinksAboveTheDataRoot() throws Exception {
+        Path real = Files.createDirectories(temporary.resolve("real"));
+        Path moved = Files.createSymbolicLink(temporary.resolve("moved"), real);
+        Path base = Files.createDirectories(moved.resolve(".sao-oath-launcher"));
+        Path inside = Files.createDirectories(base.resolve("minecraft/versions/sao-oath"));
+        SaoUninstaller.rejectLinksBelow(base, inside.resolve(".sao-launch-ticket.json"));
+        assertThrows(IOException.class, () -> SaoUninstaller.rejectSymlinkAncestors(inside));
+        Path elsewhere = Files.createDirectories(temporary.resolve("elsewhere"));
+        Files.createSymbolicLink(base.resolve("skins"), elsewhere);
+        assertThrows(IOException.class, () -> SaoUninstaller.rejectLinksBelow(base, base.resolve("skins/a.png")));
     }
 }

@@ -238,6 +238,9 @@ final class SaoAccountClient {
     private static SaoAccountException mapped(int status, byte[] bytes, String route) {
         if (route.endsWith("/sao/pow") && (status == 404 || status == 405 || status == 501))
             return new SaoAccountException("账号服务暂不支持操作验证", "powUnavailable");
+        // An account server older than sao_auth 1.9.3 has no game-scoped token; the launch falls back and logs it.
+        if (route.endsWith("/sao/game-token") && (status == 404 || status == 405 || status == 501))
+            return new SaoAccountException("账号服务暂不支持游戏凭证", "gameTokenUnavailable");
         String message = "";
         String code = "";
         long waitSeconds = 0;
@@ -254,6 +257,7 @@ final class SaoAccountClient {
             case "powInvalid" -> new SaoAccountException("操作验证无效，请重试", code);
             case "powExpired" -> new SaoAccountException("操作验证已过期，请重试", code);
             case "powReplayed" -> new SaoAccountException("操作验证已使用，请重试", code);
+            case "wrongPassword" -> new SaoAccountException("密码错误", code);
             case "premiumUnlinked" -> new SaoAccountException("未绑定微软账号", code);
             case "textureChoice", "textureSyncBusy" -> new SaoAccountException("同步失败", code);
             case "playerMissing" -> new SaoAccountException("没有找到这位玩家", "playerMissing");

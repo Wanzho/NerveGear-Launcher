@@ -20,12 +20,16 @@ final class SaoSettings {
     /// In-memory copy guarded by this object's monitor.
     private JsonObject values = new JsonObject();
 
-    /// Loads the last complete settings file; malformed files are preserved and reported to the caller.
+    /// Loads the last complete settings file. A damaged file (for example cut short by a power loss) is kept aside as
+    /// `launcher-settings.json.corrupt-<time>` and the defaults are used, so the launcher still starts.
     SaoSettings(Path root) throws IOException {
         file = root.resolve("launcher-settings.json");
         if (Files.exists(file)) {
             try { values = JsonParser.parseString(Files.readString(file)).getAsJsonObject(); }
-            catch (RuntimeException failure) { throw new IOException("Invalid launcher settings", failure); }
+            catch (java.nio.charset.CharacterCodingException | RuntimeException failure) {
+                Files.move(file, file.resolveSibling(file.getFileName() + ".corrupt-" + System.currentTimeMillis()), StandardCopyOption.REPLACE_EXISTING);
+                values = new JsonObject();
+            }
         }
     }
 
@@ -58,6 +62,8 @@ final class SaoSettings {
         Path temporary = Files.createTempFile(file.getParent(), "settings-", ".tmp");
         try {
             Files.writeString(temporary, replacement.toString());
+            // Flush before the rename, so a crash cannot leave an empty settings file in place.
+            try (java.nio.channels.FileChannel channel = java.nio.channels.FileChannel.open(temporary, java.nio.file.StandardOpenOption.WRITE)) { channel.force(true); }
             try { Files.move(temporary, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING); }
             catch (java.nio.file.AtomicMoveNotSupportedException unsupported) {
                 Files.move(temporary, file, StandardCopyOption.REPLACE_EXISTING);

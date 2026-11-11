@@ -163,6 +163,17 @@ final class SaoApps {
         return box;
     }
 
+    /// Shows an action's outcome in its window: a short word on success, the reason on failure (then `undo`).
+    private static void report(java.util.concurrent.CompletableFuture<Void> action, Text status, String done, @Nullable Runnable undo) {
+        status.setText("");
+        action.whenComplete((ignored, failure) -> javafx.application.Platform.runLater(() -> {
+            if (failure == null) { status.setText(done); return; }
+            Throwable cause = failure instanceof java.util.concurrent.CompletionException && failure.getCause() != null ? failure.getCause() : failure;
+            status.setText("! " + java.util.Objects.toString(cause.getMessage(), "操作失败"));
+            if (undo != null) undo.run();
+        }));
+    }
+
     // ------------------------------------------------------------------ settings
 
     /// Settings: memory, the game window, JVM arguments, repair and the game folder.
@@ -353,7 +364,7 @@ final class SaoApps {
                 new javafx.animation.KeyFrame(javafx.util.Duration.millis(500), e -> sizeText.run()));
         poll.setCycleCount(javafx.animation.Animation.INDEFINITE);
         ToggleButton keep = toggle(true);
-        Text where = dim("复制到桌面「" + s.keptSavesFolder().getFileName() + "」", 12);
+        Text where = dim("复制到「" + s.keptSavesFolder() + "」", 12);
         where.visibleProperty().bind(keep.selectedProperty());
         HBox keepRow = row(ink("保留存档和截图", 14), keep);
         keepRow.setMaxWidth(560);
@@ -406,9 +417,10 @@ final class SaoApps {
 
     /// Worlds: the saves with backup and export, and the backups with restore.
     static SaoFloatWindow worlds(SaoLauncherService s, Runnable close) {
+        Text status = dim("", 12);
         VBox saves = live(s.worlds(), w -> {
             Button backup = button("备份");
-            backup.setOnAction(e -> s.backupWorld(w));
+            backup.setOnAction(e -> report(s.backupWorld(w), status, "备份完成", null));
             Button export = button("导出");
             export.setOnAction(e -> {
                 FileChooser c = new FileChooser();
@@ -416,14 +428,14 @@ final class SaoApps {
                 c.setInitialFileName(w.name() + ".zip");
                 c.getExtensionFilters().add(new FileChooser.ExtensionFilter("zip", "*.zip"));
                 @Nullable File f = c.showSaveDialog(Controllers.getStage());
-                if (f != null) s.exportWorld(w, f.toPath());
+                if (f != null) report(s.exportWorld(w, f.toPath()), status, "导出完成", null);
             });
             HBox t = tile(thumb(w.icon(), SVG.LANDSCAPE, 40), lines(w.name(), w.mode() + " · " + ago(w.lastPlayed()) + " · " + size(w.sizeBytes())), grow(), backup, export);
             return t;
         }, empty(SVG.LANDSCAPE, "还没有单人世界"));
         VBox backups = live(s.backups(), b -> {
             Button restore = button("恢复");
-            restore.setOnAction(e -> s.restoreBackup(b));
+            restore.setOnAction(e -> report(s.restoreBackup(b), status, "恢复完成", null));
             String world = b.world().getFileName() == null ? "" : b.world().getFileName().toString();
             for (SaoData.World w : s.worlds()) if (w.folder().equals(b.world())) world = w.name();
             return tile(lines(world, ago(b.time()) + " · " + size(b.sizeBytes())), grow(), restore);
@@ -434,7 +446,7 @@ final class SaoApps {
         openBackups.setOnAction(e -> s.openFolder(SaoData.Folder.BACKUPS));
         VBox left = column(400, key("存档"), scroll(saves));
         VBox right = column(236, key("备份"), scroll(backups));
-        return new SaoFloatWindow("世界", W, H, close).add(columns(left, right), footer(openSaves, openBackups));
+        return new SaoFloatWindow("世界", W, H, close).add(columns(left, right), footer(openSaves, openBackups, status));
     }
 
     // ------------------------------------------------------------------ multiplayer
@@ -513,6 +525,7 @@ final class SaoApps {
 
     /// Shaders and resource packs, as two tabs; zips dropped on the window are added.
     static SaoFloatWindow packs(SaoLauncherService s, Runnable close) {
+        Text status = dim("", 12);
         ToggleGroup tabs = new ToggleGroup();
         ToggleButton shaders = chip("光影", tabs);
         ToggleButton resources = chip("资源包", tabs);
@@ -520,16 +533,17 @@ final class SaoApps {
 
         ToggleGroup pick = new ToggleGroup();
         VBox shaderList = new VBox(6);
+        Runnable[] refill = new Runnable[1];
         Runnable fillShaders = () -> {
             List<Node> rows = new ArrayList<>();
             ToggleButton none = chip("使用", pick);
-            none.setOnAction(e -> s.setShader(null));
+            none.setOnAction(e -> report(s.setShader(null), status, "", refill[0]));
             boolean any = false;
             for (SaoData.Pack p : s.shaderPacks()) {
                 ToggleButton use = chip(p.enabled() ? "使用中" : "使用", pick);
                 use.setSelected(p.enabled());
                 any |= p.enabled();
-                use.setOnAction(e -> s.setShader(p));
+                use.setOnAction(e -> report(s.setShader(p), status, "", refill[0]));
                 rows.add(tile(thumb(p.icon(), SVG.WB_SUNNY, 36), lines(p.name(), p.description()), grow(), use));
             }
             none.setSelected(!any);
@@ -537,12 +551,18 @@ final class SaoApps {
             rows.add(0, tile(thumb(null, SVG.VISIBILITY_OFF, 36), lines("关闭光影", "帧数最高"), grow(), none));
             shaderList.getChildren().setAll(rows);
         };
+        refill[0] = fillShaders;
         s.shaderPacks().addListener((ListChangeListener<SaoData.Pack>) c -> fillShaders.run());
         fillShaders.run();
 
         VBox resourceList = live(s.resourcePacks(), p -> {
             ToggleButton on = toggle(p.enabled());
-            on.selectedProperty().addListener((o, a, b) -> s.setResourcePackEnabled(p, b));
+            boolean[] reverting = new boolean[1];
+            on.selectedProperty().addListener((o, a, b) -> {
+                if (reverting[0]) return;
+                // A refused change flips the switch back without asking the engine again.
+                report(s.setResourcePackEnabled(p, b), status, "", () -> { reverting[0] = true; on.setSelected(a); reverting[0] = false; });
+            });
             return tile(thumb(p.icon(), SVG.TEXTURE, 36), lines(p.name(), p.description()), grow(), on);
         }, empty(SVG.TEXTURE, "没有资源包"));
 
@@ -557,7 +577,7 @@ final class SaoApps {
         tabs.selectToggle(shaders);
         open.setOnAction(e -> s.openFolder(tabs.getSelectedToggle() == resources ? SaoData.Folder.RESOURCES : SaoData.Folder.SHADERS));
         HBox head = new HBox(6, shaders, resources);
-        SaoFloatWindow win = new SaoFloatWindow("光影与资源包", W, H, close).add(head, body, footer(open));
+        SaoFloatWindow win = new SaoFloatWindow("光影与资源包", W, H, close).add(head, body, footer(open, status));
         win.body.setOnDragOver(e -> {
             if (e.getDragboard().hasFiles()) e.acceptTransferModes(TransferMode.COPY);
             e.consume();
@@ -565,7 +585,7 @@ final class SaoApps {
         win.body.setOnDragDropped(e -> {
             List<Path> files = new ArrayList<>();
             for (File f : e.getDragboard().getFiles()) if (f.getName().toLowerCase().endsWith(".zip")) files.add(f.toPath());
-            if (!files.isEmpty()) s.addPacks(files, tabs.getSelectedToggle() != resources);
+            if (!files.isEmpty()) report(s.addPacks(files, tabs.getSelectedToggle() != resources), status, "已添加", null);
             e.setDropCompleted(!files.isEmpty());
             e.consume();
         });
@@ -673,28 +693,31 @@ final class SaoApps {
 
     /// Java and where downloads come from.
     static SaoFloatWindow java(SaoLauncherService s, Runnable close) {
+        Text status = dim("", 12);
         ToggleGroup pick = new ToggleGroup();
         VBox list = new VBox(6);
+        Runnable[] refill = new Runnable[1];
         Runnable fill = () -> {
             List<Node> rows = new ArrayList<>();
             ToggleButton auto = chip("自动", pick);
             auto.setSelected(s.java() == null);
-            auto.setOnAction(e -> s.setJava(null));
+            auto.setOnAction(e -> report(s.setJava(null), status, "", refill[0]));
             rows.add(tile(icon(SVG.LOCAL_CAFE, 24), lines("自动选择", "使用适合整合包的 Java 17"), grow(), auto));
             for (SaoData.JavaRuntime j : s.javas()) {
                 ToggleButton use = chip("使用", pick);
                 use.setSelected(j.executable().equals(s.java()));
-                use.setOnAction(e -> s.setJava(j.executable()));
+                use.setOnAction(e -> report(s.setJava(j.executable()), status, "", refill[0]));
                 rows.add(tile(icon(SVG.LOCAL_CAFE, 24), lines("Java " + j.version() + (j.managed() ? " · 启动器下载" : ""),
                         (j.vendor().isEmpty() ? "" : j.vendor() + " · ") + j.executable()), grow(), use));
             }
             list.getChildren().setAll(rows);
         };
+        refill[0] = fill;
         s.javas().addListener((ListChangeListener<SaoData.JavaRuntime>) c -> fill.run());
         fill.run();
         Button download = button("下载 Java 17");
-        download.setOnAction(e -> s.downloadJava());
-        VBox left = column(390, key("Java"), scroll(list), footer(download));
+        download.setOnAction(e -> report(s.downloadJava(), status, "下载完成", null));
+        VBox left = column(390, key("Java"), scroll(list), footer(download, status));
 
         ToggleGroup src = new ToggleGroup();
         ToggleButton auto = chip("自动", src);

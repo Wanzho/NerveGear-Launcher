@@ -48,7 +48,19 @@ class SaoExtrasGraphicsTest {
         }
     }
 
-    /// Missing configs are created minimally, and quality never enables a nonexistent shader pack.
+    /// A shader pack the player chose survives a preset; quality enables it and the other presets only switch it off.
+    @Test void presetKeepsChosenShader() throws Exception {
+        Files.createDirectories(instance.resolve("shaderpacks")); Files.writeString(instance.resolve("shaderpacks/Complementary.zip"), "fixture");
+        Files.createDirectories(instance.resolve("config"));
+        Files.writeString(instance.resolve("config/oculus.properties"), "shaderPack=Complementary.zip\nenableShaders=true\n");
+        SaoGraphicsPresets.apply(instance, SaoData.GraphicsPreset.FAST, false);
+        String oculus = Files.readString(instance.resolve("config/oculus.properties"));
+        assertTrue(oculus.contains("shaderPack=Complementary.zip")); assertTrue(oculus.contains("enableShaders=false"));
+        SaoGraphicsPresets.apply(instance, SaoData.GraphicsPreset.QUALITY, false);
+        assertTrue(Files.readString(instance.resolve("config/oculus.properties")).contains("enableShaders=true"));
+    }
+
+        /// Missing configs are created minimally, and quality never enables a nonexistent shader pack.
     @Test void missingFilesAndShaderFallback() throws Exception {
         SaoGraphicsPresets.apply(instance, SaoData.GraphicsPreset.QUALITY, false);
         assertEquals(8, Files.readAllLines(instance.resolve("options.txt")).size());

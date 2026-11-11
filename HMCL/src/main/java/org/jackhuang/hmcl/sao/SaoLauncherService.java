@@ -235,18 +235,21 @@ public interface SaoLauncherService {
     }
 
     /// Backs a world up as a zip in the backups folder (HMCL's WorldBackupTask).
-    default void backupWorld(SaoData.World world) {
+    default java.util.concurrent.CompletableFuture<Void> backupWorld(SaoData.World world) {
+        return java.util.concurrent.CompletableFuture.completedFuture(null);
     }
 
     /// Puts a backup back in place of its world, after backing up the current one first.
-    default void restoreBackup(SaoData.Backup backup) {
+    default java.util.concurrent.CompletableFuture<Void> restoreBackup(SaoData.Backup backup) {
+        return java.util.concurrent.CompletableFuture.completedFuture(null);
     }
 
     /// Exports a world as a zip the player can share.
     ///
     /// @param world the world
     /// @param zip   where to write
-    default void exportWorld(SaoData.World world, Path zip) {
+    default java.util.concurrent.CompletableFuture<Void> exportWorld(SaoData.World world, Path zip) {
+        return java.util.concurrent.CompletableFuture.completedFuture(null);
     }
 
     /// The shader packs in the instance.
@@ -255,7 +258,8 @@ public interface SaoLauncherService {
     }
 
     /// Picks the shader pack the game uses, or null for none (written to the shader mod's config).
-    default void setShader(SaoData.@Nullable Pack pack) {
+    default java.util.concurrent.CompletableFuture<Void> setShader(SaoData.@Nullable Pack pack) {
+        return java.util.concurrent.CompletableFuture.completedFuture(null);
     }
 
     /// The resource packs in the instance, in the order the game applies them.
@@ -264,14 +268,16 @@ public interface SaoLauncherService {
     }
 
     /// Turns a resource pack on or off (written to options.txt; the pack's own required packs stay on).
-    default void setResourcePackEnabled(SaoData.Pack pack, boolean enabled) {
+    default java.util.concurrent.CompletableFuture<Void> setResourcePackEnabled(SaoData.Pack pack, boolean enabled) {
+        return java.util.concurrent.CompletableFuture.completedFuture(null);
     }
 
     /// Copies files the player dropped on the shader or resource window into the right folder.
     ///
     /// @param files the dropped zips
     /// @param shaders true for shaderpacks, false for resourcepacks
-    default void addPacks(List<Path> files, boolean shaders) {
+    default java.util.concurrent.CompletableFuture<Void> addPacks(List<Path> files, boolean shaders) {
+        return java.util.concurrent.CompletableFuture.completedFuture(null);
     }
 
     /// The game's screenshots, newest first.
@@ -325,11 +331,13 @@ public interface SaoLauncherService {
     }
 
     /// Picks a Java, or null for automatic.
-    default void setJava(@Nullable Path executable) {
+    default java.util.concurrent.CompletableFuture<Void> setJava(@Nullable Path executable) {
+        return java.util.concurrent.CompletableFuture.completedFuture(null);
     }
 
     /// Downloads the right Java into the launcher's folder.
-    default void downloadJava() {
+    default java.util.concurrent.CompletableFuture<Void> downloadJava() {
+        return java.util.concurrent.CompletableFuture.completedFuture(null);
     }
 
     /// Where downloads come from.
@@ -619,8 +627,12 @@ public interface SaoLauncherService {
         return java.util.List.of("zz.saooath.com", "tz.saooath.com", "sq.saooath.com");
     }
 
-    /// Changes the signed-in account's mailbox (`POST /sao/email`); a code goes to the new one.
-    default CompletableFuture<Void> oathChangeEmail(String email) {
+    /// Changes the signed-in account's mailbox (`POST /sao/email`); a code goes to the new one. The current password is
+    /// required (sao_auth 1.9.3); a passwordless Microsoft-created account passes an empty one and signs in to Microsoft.
+    ///
+    /// @param email the new mailbox
+    /// @param password the current password, wiped by the call; empty only for a passwordless account
+    default CompletableFuture<Void> oathChangeEmail(String email, char[] password) {
         return unsupported();
     }
 

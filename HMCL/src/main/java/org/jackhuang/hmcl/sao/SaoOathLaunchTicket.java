@@ -16,6 +16,11 @@ import java.util.concurrent.TimeUnit;
 /// Owner-only, short-lived handoff for the future client login-query handler; never a process argument.
 @NotNullByDefault
 final class SaoOathLaunchTicket implements AutoCloseable {
+    /// Largest local clock error tolerated when checking the server's absolute expiry.
+    static final long MAX_CLOCK_SKEW = 24L * 60 * 60 * 1000;
+    /// Cleanup delay for a ticket whose expiry cannot be trusted against the local clock; the full 10-minute server
+    /// lifetime, so a slow modded-game start can still read the file.
+    static final long SKEWED_LIFETIME = 600_000;
     /// Fixed instance-relative filename; the client deletes it immediately after reading.
     static final String FILE_NAME = ".sao-launch-ticket.json";
     /// Exact file created for this launch.
@@ -39,15 +44,23 @@ final class SaoOathLaunchTicket implements AutoCloseable {
         }
         catch (RuntimeException invalid) { throw new SaoAccountException("启动凭证无效", "invalidTicket"); }
         long remaining = expires - System.currentTimeMillis();
-        if (!ticket.matches("[A-Za-z0-9_-]{43}") || remaining <= 0 || remaining > 600_000
-                || !profileId.equalsIgnoreCase(issuedProfile)) throw new SaoAccountException("启动凭证已过期，请重试", "invalidTicket");
+        // The ticket was issued a moment ago and the server checks expiry with its own clock, so an expiry outside the
+        // normal 10-minute window means the PC clock is off (common when time sync fails). Tolerate up to a day of skew
+        // and remove the leftover file after a default lifetime instead.
+        boolean skewed = remaining <= 0 || remaining > 600_000;
+        if (!ticket.matches("[A-Za-z0-9_-]{43}") || Math.abs(remaining) > MAX_CLOCK_SKEW
+                || !profileId.equalsIgnoreCase(issuedProfile)) throw new SaoAccountException("启动凭证已过期，请校准电脑时间后重试", "invalidTicket");
+        if (skewed) remaining = SKEWED_LIFETIME;
         Logger.registerAccessToken(ticket);
         JsonObject file = new JsonObject(); file.addProperty("version", 1); file.addProperty("apiRoot", api);
         file.addProperty("profileId", profileId); file.addProperty("targetServer", server);
-        file.addProperty("ticket", ticket); file.addProperty("expiresAtMillis", expires);
+        // The game mod (packui LaunchTicket.take) checks this expiry against the PC clock and refuses anything outside
+        // (now, now + 10 min]. The server checks its own clock and never reads this field, so write the expiry on the
+        // PC's clock: identical when the clock is right, and still accepted by the game when it is off (C-3).
+        file.addProperty("ticket", ticket); file.addProperty("expiresAtMillis", System.currentTimeMillis() + remaining);
         expected = file.toString().getBytes(StandardCharsets.UTF_8);
         path = instance.resolve(FILE_NAME);
-        SaoUninstaller.rejectSymlinkAncestors(path);
+        SaoUninstaller.rejectLinksBelowRoot(path);
         SaoWindowsPrivatePaths.prepare(launcherRoot,instance);
         Files.createDirectories(instance);
         Path temporary = Files.getFileStore(instance).supportsFileAttributeView(PosixFileAttributeView.class)

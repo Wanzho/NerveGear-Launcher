@@ -14,6 +14,8 @@ import java.util.*;
 final class SaoWindowsPrivatePaths {
     /// DACL_SECURITY_INFORMATION plus PROTECTED_DACL_SECURITY_INFORMATION disables inherited grants.
     static final int PROTECTED_DACL = 0x80000004;
+    /// BUILTIN\Administrators, the owner of folders created by an elevated process.
+    static final String ADMINISTRATORS = "S-1-5-32-544";
     /// Utility class; no native library is loaded on other platforms.
     private SaoWindowsPrivatePaths() {}
 
@@ -35,8 +37,13 @@ final class SaoWindowsPrivatePaths {
     /// Protects every launcher-owned ancestor before any ticket bytes are written; protection remains after exit.
     static void prepare(Path root,Path instance) throws IOException {
         if(!Platform.isWindows())return;
+        Path existing=root.toAbsolutePath().normalize();
+        while(existing.getParent()!=null&&!Files.exists(existing))existing=existing.getParent();
+        // FAT/exFAT drives (USB sticks) keep no permissions, so the ticket cannot be made private there.
+        if(!Files.getFileStore(existing).supportsFileAttributeView(java.nio.file.attribute.AclFileAttributeView.class))
+            throw new IOException("启动器所在磁盘不支持权限保护（如 exFAT U 盘），请把启动器放到 NTFS 磁盘");
         for(Path directory:plan(root,instance)){
-            SaoUninstaller.rejectSymlinkAncestors(directory);
+            SaoUninstaller.rejectLinksBelowRoot(directory);
             Files.createDirectories(directory);
             protect(directory,true);
         }
@@ -50,7 +57,13 @@ final class SaoWindowsPrivatePaths {
         var owner=new PointerByReference();var security=new PointerByReference();
         int status=api.GetNamedSecurityInfoW(new WString(path.toAbsolutePath().toString()),1,1,owner,null,null,null,security);
         if(status!=0)throw new IOException("无法读取启动凭证目录所有者");
-        try{if(!current.equals(sid(api,kernel,Objects.requireNonNull(owner.getValue()))))throw new IOException("启动凭证目录属于其他用户");}
+        try{
+            @Nullable Pointer ownerSid=owner.getValue();
+            if(ownerSid==null)throw new IOException("无法读取启动凭证目录所有者");
+            // A folder first created by "以管理员身份运行" is owned by Administrators; that owner is accepted too.
+            String found=sid(api,kernel,ownerSid);
+            if(!current.equals(found)&&!found.equals(ADMINISTRATORS))throw new IOException("启动凭证目录属于其他用户");
+        }
         finally{kernel.LocalFree(security.getValue());}
         try{verify(path,api,kernel);return;}catch(IOException changed){ /* First use or changed permissions require a protected replacement. */ }
         var descriptor=new PointerByReference();

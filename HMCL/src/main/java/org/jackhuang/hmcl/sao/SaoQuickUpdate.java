@@ -268,6 +268,8 @@ public record SaoQuickUpdate(String from, String to, SaoPackManifest before, Sao
             }
             verifyTree(tree, update.before(), update.base());
             try (ZipFile zip = new ZipFile(archives.get(hop).toFile(), StandardCharsets.UTF_8)) {
+                // Removals first, so a case-only rename or a file replaced by a folder can be staged.
+                for (String path : update.removed()) Files.deleteIfExists(SaoPackFiles.resolve(tree, path));
                 Set<String> replacements = new TreeSet<>(update.added()); replacements.addAll(update.changed());
                 for (String path : replacements) {
                     Path target = SaoPackFiles.resolve(tree, path);
@@ -277,9 +279,13 @@ public record SaoQuickUpdate(String from, String to, SaoPackManifest before, Sao
                     Files.createDirectories(target.getParent());
                     try (InputStream input = zip.getInputStream(entry); OutputStream output = Files.newOutputStream(target)) { copy(input, output, file.size()); }
                 }
-                for (String path : update.removed()) Files.deleteIfExists(SaoPackFiles.resolve(tree, path));
+                verifyTree(tree, update.after(), update.expected());
+            } catch (FileAlreadyExistsException | DirectoryNotEmptyException | NotDirectoryException | java.util.zip.ZipException layout) {
+                // A hop that cannot be staged here (an unusual rename or layout change) still has the full pack;
+                // environment failures such as a full disk or a locked file keep their own error.
+                throw new IOException(FULL_REQUIRED, layout);
             }
-            verifyTree(tree, update.after(), update.expected()); previous = update.after(); previousExpected = update.expected();
+            previous = update.after(); previousExpected = update.expected();
         }
         // Full cached sources use canonical entry names and include all managed files, so restart and repair need no old ZIP.
         List<SaoPackManifest.PackFile> files = new ArrayList<>();

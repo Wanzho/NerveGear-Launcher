@@ -247,6 +247,8 @@ final class SaoAccountApp {
             Node mail = mailRow(a, () -> go(Page.VERIFY));
 
             TextField email = field("新邮箱");
+            // A token alone cannot move the mailbox (sao_auth 1.9.3); empty only for a passwordless Microsoft account.
+            PasswordField mailPw = password("当前密码");
             Text problem = warn();
             Button changeMail = button("换邮箱");
             changeMail.setOnAction(e -> {
@@ -255,9 +257,11 @@ final class SaoAccountApp {
                     problem.setText("! 邮箱格式不对");
                     return;
                 }
-                call(changeMail, problem, () -> s.oathChangeEmail(m), () -> go(Page.VERIFY));
+                char[] p = mailPw.getText().toCharArray();
+                mailPw.clear();
+                call(changeMail, problem, () -> s.oathChangeEmail(m, p), () -> go(Page.VERIFY), p);
             });
-            HBox.setHgrow(email, Priority.ALWAYS);
+            HBox.setHgrow(mailPw, Priority.ALWAYS);
 
             // 游戏昵称 (James, 7 Nov: "把名字换成游戏昵称"): the pencil beside it on the home screen opens here. At most
             // three changes a day; the server says so when the fourth is tried.
@@ -316,7 +320,7 @@ final class SaoAccountApp {
             VBox right = new VBox(7,
                     key("游戏昵称"), new HBox(8, newName, rename),
                     rule(),
-                    key("邮箱"), new HBox(8, email, changeMail),
+                    key("邮箱"), email, new HBox(8, mailPw, changeMail),
                     rule(),
                     key("密码"), old, neu, new HBox(8, again, changePw),
                     problem);
@@ -385,15 +389,29 @@ final class SaoAccountApp {
             then.run();
             return;
         }
+        // Only the latest request waits; a cancelled sign-in drops its action instead of firing it later.
+        @Nullable ListChangeListener<Account> previous = pendingMicrosoft;
+        if (previous != null) Accounts.getAccounts().removeListener(previous);
         @SuppressWarnings("unchecked") ListChangeListener<Account>[] once = new ListChangeListener[1];
         once[0] = c -> {
             if (microsoftAccount() == null) return;
             Accounts.getAccounts().removeListener(once[0]);
+            if (pendingMicrosoft == once[0]) pendingMicrosoft = null;
             then.run();
         };
+        pendingMicrosoft = once[0];
         Accounts.getAccounts().addListener(once[0]);
-        Controllers.dialog(new CreateAccountPane(Accounts.FACTORY_MICROSOFT));
+        CreateAccountPane pane = new CreateAccountPane(Accounts.FACTORY_MICROSOFT);
+        pane.addEventHandler(org.jackhuang.hmcl.ui.construct.DialogCloseEvent.CLOSE, e -> {
+            if (microsoftAccount() != null || pendingMicrosoft != once[0]) return;
+            Accounts.getAccounts().removeListener(once[0]);
+            pendingMicrosoft = null;
+        });
+        Controllers.dialog(pane);
     }
+
+    /// The one Microsoft sign-in currently waiting to run its follow-up step, or null.
+    private static @Nullable ListChangeListener<Account> pendingMicrosoft;
 
     /// "47 小时" or "12 分钟".
     static String hours(long seconds) {

@@ -60,6 +60,10 @@ class SaoUpdatesTest {
             assertThrows(IOException.class, () -> SaoUpdates.parse(invalid), invalid);
         }
         assertThrows(IOException.class, () -> SaoUpdates.parse(" ".repeat(SaoUpdates.MAX_VERSION_BYTES + 1)));
+        // A newer release's extra fields are ignored, so older launchers still see the pack and launcher minimum.
+        SaoData.VersionMetadata future = SaoUpdates.parse(valid.replace("\"schema\":2", "\"schema\":2,\"future\":{\"x\":1}")
+                .replace("\"size\":1,", "\"size\":1,\"mirror\":\"x\",").replace("\"min\":", "\"channel\":\"stable\",\"min\":"));
+        assertEquals("0.1.0", future.launcher().min());
     }
 
     /// Numeric ordering is independent of decimal/lexical ordering and supports legacy local receipt labels.

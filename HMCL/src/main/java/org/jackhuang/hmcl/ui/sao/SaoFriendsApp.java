@@ -67,6 +67,8 @@ final class SaoFriendsApp {
     private final VBox addLine = new VBox(4);
     private final StackPane right = new StackPane();
     private @Nullable String open;
+    /// Removes the open chat's message listener; null when no chat is shown.
+    private @Nullable Runnable detach;
 
     private SaoFriendsApp(SaoLauncherService s) {
         this.s = s;
@@ -79,6 +81,8 @@ final class SaoFriendsApp {
 
     private SaoFloatWindow window(Runnable close) {
         keepOne(tabs);
+        // Closing the window stops following its chat.
+        right.sceneProperty().addListener((o, a, b) -> { if (b == null) closeChat(); });
         (tabFirst == 1 ? groupsTab : friendsTab).setSelected(true);
         tabs.selectedToggleProperty().addListener((o, a, b) -> fillList());
         Button add = round(SVG.ADD, 26, 14);
@@ -280,8 +284,15 @@ final class SaoFriendsApp {
 
     // ------------------------------------------------------------------ right
 
-    private void showNothing() {
+    /// Stops following the open chat, so a closed or switched chat is no longer marked read.
+    private void closeChat() {
+        if (detach != null) detach.run();
+        detach = null;
         open = null;
+    }
+
+    private void showNothing() {
+        closeChat();
         right.getChildren().setAll(empty(SVG.CHAT, "选一个好友或群聊"));
     }
 
@@ -298,6 +309,7 @@ final class SaoFriendsApp {
             showNothing();
             return;
         }
+        closeChat();
         open = id;
         if (c.group() && !groupsTab.isSelected()) groupsTab.setSelected(true);
         if (!c.group() && !friendsTab.isSelected()) friendsTab.setSelected(true);
@@ -354,25 +366,34 @@ final class SaoFriendsApp {
             col.getChildren().setAll(rows);
             Platform.runLater(() -> sp.setVvalue(1));
         };
-        msgs.addListener((ListChangeListener<SaoData.ChatMessage>) ch -> {
+        ListChangeListener<SaoData.ChatMessage> follow = ch -> {
             fill.run();
             if (chat.id().equals(open)) s.markRead(chat.id());
-        });
+        };
+        msgs.addListener(follow);
+        detach = () -> msgs.removeListener(follow);
         fill.run();
 
         // Writing.
         TextField say = field(chat.group() ? "发到 " + chat.title() : "发给 " + chat.title());
         HBox.setHgrow(say, Priority.ALWAYS);
         Button go = accent("发送");
+        Text failed = dim("", 12);
         Runnable send = () -> {
             String t = say.getText().strip();
             if (t.isEmpty()) return;
             say.clear();
-            s.sendMessage(chat.id(), t);
+            failed.setText("");
+            // A message that did not go out comes back to the field instead of vanishing.
+            s.sendMessage(chat.id(), t).whenComplete((ok, failure) -> Platform.runLater(() -> {
+                if (failure == null) return;
+                if (say.getText().isEmpty()) say.setText(t);
+                failed.setText("! 发送失败");
+            }));
         };
         go.setOnAction(e -> send.run());
         say.setOnAction(e -> send.run());
-        HBox write = new HBox(8, say, go);
+        HBox write = new HBox(8, say, failed, go);
         write.setAlignment(Pos.CENTER_LEFT);
 
         VBox pane = new VBox(8, head, rule(), sp, write);
@@ -436,7 +457,7 @@ final class SaoFriendsApp {
     // ------------------------------------------------------------------ new group
 
     private void showNewGroup() {
-        open = null;
+        closeChat();
         if (!groupsTab.isSelected()) groupsTab.setSelected(true);
         Text title = sao("新建群聊", 18, true);
         TextField name = field("群名");

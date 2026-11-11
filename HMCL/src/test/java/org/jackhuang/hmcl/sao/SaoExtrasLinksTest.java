@@ -18,7 +18,7 @@ class SaoExtrasLinksTest {
     /// Disposable last-good cache root.
     @TempDir Path temporary;
     /// Minimal strict schema sample.
-    private static final String VALID = "{\"links\":[{\"id\":\"site\",\"label\":\"官网\",\"url\":\"https://example.org/site\"}]}";
+    private static final String VALID = "{\"links\":[{\"id\":\"site\",\"label\":\"官网\",\"url\":\"https://afdian.com/site\"}]}";
 
     /// Valid lists preserve order and defaults use the existing sole Quark link.
     @Test void schemaAndDefaults() throws Exception {
@@ -62,13 +62,15 @@ class SaoExtrasLinksTest {
                 VALID.replace("\"site\"", "123"), VALID.replace("\"id\":", "\"extra\":\"x\",\"id\":"),
                 VALID.replace("\"id\":\"site\"", "\"id\":\"site\",\"id\":\"site\""),
                 VALID.replace("\"官网\"", "\"<b>官网</b>\""), VALID.replace("\"官网\"", "\"a\\nlabel\""),
-                VALID.replace("https://example.org/site", "http://example.org/site"),
-                VALID.replace("https://example.org/site", "javascript:alert(1)"),
-                VALID.replace("https://example.org/site", "https://user:pass@example.org/site"),
-                VALID.replace("https://example.org/site", "https://example.org:443/site"),
-                VALID.replace("https://example.org/site", "https://127.0.0.1/site"),
-                VALID.replace("https://example.org/site", "https://[::1]/site"),
-                VALID.replace("https://example.org/site", "https://localhost/site"),
+                VALID.replace("https://afdian.com/site", "http://example.org/site"),
+                VALID.replace("https://afdian.com/site", "https://evil.example/site"),
+                VALID.replace("https://afdian.com/site", "https://afdian.com.evil.example/site"),
+                VALID.replace("https://afdian.com/site", "javascript:alert(1)"),
+                VALID.replace("https://afdian.com/site", "https://user:pass@example.org/site"),
+                VALID.replace("https://afdian.com/site", "https://example.org:443/site"),
+                VALID.replace("https://afdian.com/site", "https://127.0.0.1/site"),
+                VALID.replace("https://afdian.com/site", "https://[::1]/site"),
+                VALID.replace("https://afdian.com/site", "https://localhost/site"),
                 "{\"links\":null}", "{\"links\":[],\"links\":[]}", "{\"links\":[{}]}",
                 "{\"links\":[" + String.join(",", Collections.nCopies(9, "{\"id\":\"same\",\"label\":\"x\",\"url\":\"https://example.org\"}")) + "]}")) {
             assertThrows(IOException.class, () -> SaoCommunityLinks.parse(invalid), invalid);

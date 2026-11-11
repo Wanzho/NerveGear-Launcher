@@ -43,6 +43,9 @@ class SaoModDownloadsTest {
                 urls(provider.getPackDownloadCandidates(List.of(edge, media, modrinth, media, second))));
         assertEquals(List.of(media, edge), urls(provider.getPackDownloadCandidates(List.of(edge, media))));
         assertEquals(List.of(modrinth), urls(provider.getPackDownloadCandidates(List.of(modrinth))));
+        // Raw brackets in a file name must not break host ordering (E-2).
+        String bracketMedia = "https://mediafilez.forgecdn.net/files/1/2/[1.20.1]Foo.jar", bracketModrinth = "https://cdn.modrinth.com/data/a/versions/b/[1.20.1]Foo.jar";
+        assertEquals(List.of(bracketModrinth, bracketMedia), urls(provider.getPackDownloadCandidates(List.of(bracketMedia, bracketModrinth))));
         assertTrue(provider.getPackDownloadCandidates(List.of(media)).getCandidates().stream()
                 .allMatch(candidate -> candidate.retry() == 2 && Duration.ofSeconds(10).equals(candidate.readTimeout())));
     }
@@ -77,7 +80,35 @@ class SaoModDownloadsTest {
         }
     }
 
-    /// A silent response body cannot occupy a worker until the long socket timeout or trigger same-host retries.
+    /// A slow only source is not cut off: with no other host left, the transfer keeps going and verifies.
+    @Test void slowOnlySourceIsNotCutOff() throws Exception {
+        try (LocalServer server = new LocalServer()) {
+            String content = "x".repeat(16 * 1024);
+            server.server.createContext("/slow", exchange -> {
+                try {
+                    exchange.sendResponseHeaders(200, content.length());
+                    for (int i = 0; i < 64; i++) {
+                        exchange.getResponseBody().write(content.substring(i * 256, i * 256 + 256).getBytes(StandardCharsets.UTF_8));
+                        exchange.getResponseBody().flush(); Thread.sleep(20);
+                    }
+                } catch (IOException ignored) { }
+                catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
+                finally { exchange.close(); }
+            });
+            List<SaoModDownloads.Transfer> results = new CopyOnWriteArrayList<>();
+            try (SaoModDownloads downloads = new SaoModDownloads(ignored -> DownloadCandidates.of(List.of(
+                    new DownloadCandidate(WebURL.parse(server.url("/slow")), null, 0, Duration.ofSeconds(2), Duration.ofSeconds(1)))),
+                    snapshot -> { }, results::add, Set.of("127.0.0.1"), Duration.ofMillis(250), 100 * 1024)) {
+                downloads.downloadAll(Map.of(file("slow", content), temporary.resolve("mods/slow.jar")));
+            }
+            assertTrue(results.get(0).verified()); assertEquals(0, results.get(0).stalls().size());
+            assertEquals(content, Files.readString(temporary.resolve("mods/slow.jar"))); assertNoTemporaryFiles();
+            assertEquals(SaoModDownloads.LAST_SOURCE_RETRY, SaoModDownloads.patientLastSource(DownloadCandidates.of(List.of(
+                    new DownloadCandidate(WebURL.parse(server.url("/a")), null, 2, null, null)))).getCandidates().get(0).retry());
+        }
+    }
+
+        /// A silent response body cannot occupy a worker until the long socket timeout or trigger same-host retries.
     @Test void silentBodyStallsAndFallsBack() throws Exception {
         try (LocalServer server = new LocalServer()) {
             String content = "x".repeat(65536); AtomicInteger silentRequests = new AtomicInteger();

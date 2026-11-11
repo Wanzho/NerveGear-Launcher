@@ -64,7 +64,7 @@ final class SaoReleaseState {
     byte @Nullable @Unmodifiable [] cached(Kind kind) throws IOException {
         return locked(() -> {
             @Nullable JsonObject entry = read().getAsJsonObject(kind.field);
-            return entry == null ? null : document(entry, kind);
+            return entry == null || !entry.has("document") ? null : document(entry, kind);
         });
     }
 
@@ -77,6 +77,10 @@ final class SaoReleaseState {
             @Nullable JsonObject previous = root.getAsJsonObject(kind.field);
             if (previous != null && sequence < SaoReleaseSignatures.number(previous, "highWater"))
                 throw new IOException("Release sequence rollback refused");
+            // At the same sequence only the identical document is accepted, so an older signed copy cannot be replayed.
+            if (previous != null && previous.has("document") && sequence == SaoReleaseSignatures.number(previous, "highWater")
+                    && !Arrays.equals(Base64.getDecoder().decode(SaoReleaseSignatures.text(previous, "document")), bytes))
+                throw new IOException("Different release at the same sequence refused");
             JsonObject entry = new JsonObject(); entry.addProperty("highWater", sequence);
             entry.addProperty("document", Base64.getEncoder().encodeToString(bytes));
             entry.addProperty("signature", Base64.getEncoder().encodeToString(signature));
@@ -85,25 +89,77 @@ final class SaoReleaseState {
         });
     }
 
-    /// Strictly validates the complete persisted transaction, rechecking each signature before its document is parsed.
+    /// Validates the persisted transaction per kind, rechecking each signature before its document is parsed.
+    /// An entry that no longer verifies or parses (a removed key, another launcher version, damage) keeps only its
+    /// sequence floor, so newer signed documents are still accepted and older ones still refused. A transaction that
+    /// cannot be read at all is set aside and the state restarts from any high-water marks still legible in its text.
     private JsonObject read() throws IOException {
-        if (!Files.exists(state, LinkOption.NOFOLLOW_LINKS)) {
-            JsonObject initial = new JsonObject(); initial.addProperty("schema", 1); return initial;
+        JsonObject initial = new JsonObject(); initial.addProperty("schema", 1);
+        if (!Files.exists(state, LinkOption.NOFOLLOW_LINKS)) return initial;
+        JsonObject root;
+        try {
+            byte @Unmodifiable [] bytes = bounded(state, MAX_STATE_BYTES);
+            root = SaoReleaseSignatures.object(SaoReleaseSignatures.utf8(bytes));
+            Set<String> expected = new HashSet<>(Set.of("schema"));
+            for (Kind kind : Kind.values()) if (root.has(kind.field)) expected.add(kind.field);
+            SaoReleaseSignatures.fields(root, expected);
+            // An existing transaction always contains an accepted document; empty state is only valid before the first write.
+            if (expected.size() == 1) throw new IOException("Empty release state transaction");
+            if (SaoReleaseSignatures.number(root, "schema") != 1) throw new IOException("Unsupported release state");
+        } catch (IOException | RuntimeException damaged) {
+            org.jackhuang.hmcl.util.logging.Logger.LOG.warning("Release state unreadable; keeping legible floors: " + damaged.getClass().getSimpleName());
+            JsonObject salvaged = salvage();
+            Files.move(state, state.resolveSibling(NAME + ".corrupt-" + System.currentTimeMillis()), StandardCopyOption.REPLACE_EXISTING);
+            if (salvaged.size() > 1) write(salvaged);
+            return salvaged;
         }
-        byte @Unmodifiable [] bytes = bounded(state, MAX_STATE_BYTES);
-        JsonObject root = SaoReleaseSignatures.object(SaoReleaseSignatures.utf8(bytes));
-        Set<String> expected = new HashSet<>(Set.of("schema"));
-        for (Kind kind : Kind.values()) if (root.has(kind.field)) expected.add(kind.field);
-        SaoReleaseSignatures.fields(root, expected);
-        // An existing transaction always contains an accepted document; empty state is only valid before the first write.
-        if (expected.size() == 1) throw new IOException("Empty release state transaction");
-        if (SaoReleaseSignatures.number(root, "schema") != 1) throw new IOException("Unsupported release state");
         for (Kind kind : Kind.values()) {
             if (!root.has(kind.field)) continue;
-            if (!root.get(kind.field).isJsonObject()) throw new IOException("Invalid release state entry");
-            document(root.getAsJsonObject(kind.field), kind);
+            JsonElement element = root.get(kind.field);
+            if (element.isJsonObject() && element.getAsJsonObject().keySet().equals(Set.of("highWater"))) continue;
+            try {
+                if (!element.isJsonObject()) throw new IOException("Invalid release state entry");
+                document(element.getAsJsonObject(), kind);
+            } catch (IOException | RuntimeException invalid) {
+                org.jackhuang.hmcl.util.logging.Logger.LOG.warning("Cached " + kind.field + " release dropped; keeping its sequence floor");
+                JsonObject floor = new JsonObject(); floor.addProperty("highWater", floor(element, kind));
+                root.add(kind.field, floor);
+            }
         }
         return root;
+    }
+
+    /// Builds a floor-only transaction from high-water marks still legible in an unparseable state file, so a torn or
+    /// damaged write never lowers the rollback floor. Floors are only ever raised by later signed documents.
+    private JsonObject salvage() {
+        JsonObject root = new JsonObject(); root.addProperty("schema", 1);
+        String text;
+        try {
+            if (Files.size(state) > 2L * MAX_STATE_BYTES) return root;
+            text = new String(Files.readAllBytes(state), java.nio.charset.StandardCharsets.ISO_8859_1);
+        } catch (IOException | RuntimeException unreadable) { return root; }
+        for (Kind kind : Kind.values()) {
+            // Base64 documents contain no braces or quotes, so the entry's own highWater is the first one before '}'.
+            var match = java.util.regex.Pattern.compile("\"" + kind.field + "\"\\s*:\\s*\\{[^}]*?\"highWater\"\\s*:\\s*(\\d{1,18})").matcher(text);
+            if (!match.find()) continue;
+            JsonObject floor = new JsonObject(); floor.addProperty("highWater", Long.parseLong(match.group(1)));
+            root.add(kind.field, floor);
+        }
+        return root;
+    }
+
+    /// Highest sequence an invalid entry still proves: its recorded high-water or its document's signed sequence.
+    private long floor(JsonElement element, Kind kind) {
+        long floor = 0;
+        if (!element.isJsonObject()) return floor;
+        JsonObject entry = element.getAsJsonObject();
+        try { floor = Math.max(floor, SaoReleaseSignatures.number(entry, "highWater")); } catch (IOException | RuntimeException ignored) { }
+        try {
+            byte[] bytes = Base64.getDecoder().decode(SaoReleaseSignatures.text(entry, "document"));
+            trust.verify(bytes, Base64.getDecoder().decode(SaoReleaseSignatures.text(entry, "signature")));
+            floor = Math.max(floor, kind.sequence(bytes));
+        } catch (IOException | RuntimeException ignored) { }
+        return floor;
     }
 
     /// Decodes a bounded envelope, verifies its raw bytes, then checks the persisted high-water against the signed sequence.
