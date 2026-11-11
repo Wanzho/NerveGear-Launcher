@@ -280,10 +280,10 @@ public record SaoQuickUpdate(String from, String to, SaoPackManifest before, Sao
                     try (InputStream input = zip.getInputStream(entry); OutputStream output = Files.newOutputStream(target)) { copy(input, output, file.size()); }
                 }
                 verifyTree(tree, update.after(), update.expected());
-            } catch (IOException failure) {
-                // A hop that cannot be staged here (an unusual rename or layout change) still has the full pack.
-                if (FULL_REQUIRED.equals(failure.getMessage())) throw failure;
-                throw new IOException(FULL_REQUIRED, failure);
+            } catch (FileAlreadyExistsException | DirectoryNotEmptyException | NotDirectoryException | java.util.zip.ZipException layout) {
+                // A hop that cannot be staged here (an unusual rename or layout change) still has the full pack;
+                // environment failures such as a full disk or a locked file keep their own error.
+                throw new IOException(FULL_REQUIRED, layout);
             }
             previous = update.after(); previousExpected = update.expected();
         }
