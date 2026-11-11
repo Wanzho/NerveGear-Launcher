@@ -663,7 +663,7 @@ public final class SaoFakeService implements SaoLauncherService {
     }
 
     @Override
-    public CompletableFuture<Void> oathChangeEmail(String email) {
+    public CompletableFuture<Void> oathChangeEmail(String email, char[] password) {
         SaoData.@Nullable OathAccount a = oath.get();
         if (a != null) oath.set(new SaoData.OathAccount(a.name(), a.profileId(), mask(email), false, false, 48 * 3600, a.premiumName()));
         return CompletableFuture.completedFuture(null);

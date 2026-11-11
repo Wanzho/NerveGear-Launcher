@@ -630,7 +630,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     /// {@inheritDoc}
     @Override public CompletableFuture<Void> oathReset(String name, String code, char[] password) { return oath.reset(name, code, password); }
     /// {@inheritDoc}
-    @Override public CompletableFuture<Void> oathChangeEmail(String email) { return oath.changeEmail(email); }
+    @Override public CompletableFuture<Void> oathChangeEmail(String email, char[] password) { return oath.changeEmail(email, password); }
     /// {@inheritDoc}
     @Override public CompletableFuture<Void> oathChangePassword(char[] password, char[] newPassword) { return oath.changePassword(password, newPassword); }
     /// {@inheritDoc}

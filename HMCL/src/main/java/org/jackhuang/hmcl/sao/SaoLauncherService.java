@@ -627,8 +627,12 @@ public interface SaoLauncherService {
         return java.util.List.of("zz.saooath.com", "tz.saooath.com", "sq.saooath.com");
     }
 
-    /// Changes the signed-in account's mailbox (`POST /sao/email`); a code goes to the new one.
-    default CompletableFuture<Void> oathChangeEmail(String email) {
+    /// Changes the signed-in account's mailbox (`POST /sao/email`); a code goes to the new one. The current password is
+    /// required (sao_auth 1.9.3); a passwordless Microsoft-created account passes an empty one and signs in to Microsoft.
+    ///
+    /// @param email the new mailbox
+    /// @param password the current password, wiped by the call; empty only for a passwordless account
+    default CompletableFuture<Void> oathChangeEmail(String email, char[] password) {
         return unsupported();
     }
 

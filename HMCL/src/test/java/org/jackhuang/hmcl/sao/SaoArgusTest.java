@@ -161,6 +161,33 @@ class SaoArgusTest {
         }
     }
 
+    /// C-6 against the real sao_auth router: the token handed to the game joins, but cannot read or change the account;
+    /// the email change needs the current password.
+    @Test void realServerGameTokenJoinsButCannotTouchTheAccount() throws Exception {
+        try (SaoLocalPremiumFixture server = fixture("game-token"); SaoPackEngine engine = engine(temporary.resolve("game-token-client"), server)) {
+            char[] password = secret(); String kept = new String(password);
+            await(engine.oathRegister("GameTokenFixture", "game@example.test", password));
+            SaoOathLaunchAccount prepared = (SaoOathLaunchAccount) engine.accounts().prepareLaunchAccount();
+            AuthInfo info = prepared.logIn();
+            SaoAccountClient client = new SaoAccountClient(server::root, () -> "zh_cn");
+            JsonObject join = new JsonObject(); join.addProperty("accessToken", info.getAccessToken());
+            join.addProperty("selectedProfile", account(engine).profileId()); join.addProperty("serverId", "c6-fixture");
+            client.json("POST", "sessionserver/session/minecraft/join", join, null);
+            assertThrows(SaoAccountException.class, () -> client.json("GET", "sao/account", null, info.getAccessToken()));
+            JsonObject steal = new JsonObject(); steal.addProperty("email", "thief@example.test"); steal.addProperty("password", kept);
+            assertThrows(SaoAccountException.class, () -> client.json("POST", "sao/email", steal, info.getAccessToken()));
+            assertThrows(SaoAccountException.class, () -> client.json("POST", "sao/launch", new JsonObject(), info.getAccessToken()));
+            JsonObject refresh = new JsonObject(); refresh.addProperty("accessToken", info.getAccessToken());
+            assertThrows(SaoAccountException.class, () -> client.json("POST", "authserver/refresh", refresh, null));
+            assertNotNull(engine.oathAccount().get(), "Refused game-token calls leave the launcher session");
+            failure(engine.oathChangeEmail("next@example.test", secret()), "wrongPassword");
+            assertNotNull(engine.oathAccount().get(), "A wrong current password keeps the session");
+            failure(engine.oathChangeEmail("next@example.test", new char[0]), "missingPassword");
+            await(engine.oathChangeEmail("next@example.test", kept.toCharArray()));
+            assertNull(engine.oathAccount().get(), "The email change revokes the session as before");
+        }
+    }
+
     /// Expired handoffs fail before writing and valid files are removed automatically when their bounded lifetime ends.
     @Test void handoffExpiryAndSymlinkRefusal() throws Exception {
         JsonObject reply = ticket(System.currentTimeMillis() - 2 * SaoOathLaunchTicket.MAX_CLOCK_SKEW);

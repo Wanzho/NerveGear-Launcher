@@ -81,7 +81,12 @@ class SaoOathIntegrationTest {
             expectFailure(engine.oathLogin(name, original.toCharArray(), false), "密码错误");
             await(engine.oathLogin(name, replacement.toCharArray(), false));
             assertEquals(id, requireAccount(engine).profileId());
-            await(engine.oathChangeEmail(nextEmail));
+            expectFailure(engine.oathChangeEmail(nextEmail, secret().toCharArray()), "密码错误");
+            assertNotNull(engine.oathAccount().get(), "A wrong current password keeps the session");
+            expectFailure(engine.oathChangeEmail(nextEmail, new char[0]), "请输入当前密码");
+            char[] currentForEmail = replacement.toCharArray();
+            await(engine.oathChangeEmail(nextEmail, currentForEmail));
+            assertWiped(currentForEmail);
             assertNull(engine.oathAccount().get());
             await(engine.oathLogin(name, replacement.toCharArray(), false));
             assertFalse(requireAccount(engine).emailVerified());

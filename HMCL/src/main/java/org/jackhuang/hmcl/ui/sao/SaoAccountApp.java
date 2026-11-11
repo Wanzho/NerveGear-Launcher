@@ -247,6 +247,8 @@ final class SaoAccountApp {
             Node mail = mailRow(a, () -> go(Page.VERIFY));
 
             TextField email = field("新邮箱");
+            // A token alone cannot move the mailbox (sao_auth 1.9.3); empty only for a passwordless Microsoft account.
+            PasswordField mailPw = password("当前密码");
             Text problem = warn();
             Button changeMail = button("换邮箱");
             changeMail.setOnAction(e -> {
@@ -255,9 +257,11 @@ final class SaoAccountApp {
                     problem.setText("! 邮箱格式不对");
                     return;
                 }
-                call(changeMail, problem, () -> s.oathChangeEmail(m), () -> go(Page.VERIFY));
+                char[] p = mailPw.getText().toCharArray();
+                mailPw.clear();
+                call(changeMail, problem, () -> s.oathChangeEmail(m, p), () -> go(Page.VERIFY), p);
             });
-            HBox.setHgrow(email, Priority.ALWAYS);
+            HBox.setHgrow(mailPw, Priority.ALWAYS);
 
             // 游戏昵称 (James, 7 Nov: "把名字换成游戏昵称"): the pencil beside it on the home screen opens here. At most
             // three changes a day; the server says so when the fourth is tried.
@@ -316,7 +320,7 @@ final class SaoAccountApp {
             VBox right = new VBox(7,
                     key("游戏昵称"), new HBox(8, newName, rename),
                     rule(),
-                    key("邮箱"), new HBox(8, email, changeMail),
+                    key("邮箱"), email, new HBox(8, mailPw, changeMail),
                     rule(),
                     key("密码"), old, neu, new HBox(8, again, changePw),
                     problem);

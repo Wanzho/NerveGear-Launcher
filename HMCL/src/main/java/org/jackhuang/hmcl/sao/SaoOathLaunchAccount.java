@@ -7,6 +7,7 @@ import org.jackhuang.hmcl.auth.authlibinjector.*;
 import org.jackhuang.hmcl.auth.yggdrasil.YggdrasilSession;
 import org.jackhuang.hmcl.game.Arguments;
 import org.jackhuang.hmcl.game.LaunchOptions;
+import org.jackhuang.hmcl.util.logging.Logger;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 import java.net.URI;
@@ -60,6 +61,8 @@ final class SaoOathLaunchAccount extends AuthlibInjectorAccount {
     }
 
     /// Validates the refreshed SAO token immediately before game process construction and attaches the pinned agent.
+    /// The game receives only a game-scoped token (join and validate only); the launcher session token stays in this
+    /// process. Against an account server without game tokens the session token is passed as before, and logged.
     @Override public synchronized AuthInfo logIn() throws AuthenticationException {
         try {
             if (!active.getAsBoolean()) throw new SaoAccountException("请重新登录 ARGUS ID", "invalidSession");
@@ -67,9 +70,33 @@ final class SaoOathLaunchAccount extends AuthlibInjectorAccount {
             JsonObject validate = new JsonObject(); validate.addProperty("accessToken", session.getAccessToken());
             validate.addProperty("clientToken", session.getClientToken());
             client.json("POST", "authserver/validate", validate, null);
+            String gameToken = gameToken();
             if (!active.getAsBoolean()) throw new SaoAccountException("请重新登录 ARGUS ID", "invalidSession");
-            return new InjectedAuth(session.toAuthInfo(), artifact, api, metadata);
+            AuthInfo full = session.toAuthInfo();
+            return new InjectedAuth(new AuthInfo(full.getUsername(), full.getUUID(), gameToken, full.getUserType(), full.getUserProperties()),
+                    artifact, api, metadata);
         } catch (SaoAccountException failure) { invalid.run(); throw new AuthenticationException(failure.getMessage()); }
+    }
+
+    /// Mints the game-scoped token for this launch from the launcher session. Only an explicit "endpoint missing" reply
+    /// (an account server older than sao_auth 1.9.3) falls back to the session token; every other failure stops the launch.
+    private String gameToken() throws SaoAccountException {
+        JsonObject reply;
+        try { reply = client.json("POST", "sao/game-token", new JsonObject(), session.getAccessToken()); }
+        catch (SaoAccountException failure) {
+            if (!failure.code().equals("gameTokenUnavailable")) throw failure;
+            Logger.LOG.warning("ARGUS ID server has no game-scoped token (older than sao_auth 1.9.3); the game gets the launcher session token");
+            return session.getAccessToken();
+        }
+        try {
+            String token = reply.get("accessToken").getAsString();
+            String id = reply.getAsJsonObject("selectedProfile").get("id").getAsString();
+            if (!token.matches("[A-Za-z0-9_-]{32,512}") || token.equals(session.getAccessToken()) || !id.equalsIgnoreCase(profileId()))
+                throw new SaoAccountException("账号服务响应无效", "invalidResponse");
+            Logger.registerAccessToken(token);
+            return token;
+        } catch (RuntimeException invalid) { throw new SaoAccountException("账号服务响应无效", "invalidResponse"); }
+        finally { reply.remove("accessToken"); }
     }
 
     /// Refuses HMCL's offline fallback so an invalid SAO account can never launch with an offline identity.
@@ -89,7 +116,7 @@ final class SaoOathLaunchAccount extends AuthlibInjectorAccount {
         /// Base64 public server metadata.
         private final String metadata;
 
-        /// Copies the real SAO profile and token into the standard HMCL launch authentication record.
+        /// Copies the real SAO profile and the game-scoped token into the standard HMCL launch authentication record.
         private InjectedAuth(AuthInfo auth, AuthlibInjectorArtifactInfo artifact, String api, String metadata) {
             super(auth.getUsername(), auth.getUUID(), auth.getAccessToken(), auth.getUserType(), auth.getUserProperties());
             this.artifact = artifact; this.api = api; this.metadata = metadata;

@@ -122,6 +122,9 @@ final class SaoOathAccounts implements AutoCloseable {
     private volatile @Nullable Path skin;
     /// Arm model read from the current server profile texture metadata.
     private volatile boolean slim;
+    /// Whether the signed-in account is passwordless (created by Microsoft sign-in); it proves Microsoft ownership
+    /// instead of a current password when changing the mailbox.
+    private volatile boolean premiumOnly;
     /// Per-user local library, available independently of account sign-in.
     private final SaoOathSkins library;
     /// Current server profile cache, separated from the per-user local library.
@@ -304,8 +307,30 @@ final class SaoOathAccounts implements AutoCloseable {
         }, password);
     }
 
-    /// Changes the mailbox, then clears the session if the server revoked its credential epoch as specified.
-    CompletableFuture<Void> changeEmail(String email) { return authenticated("sao/email", object("email", email), true); }
+    /// Changes the mailbox after re-proving the current password, then observes the server's session revocation. A
+    /// passwordless (Microsoft-created) account leaves the password empty and proves Microsoft ownership instead.
+    /// A bearer alone is never enough (sao_auth 1.9.3), so a mod holding any token cannot move the mailbox.
+    CompletableFuture<Void> changeEmail(String email, char[] supplied) {
+        if (supplied.length == 0) {
+            if (!premiumOnly) return CompletableFuture.failedFuture(new SaoAccountException("请输入当前密码", "missingPassword"));
+            return submit(() -> {
+                Session active = requireSession();
+                JsonObject proof = premiumProof(premium.session());
+                JsonObject body = object("email", email, "premiumToken", required(proof, "premiumToken"));
+                try { client.json("POST", "sao/email", body, active.access()); }
+                finally { body.remove("premiumToken"); proof.remove("premiumToken"); }
+                refreshRevoked();
+            });
+        }
+        char[] password = Objects.requireNonNull(own(supplied));
+        return submit(() -> {
+            Session active = requireSession();
+            JsonObject body = object("email", email, "password", new String(password));
+            try { client.json("POST", "sao/email", body, active.access()); }
+            finally { body.remove("password"); }
+            refreshRevoked();
+        }, password);
+    }
 
     /// Proves the current password, changes it, forgets the old protected pair and observes token revocation.
     CompletableFuture<Void> changePassword(char[] supplied, char[] suppliedNew) {
@@ -546,6 +571,7 @@ final class SaoOathAccounts implements AutoCloseable {
             current = new SaoData.OathAccount(name, id, optional(state, "maskedEmail") == null ? "" : Objects.requireNonNull(optional(state, "maskedEmail")),
                     state.get("emailVerified").getAsBoolean(), accountState.equals("lockedVerify"), Math.max(0, state.get("graceSeconds").getAsLong()), premiumName,
                     state.has("mustRename") && state.get("mustRename").getAsBoolean());
+            premiumOnly = state.has("premiumOnly") && state.get("premiumOnly").getAsBoolean();
             profileCache = new SaoOathSkins(root, namespace(active.root()), active.id());
             refreshSkin(active);
             refreshInheritedState(active);
@@ -683,7 +709,7 @@ final class SaoOathAccounts implements AutoCloseable {
     /// Clears invalid credentials from protected storage, as required by an explicit forget or password change.
     private void forget() throws IOException { synchronized (gate) { credentials.delete(); remembered = null; } }
     /// Drops all ephemeral account/texture state without deleting an explicitly remembered password.
-    private void clear() { currentInherited = SaoTextureState.empty(); friends.session(null); session = null; current = null; currentCard = null; skin = null; slim = false; profileCache = null; }
+    private void clear() { currentInherited = SaoTextureState.empty(); friends.session(null); session = null; current = null; currentCard = null; skin = null; slim = false; premiumOnly = false; profileCache = null; }
     /// Invalidates state from a launch-token check and publishes the signout.
     private void invalidSession() { clear(); publish(this::publishState); }
 

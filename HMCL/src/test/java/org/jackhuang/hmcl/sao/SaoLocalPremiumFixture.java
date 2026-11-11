@@ -67,6 +67,9 @@ final class SaoLocalPremiumFixture implements AutoCloseable {
         ygg.getClass().getField("enabled").setBoolean(ygg, true);
         ygg.getClass().getField("publicUrl").set(ygg, root().toString());
         config.getClass().getField("accountFailureLimit").setInt(config, 100);
+        // sao_auth 1.9.2+ requires mail proof of work by default; this launcher branch does not solve it (sao/ui does).
+        try { Object pow = config.getClass().getField("mailPow").get(config); pow.getClass().getField("difficulty").setInt(pow, 0); }
+        catch (NoSuchFieldException olderServer) { /* Servers before 1.9.2 have no mail proof. */ }
         Object store = type("AccountStore").getConstructor(Path.class).newInstance(directory.resolve("sao-auth/accounts.json"));
         Object identity = type("AuthCrypto$Identity").getMethod("load", Path.class).invoke(null, directory.resolve("identity"));
         Class<?> senderType = type("AccountMail$Sender");
