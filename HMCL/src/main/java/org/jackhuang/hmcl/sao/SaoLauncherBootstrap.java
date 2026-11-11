@@ -78,6 +78,8 @@ public final class SaoLauncherBootstrap {
         if (System.getProperty("os.name", "").startsWith("Mac") && command.stream().noneMatch(value -> value.startsWith("-Xdock:name=")))
             command.add("-Xdock:name=NerveGear启动器");
         command.add("-Dsao.home=" + Metadata.HMCL_USER_HOME);
+        // The selected JAR may live in the per-user update folder, so the install-relative data root is fixed here.
+        command.add("-Dsao.dir=" + Metadata.HMCL_LOCAL_HOME);
         command.add("-Dsao.selfUpdateRoot=" + SaoSelfUpdate.defaultRoot());
         if (selection.token() != null) command.add("-Dsao.selfUpdateAttempt=" + selection.token());
         command.add("-jar"); command.add(selection.jar().toString()); command.addAll(Arrays.asList(args));

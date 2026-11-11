@@ -64,8 +64,10 @@ prints persisted status without loading JavaFX or launching a child.
 
 Existing data roots remain `.sao-oath-launcher` on macOS/Linux and
 `.sao-oath-launcher` under Windows AppData, including the existing `sao.home` /
-`SAO_OATH_USER_HOME` override. The portable data and fixed `sao-oath` instance paths
-are unchanged. A release that requires a different native shell/runtime advertises
+`SAO_OATH_USER_HOME` override. The portable data root is fixed by the bootstrap
+(`-Dsao.dir`), never the working directory: `<install>/.sao-oath-launcher` beside
+`app/` on Windows and Linux, and the per-user `.sao-oath-launcher/local` on macOS
+(the `.app` stays read-only). The fixed `sao-oath` instance path is unchanged. A release that requires a different native shell/runtime advertises
 `launcher.nativeRequired=true`; clients below `launcher.min` also ask for the full
 launcher from the shared Quark link's 启动器 folder.
 
