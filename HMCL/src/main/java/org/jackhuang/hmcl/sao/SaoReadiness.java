@@ -47,6 +47,9 @@ public record SaoReadiness(Kind kind, String reason, Action action) {
     /// Whether Link Start may launch.
     public boolean ready() { return kind == Kind.READY; }
 
+    /// Whether the main button shows before login (James, 11 Nov: "要啊"): only as 下载 / 更新, never as Link Start.
+    public boolean shownSignedOut() { return kind == Kind.DOWNLOAD || kind == Kind.UPDATE; }
+
     /// The main button's text.
     public String buttonText() {
         return switch (kind) {

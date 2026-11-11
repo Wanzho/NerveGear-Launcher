@@ -620,8 +620,13 @@ public final class SaoHelmetPage extends StackPane {
         right.setPrefWidth(RIGHT_W);
         right.setMinWidth(RIGHT_W);
         right.setMaxWidth(RIGHT_W);
-        linkRow.visibleProperty().bind(signedIn.visibleProperty());
-        linkRow.managedProperty().bind(signedIn.visibleProperty());
+        // James, 11 Nov: "要啊": before login the row shows too, but only as 下载 / 更新, which need no account.
+        // Link Start itself still needs the login or 离线进入.
+        javafx.beans.binding.BooleanBinding rowShown = Bindings.createBooleanBinding(
+                () -> signedIn.isVisible() || service.readiness().get().shownSignedOut(),
+                signedIn.visibleProperty(), service.readiness());
+        linkRow.visibleProperty().bind(rowShown);
+        linkRow.managedProperty().bind(rowShown);
         HBox bodyRow = new HBox(GAP, left, right);
 
         // 确定退出吗？ in place of the body until answered.
