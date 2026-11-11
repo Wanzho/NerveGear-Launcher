@@ -127,10 +127,36 @@ class SaoPackInstallerTest {
         Path finished = Files.createDirectories(instance.resolve(".sao-stage-finished"));
         String receipt;
         try (InputStream input = Files.newInputStream(instance.resolve(SaoPackInstaller.RECEIPT))) { receipt = SaoPackArchive.sha1(input); }
-        Files.writeString(finished.resolve(SaoPackInstaller.JOURNAL), "{\"manifest\":\"" + receipt + "\",\"paths\":[\"mods/x-1.0.jar\"],\"changed\":[\"mods/x-1.0.jar\"]}");
+        Files.writeString(finished.resolve(SaoPackInstaller.JOURNAL), "{\"manifest\":\"" + receipt + "\",\"previous\":\"1111111111111111111111111111111111111111\",\"paths\":[\"mods/x-1.0.jar\"],\"changed\":[\"mods/x-1.0.jar\"]}");
         installer.recover();
         assertEquals("old", Files.readString(instance.resolve("mods/x-1.0.jar")));
         assertFalse(Files.exists(finished));
+        // An interrupted Repair (same manifest before and after) is undone, and a replaced file is restored, not deleted.
+        Path repair = Files.createDirectories(instance.resolve(".sao-stage-repair/backup/mods")).getParent().getParent();
+        Files.move(instance.resolve("mods/x-1.0.jar"), repair.resolve("backup/mods/x-1.0.jar"));
+        Files.writeString(instance.resolve("mods/x-1.0.jar"), "repaired");
+        Files.writeString(repair.resolve(SaoPackInstaller.JOURNAL), "{\"manifest\":\"" + receipt + "\",\"previous\":\"" + receipt + "\",\"paths\":[\"mods/x-1.0.jar\"],\"changed\":[]}");
+        installer.recover();
+        assertEquals("old", Files.readString(instance.resolve("mods/x-1.0.jar")));
+        assertFalse(Files.exists(repair));
+        // A torn journal never blocks startup.
+        Path torn = Files.createDirectories(instance.resolve(".sao-stage-torn"));
+        Files.writeString(torn.resolve(SaoPackInstaller.JOURNAL), "{\"manifest\":\"00");
+        installer.recover();
+        assertFalse(Files.exists(torn));
+        assertEquals("old", Files.readString(instance.resolve("mods/x-1.0.jar")));
+    }
+
+    /// A completed same-version repair leaves no journal, so a later recovery keeps the repaired files.
+    @Test void completedRepairLeavesNoJournal() throws Exception {
+        Path instance = temporary.resolve("instance");
+        SaoPackInstaller installer = installer(instance, new AtomicInteger());
+        SaoPackArchive pack = fixture("0.8", Map.of("mods/x-1.0.jar", "old"), List.of(), false);
+        installer.apply(pack, false);
+        Files.writeString(instance.resolve("mods/x-1.0.jar"), "broken");
+        installer.apply(pack, true);
+        installer.recover();
+        assertEquals("old", Files.readString(instance.resolve("mods/x-1.0.jar")));
     }
 
         /// A dropped full pack keeps player-edited settings it does not change and backs up the ones it replaces.

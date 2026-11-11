@@ -19,6 +19,8 @@ import java.util.function.BiConsumer;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
+import static org.jackhuang.hmcl.util.logging.Logger.LOG;
+
 /// Installs a complete pack inventory with staged, checksum-verified writes and rollback on commit errors.
 /// Does not select Java, install Minecraft, open JavaFX or start a game process.
 @NotNullByDefault
@@ -300,8 +302,8 @@ public final class SaoPackInstaller {
         }
     }
 
-    /// Journaled stages whose manifest is not the installed receipt are rolled back; every finished or unjournaled
-    /// stage is removed. A stage whose rollback fails is kept so its backups are never lost.
+    /// Journaled stages are rolled back unless their version change already moved the receipt; finished, torn or
+    /// unjournaled stages are removed. A stage whose rollback fails is kept (and logged) so its backups are never lost.
     private void recoverLocked() throws IOException {
         if (!Files.isDirectory(instance, LinkOption.NOFOLLOW_LINKS)) return;
         List<Path> stages = new ArrayList<>();
@@ -309,17 +311,30 @@ public final class SaoPackInstaller {
             for (Path stage : listing) if (Files.isDirectory(stage, LinkOption.NOFOLLOW_LINKS)) stages.add(stage);
         }
         Path receipt = instance.resolve(RECEIPT);
-        @Nullable String installed = Files.isRegularFile(receipt, LinkOption.NOFOLLOW_LINKS)
-                ? digest(Files.readString(receipt, StandardCharsets.UTF_8)) : null;
+        @Nullable String installed;
+        try { installed = Files.isRegularFile(receipt, LinkOption.NOFOLLOW_LINKS) ? digest(Files.readString(receipt, StandardCharsets.UTF_8)) : null; }
+        catch (IOException unreadable) { installed = null; }
         for (Path stage : stages) {
-            Path journal = stage.resolve(JOURNAL);
-            if (Files.isRegularFile(journal, LinkOption.NOFOLLOW_LINKS)) {
-                JsonObject entry;
-                try { entry = JsonParser.parseString(Files.readString(journal, StandardCharsets.UTF_8)).getAsJsonObject(); }
-                catch (RuntimeException invalid) { throw new IOException("Invalid pack commit journal", invalid); }
-                if (!entry.get("manifest").getAsString().equals(installed)) rollBack(stage, entry);
+            try {
+                Path journal = stage.resolve(JOURNAL);
+                if (Files.isRegularFile(journal, LinkOption.NOFOLLOW_LINKS)) {
+                    // A torn journal was cut off while being written, before any instance change: nothing to undo.
+                    @Nullable JsonObject entry;
+                    try { entry = JsonParser.parseString(Files.readString(journal, StandardCharsets.UTF_8)).getAsJsonObject(); }
+                    catch (IOException | RuntimeException torn) { entry = null; }
+                    // The journal is removed right after the receipt moves; a version change whose receipt already
+                    // landed is complete, anything else (including an interrupted Repair) is undone.
+                    if (entry != null) {
+                        String target = entry.get("manifest").getAsString();
+                        boolean landed = entry.has("previous") && !target.equals(entry.get("previous").getAsString()) && target.equals(installed);
+                        if (!landed) rollBack(stage, entry);
+                    }
+                }
+                SaoPackFiles.deleteTree(stage);
+            } catch (IOException | RuntimeException failure) {
+                // Keep the stage (and its backups) for the next start rather than blocking the launcher now.
+                LOG.warning("Pack recovery postponed for " + stage.getFileName(), failure);
             }
-            SaoPackFiles.deleteTree(stage);
         }
     }
 
@@ -400,9 +415,14 @@ public final class SaoPackInstaller {
             // A crash after this point is rolled back (or, once the receipt moved, rolled forward) on the next start.
             JsonObject journal = new JsonObject();
             journal.addProperty("manifest", digest(manifest.toJson()));
+            Path current = instance.resolve(RECEIPT);
+            journal.addProperty("previous", Files.isRegularFile(current, LinkOption.NOFOLLOW_LINKS)
+                    ? digest(Files.readString(current, StandardCharsets.UTF_8)) : "");
             JsonArray paths = new JsonArray(), added = new JsonArray();
             mutations.forEach(paths::add);
-            for (var file : changed) added.add(file.path());
+            // Only files that did not exist before are removed on rollback; replaced files come back from backup.
+            for (var file : changed)
+                if (!Files.exists(SaoPackFiles.resolve(instance, file.path()), LinkOption.NOFOLLOW_LINKS)) added.add(file.path());
             journal.add("paths", paths); journal.add("changed", added);
             writeDurably(stage.resolve(JOURNAL), journal.toString());
             int count = 0;
@@ -439,6 +459,7 @@ public final class SaoPackInstaller {
             Path receipt = stage.resolve("receipt.json");
             writeDurably(receipt, manifest.toJson());
             SaoPackFiles.atomicMove(receipt, instance.resolve(RECEIPT));
+            Files.deleteIfExists(stage.resolve(JOURNAL));
         } catch (IOException | RuntimeException failure) {
             Collections.reverse(committed);
             for (String path : committed) {
