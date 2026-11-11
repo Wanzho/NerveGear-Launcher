@@ -95,19 +95,27 @@ def obtain_toolchains(work, lock):
             if temporary.stat().st_size != asset["size"] or digest(temporary) != asset["sha256"]:
                 raise RuntimeError("Official archive SHA-256 mismatch: " + target)
             temporary.replace(archive)
-        root = work / "toolchains" / target
+        # The extraction is named by the locked archive digest, so a lock bump never reuses an older JDK, and it is
+        # renamed into place only when complete, so an interrupted extraction is never mistaken for a toolchain.
+        root = work / "toolchains" / (target + "-" + asset["sha256"][:16])
         existing = list(root.glob("*/jmods/java.base.jmod"))
         if not existing:
-            root.mkdir(parents=True, exist_ok=True)
+            partial = root.with_name(root.name + ".part")
+            if partial.exists():
+                shutil.rmtree(partial)
+            partial.mkdir(parents=True)
             if archive.suffix == ".zip":
                 with zipfile.ZipFile(archive) as source:
                     for item in source.infolist():
                         if "/jmods/" in item.filename:
-                            source.extract(item, root)
+                            source.extract(item, partial)
             else:
                 with tarfile.open(archive) as source:
-                    source.extractall(root, members=None if target == "macos-arm64" else
+                    source.extractall(partial, members=None if target == "macos-arm64" else
                                       (item for item in source if "/jmods/" in item.name))
+            if root.exists():
+                shutil.rmtree(root)
+            partial.rename(root)
             existing = list(root.glob("*/jmods/java.base.jmod"))
         if len(existing) != 1:
             raise RuntimeError("Ambiguous or incomplete toolchain: " + target)
