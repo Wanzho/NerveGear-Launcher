@@ -77,6 +77,10 @@ final class SaoReleaseState {
             @Nullable JsonObject previous = root.getAsJsonObject(kind.field);
             if (previous != null && sequence < SaoReleaseSignatures.number(previous, "highWater"))
                 throw new IOException("Release sequence rollback refused");
+            // At the same sequence only the identical document is accepted, so an older signed copy cannot be replayed.
+            if (previous != null && previous.has("document") && sequence == SaoReleaseSignatures.number(previous, "highWater")
+                    && !Arrays.equals(Base64.getDecoder().decode(SaoReleaseSignatures.text(previous, "document")), bytes))
+                throw new IOException("Different release at the same sequence refused");
             JsonObject entry = new JsonObject(); entry.addProperty("highWater", sequence);
             entry.addProperty("document", Base64.getEncoder().encodeToString(bytes));
             entry.addProperty("signature", Base64.getEncoder().encodeToString(signature));

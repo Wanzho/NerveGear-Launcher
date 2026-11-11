@@ -92,7 +92,7 @@ class SaoReleaseSignaturesTest {
             assertThrows(IOException.class, () -> SaoOnlineData.parseNews(malformed));
     }
 
-    /// Independent high-water marks survive restart, reject lower sequences, and permit equal signed refreshes.
+    /// Independent high-water marks survive restart, reject lower sequences, and permit identical equal-sequence refreshes.
     @Test void independentHighWaterRejectsRollbackAndAllowsEqualAfterRestart() throws Exception {
         SaoReleaseState state = new SaoReleaseState(temporary, SaoReleaseTestSupport.TRUST);
         state.accept(SaoReleaseState.Kind.NEWS, bytes(news(50, "First")), SaoReleaseTestSupport.sign(news(50, "First")));
@@ -101,8 +101,10 @@ class SaoReleaseSignaturesTest {
         assertThrows(IOException.class, () -> restarted.accept(SaoReleaseState.Kind.VERSION, bytes(version(3)), SaoReleaseTestSupport.sign(version(3))));
         assertThrows(IOException.class, () -> restarted.accept(SaoReleaseState.Kind.NEWS, bytes(news(49, "Old")), SaoReleaseTestSupport.sign(news(49, "Old"))));
         assertEquals(4, restarted.accept(SaoReleaseState.Kind.VERSION, bytes(version(4)), SaoReleaseTestSupport.sign(version(4))));
-        assertEquals(50, restarted.accept(SaoReleaseState.Kind.NEWS, bytes(news(50, "Equal")), SaoReleaseTestSupport.sign(news(50, "Equal"))));
-        assertArrayEquals(bytes(news(50, "Equal")), restarted.cached(SaoReleaseState.Kind.NEWS));
+        // Equal sequences refresh only the identical document; changed content must raise the sequence (B-5).
+        assertThrows(IOException.class, () -> restarted.accept(SaoReleaseState.Kind.NEWS, bytes(news(50, "Equal")), SaoReleaseTestSupport.sign(news(50, "Equal"))));
+        assertEquals(50, restarted.accept(SaoReleaseState.Kind.NEWS, bytes(news(50, "First")), SaoReleaseTestSupport.sign(news(50, "First"))));
+        assertArrayEquals(bytes(news(50, "First")), restarted.cached(SaoReleaseState.Kind.NEWS));
         assertArrayEquals(bytes(version(4)), restarted.cached(SaoReleaseState.Kind.VERSION));
     }
 
