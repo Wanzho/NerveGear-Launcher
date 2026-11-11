@@ -980,8 +980,8 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     @Override public int memoryMiB() { return settings.number("memoryMiB", 8192); }
     /// {@inheritDoc}
     @Override public void setMemoryMiB(int mib) {
-        long free = new org.jackhuang.hmcl.util.platform.hardware.HardwareDetector().getFreeMemorySize() / (1024 * 1024);
-        long maximum = free > 0 ? Math.max(2048, free) : systemMemoryMiB();
+        // Same bound as the settings slider (total memory), so a value the slider shows is never silently refused.
+        long maximum = Math.max(4096, systemMemoryMiB());
         if (mib < 2048 || mib > maximum) { windowFailure("内存设置失败", new IOException("Memory must be between 2048 MiB and available system memory")); return; }
         saveSetting("memoryMiB", mib);
     }
