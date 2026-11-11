@@ -379,6 +379,8 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
                 source = !loadEmbedded ? supplied : developmentPack == null || developmentPack.isBlank()
                         ? SaoPackArchive.embedded(root.resolve("pack-cache")) : SaoPackArchive.open(Path.of(developmentPack));
                 if (source != null) embeddedVersion = source.manifest().version();
+                @Nullable SaoPackArchive shipped = source;
+                embeddedArchive = shipped == null ? null : shipped.zip().getFileName().toString();
                 embeddedNews = SaoOnlineData.embeddedNews(source, embeddedVersion);
                 publishNews();
                 @Nullable SaoPackArchive accepted = readAcceptedSource();
@@ -416,6 +418,8 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     @Override public ReadOnlyObjectProperty<@Nullable String> installedVersion() { return installedVersion.getReadOnlyProperty(); }
     /// {@inheritDoc}
     @Override public String embeddedVersion() { return embeddedVersion; }
+    /// File name of the embedded release archive in pack-cache, kept when superseded archives are pruned.
+    private volatile @Nullable String embeddedArchive;
 
     /// Persisted next-run visibility, mapped through HMCL's existing LauncherVisibility enum.
     @Override public SaoData.LauncherBehavior launcherBehavior() { return extras.behavior(); }
@@ -755,6 +759,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     private void acceptSource(SaoPackArchive cached) throws IOException {
         source = cached;
         persistAcceptedSource(cached);
+        pruneCache(cached);
         files.requiredResources(source);
         refreshLocalNow();
         refreshState();
@@ -1453,6 +1458,21 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
             SaoPackFiles.atomicMove(temporary, zip);
         } finally { Files.deleteIfExists(temporary); }
         return new SaoPackArchive(zip, update.manifest());
+    }
+
+    /// Deletes superseded release archives from pack-cache, keeping the active one and the launcher's own embedded copy,
+    /// so dead archives do not fill the disk and trip the free-space check.
+    private void pruneCache(SaoPackArchive active) {
+        Path cache = root.resolve("pack-cache");
+        String keep = active.zip().getFileName().toString();
+        @Nullable String shipped = embeddedArchive;
+        try (var listing = Files.newDirectoryStream(cache, "*.zip")) {
+            for (Path archive : listing) {
+                String name = archive.getFileName().toString();
+                if (!name.matches("[0-9a-f]{40}\\.zip") || name.equals(keep) || name.equals(shipped)) continue;
+                try { Files.deleteIfExists(archive); } catch (IOException ignored) { /* Retried after the next accepted release. */ }
+            }
+        } catch (IOException ignored) { /* The cache is only an optimization. */ }
     }
 
     /// Persists public manifest plus cache filename after the inventory commits; no outside absolute paths are stored.
