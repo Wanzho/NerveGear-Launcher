@@ -1203,7 +1203,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     @Override public void setAutoMemory(boolean auto) { saveSetting("autoMemory", auto); }
     /// {@inheritDoc}
     @Override public int systemMemoryMiB() {
-        long total = new org.jackhuang.hmcl.util.platform.hardware.HardwareDetector().getTotalMemorySize() / (1024 * 1024);
+        long total = org.jackhuang.hmcl.util.platform.SystemInfo.getTotalMemorySize() / (1024 * 1024);
         return total > 0 ? (int) Math.min(Integer.MAX_VALUE, total) : 4096;
     }
     /// {@inheritDoc}
@@ -1350,7 +1350,8 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     /// Computes HMCL's automatic allocation at launch time, with a minimum appropriate to this pack.
     private int launchMemoryMiB() {
         if (!autoMemory()) return memoryMiB();
-        long available = new org.jackhuang.hmcl.util.platform.hardware.HardwareDetector().getFreeMemorySize();
+        // The platform detector reports available memory (macOS/Linux free pages alone would cap the game at 2 GB).
+        long available = org.jackhuang.hmcl.util.platform.SystemInfo.getFreeMemorySize();
         return Math.max(2048, (int) (org.jackhuang.hmcl.game.HMCLGameRepository.getAutoAllocatedMemory(available,
                 org.jackhuang.hmcl.util.platform.Platform.SYSTEM_PLATFORM) / (1024 * 1024)));
     }
