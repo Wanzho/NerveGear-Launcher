@@ -9,6 +9,7 @@ import org.jetbrains.annotations.Nullable;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -19,6 +20,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.function.Supplier;
+import java.util.function.BooleanSupplier;
 
 /// Bounded account HTTP transport. Redirects are refused so credentials never change origin.
 @NotNullByDefault
@@ -70,6 +72,30 @@ final class SaoAccountClient {
         try { return jsonAt(root(), method, route, body, bearer); }
         catch (SaoAccountException failure) { throw failure; }
         catch (RuntimeException invalid) { throw new SaoAccountException("账号服务响应无效", "invalidResponse"); }
+    }
+
+    /// Obtains and solves one mail proof on the serialized account worker, then submits once to the captured origin.
+    /// Only an explicitly missing/unsupported proof endpoint permits a legacy unproved submission.
+    JsonObject protectedPost(String route, String purpose, String identity, JsonObject body, @Nullable String bearer,
+                             BooleanSupplier cancelled) throws SaoAccountException {
+        URI origin = root();
+        SaoProofOfWork.checkCancelled(cancelled);
+        JsonObject submitted = body.deepCopy();
+        try {
+            String query = "sao/pow?purpose=" + URLEncoder.encode(purpose, StandardCharsets.UTF_8)
+                    + "&identity=" + URLEncoder.encode(SaoProofOfWork.normalize(purpose, identity), StandardCharsets.UTF_8);
+            try {
+                JsonObject challenge = jsonAt(origin, "GET", query, null, null);
+                submitted.add("pow", SaoProofOfWork.solve(challenge, purpose, identity, cancelled));
+            } catch (SaoAccountException failure) {
+                if (!failure.code().equals("powUnavailable")) throw failure;
+            }
+            SaoProofOfWork.checkCancelled(cancelled);
+            return jsonAt(origin, "POST", route, submitted, bearer);
+        } finally {
+            // Do not retain proof or password strings in a second mutable JSON request after submission.
+            submitted.keySet().clear();
+        }
     }
 
     /// Pins a social session's captured issuing origin, including cleanup after the configured API changes.
@@ -210,18 +236,24 @@ final class SaoAccountClient {
 
     /// Translates only known messages; arbitrary server/provider text and submitted fields never reach the screen.
     private static SaoAccountException mapped(int status, byte[] bytes, String route) {
+        if (route.endsWith("/sao/pow") && (status == 404 || status == 405 || status == 501))
+            return new SaoAccountException("账号服务暂不支持操作验证", "powUnavailable");
         String message = "";
         String code = "";
         long waitSeconds = 0;
         try {
             JsonObject error = JsonParser.parseString(new String(bytes, StandardCharsets.UTF_8)).getAsJsonObject();
-            message = error.get("errorMessage").getAsString();
             if (error.has("error")) code = error.get("error").getAsString();
+            if (error.has("errorMessage")) message = error.get("errorMessage").getAsString();
             if (error.has("waitSeconds")) waitSeconds = Math.max(0, Math.min(300, error.get("waitSeconds").getAsLong()));
         }
         catch (RuntimeException ignored) { }
         if (code.equals("textureRefreshLimited")) return new SaoAccountException("操作太频繁，请 " + Math.max(1, (waitSeconds + 59) / 60) + " 分钟后再试", code);
         @Nullable SaoAccountException known = switch (code) {
+            case "powRequired" -> new SaoAccountException("请更新启动器后重试", code);
+            case "powInvalid" -> new SaoAccountException("操作验证无效，请重试", code);
+            case "powExpired" -> new SaoAccountException("操作验证已过期，请重试", code);
+            case "powReplayed" -> new SaoAccountException("操作验证已使用，请重试", code);
             case "premiumUnlinked" -> new SaoAccountException("未绑定微软账号", code);
             case "textureChoice", "textureSyncBusy" -> new SaoAccountException("同步失败", code);
             case "playerMissing" -> new SaoAccountException("没有找到这位玩家", "playerMissing");

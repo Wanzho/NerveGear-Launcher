@@ -266,7 +266,7 @@ final class SaoOathAccounts implements AutoCloseable {
         return submit(() -> {
             clear();
             JsonObject body = object("username", name, "email", email, "password", new String(password));
-            try { accept(client.json("POST", "sao/register", body, null)); }
+            try { accept(mailPost("sao/register", "register", name, body, null)); }
             finally { body.remove("password"); }
             refresh();
         }, password);
@@ -275,10 +275,14 @@ final class SaoOathAccounts implements AutoCloseable {
     /// Consumes an email code and refreshes the unlocked/verification state from the server.
     CompletableFuture<Void> verify(String code) { return authenticated("sao/verify", object("code", code), false); }
     /// Requests another verification message without claiming actual inbox delivery.
-    CompletableFuture<Void> resend() { return authenticated("sao/resend", new JsonObject(), false); }
+    CompletableFuture<Void> resend() { return submit(() -> {
+        Session active = requireSession();
+        mailPost("sao/resend", "resend", active.name(), new JsonObject(), active.access());
+        refresh();
+    }); }
     /// Uses the non-enumerating recovery operation and refreshes any existing session.
     CompletableFuture<Void> forgot(String name) {
-        return submit(() -> { client.json("POST", "sao/forgot", object("username", name), null); if (session != null) refresh(); });
+        return submit(() -> { mailPost("sao/forgot", "forgot", name, object("username", name), null); if (session != null) refresh(); });
     }
 
     /// Changes a recovered password; matching remembered credentials and revoked sessions are removed.
@@ -295,7 +299,11 @@ final class SaoOathAccounts implements AutoCloseable {
     }
 
     /// Changes the mailbox, then clears the session if the server revoked its credential epoch as specified.
-    CompletableFuture<Void> changeEmail(String email) { return authenticated("sao/email", object("email", email), true); }
+    CompletableFuture<Void> changeEmail(String email) { return submit(() -> {
+        Session active = requireSession();
+        mailPost("sao/email", "email", email, object("email", email), active.access());
+        refreshRevoked();
+    }); }
 
     /// Proves the current password, changes it, forgets the old protected pair and observes token revocation.
     CompletableFuture<Void> changePassword(char[] supplied, char[] suppliedNew) {
@@ -491,6 +499,13 @@ final class SaoOathAccounts implements AutoCloseable {
     /// Runs one bearer mutation and refreshes authoritative state; expected revocation still means mutation success.
     private CompletableFuture<Void> authenticated(String route, JsonObject body, boolean revokes) {
         return submit(() -> { client.json("POST", route, body, requireSession().access()); if (revokes) refreshRevoked(); else refresh(); });
+    }
+
+    /// Performs cancellable mail work on this existing single background worker; UI/window lifetime is irrelevant.
+    private JsonObject mailPost(String route, String purpose, String identity, JsonObject body, @Nullable String bearer) throws SaoAccountException {
+        long expected = generation.get();
+        return client.protectedPost(route, purpose, identity, body, bearer,
+                () -> closed.get() || expected != generation.get());
     }
 
     /// Accepts only complete tokens and a selected stable profile, without persisting any token or bearer secret.
