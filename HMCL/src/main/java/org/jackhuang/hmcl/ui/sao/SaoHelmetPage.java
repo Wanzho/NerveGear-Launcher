@@ -627,6 +627,9 @@ public final class SaoHelmetPage extends StackPane {
                 signedIn.visibleProperty(), service.readiness());
         linkRow.visibleProperty().bind(rowShown);
         linkRow.managedProperty().bind(rowShown);
+        // Shown before login, the row takes the signed-in layout's slot and bottom inset: the form's nine gaps close
+        // from 10 to 5 so the column is no taller than the signed-in one. Signed out and ready, nothing changes.
+        signedOut.spacingProperty().bind(Bindings.when(rowShown.and(signedIn.visibleProperty().not())).then(5.0).otherwise(10.0));
         HBox bodyRow = new HBox(GAP, left, right);
 
         // 确定退出吗？ in place of the body until answered.
