@@ -236,9 +236,18 @@ public final class TerracottaManager {
             for (var node : TerracottaNodeList.fetch()) query.append("&public_nodes=").append(encode(node.toString()));
             checkOpen();
             get(port, code == null ? "/state/scanning?" + query : "/state/guesting?" + query);
+            int misses = 0;
             while (!closed) {
                 if (!started.isAlive()) throw new IOException("Terracotta process exited");
-                JsonObject json = JsonParser.parseString(get(port, "/state")).getAsJsonObject();
+                String body;
+                // A slow poll (busy or briefly sleeping host) must not end the room; give up after five misses in a row.
+                try { body = get(port, "/state"); misses = 0; }
+                catch (java.io.IOException transientFailure) {
+                    if (closed || ++misses >= 5) throw transientFailure;
+                    Thread.sleep(1000L * misses);
+                    continue;
+                }
+                JsonObject json = JsonParser.parseString(body).getAsJsonObject();
                 TerracottaState state = JsonUtils.fromNonNullJson(json.toString(), TerracottaState.Ready.class);
                 publish(() -> { if (!closed) STATE.set(state); });
                 if (!closed) changed.accept(describe(state, code));
