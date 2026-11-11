@@ -128,10 +128,12 @@ class SaoReleaseSignaturesTest {
         } finally { workers.shutdownNow(); }
     }
 
-    /// Cache bytes and high-water corruption fail closed and cannot be healed by silently resetting the trusted sequence.
-    @Test void alteredCachesAndCorruptStateFailClosedForBothKinds() throws Exception {
+    /// A cache entry that no longer verifies is dropped but keeps its sequence floor: older documents stay refused, the
+    /// same or newer ones are accepted again. An unreadable transaction is set aside and the state starts empty.
+    @Test void alteredCachesAndCorruptStateRecoverWithoutLoweringTheFloor() throws Exception {
         for (SaoReleaseState.Kind kind : SaoReleaseState.Kind.values()) {
             Path root = temporary.resolve(kind.field); String original = kind == SaoReleaseState.Kind.VERSION ? version(8) : news(8, "Good");
+            String older = kind == SaoReleaseState.Kind.VERSION ? version(7) : news(7, "Old");
             SaoReleaseState state = new SaoReleaseState(root, SaoReleaseTestSupport.TRUST);
             state.accept(kind, bytes(original), SaoReleaseTestSupport.sign(original));
             Path file = root.resolve(SaoReleaseState.NAME);
@@ -142,15 +144,17 @@ class SaoReleaseSignaturesTest {
             try (SaoOnlineData online = new SaoOnlineData(root, SaoReleaseTestSupport.TRUST)) {
                 assertNull(online.cachedVersion()); assertTrue(online.cached().isEmpty());
             }
-            assertThrows(IOException.class, () -> state.accept(kind, bytes(original), SaoReleaseTestSupport.sign(original)));
+            assertNull(state.cached(kind));
+            assertThrows(IOException.class, () -> state.accept(kind, bytes(older), SaoReleaseTestSupport.sign(older)));
+            assertEquals(8, state.accept(kind, bytes(original), SaoReleaseTestSupport.sign(original)));
             damaged = JsonParser.parseString(good).getAsJsonObject(); damaged.getAsJsonObject(kind.field).addProperty("highWater", 0);
             Files.writeString(file, damaged.toString());
-            assertThrows(IOException.class, () -> state.cached(kind));
+            assertNull(state.cached(kind));
+            assertThrows(IOException.class, () -> state.accept(kind, bytes(older), SaoReleaseTestSupport.sign(older)));
             Files.writeString(file, "{corrupt");
-            assertThrows(IOException.class, () -> state.accept(kind, bytes(original), SaoReleaseTestSupport.sign(original)));
-            Files.writeString(file, "{\"schema\":1}");
-            assertThrows(IOException.class, () -> state.cached(kind));
-            assertThrows(IOException.class, () -> state.accept(kind, bytes(original), SaoReleaseTestSupport.sign(original)));
+            assertNull(state.cached(kind));
+            assertEquals(8, state.accept(kind, bytes(original), SaoReleaseTestSupport.sign(original)));
+            assertArrayEquals(bytes(original), state.cached(kind));
         }
     }
 

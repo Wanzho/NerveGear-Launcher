@@ -64,7 +64,7 @@ final class SaoReleaseState {
     byte @Nullable @Unmodifiable [] cached(Kind kind) throws IOException {
         return locked(() -> {
             @Nullable JsonObject entry = read().getAsJsonObject(kind.field);
-            return entry == null ? null : document(entry, kind);
+            return entry == null || !entry.has("document") ? null : document(entry, kind);
         });
     }
 
@@ -85,25 +85,56 @@ final class SaoReleaseState {
         });
     }
 
-    /// Strictly validates the complete persisted transaction, rechecking each signature before its document is parsed.
+    /// Validates the persisted transaction per kind, rechecking each signature before its document is parsed.
+    /// An entry that no longer verifies or parses (a removed key, another launcher version, damage) keeps only its
+    /// sequence floor, so newer signed documents are still accepted and older ones still refused. A transaction that
+    /// cannot be read at all is set aside and the state starts empty.
     private JsonObject read() throws IOException {
-        if (!Files.exists(state, LinkOption.NOFOLLOW_LINKS)) {
-            JsonObject initial = new JsonObject(); initial.addProperty("schema", 1); return initial;
+        JsonObject initial = new JsonObject(); initial.addProperty("schema", 1);
+        if (!Files.exists(state, LinkOption.NOFOLLOW_LINKS)) return initial;
+        JsonObject root;
+        try {
+            byte @Unmodifiable [] bytes = bounded(state, MAX_STATE_BYTES);
+            root = SaoReleaseSignatures.object(SaoReleaseSignatures.utf8(bytes));
+            Set<String> expected = new HashSet<>(Set.of("schema"));
+            for (Kind kind : Kind.values()) if (root.has(kind.field)) expected.add(kind.field);
+            SaoReleaseSignatures.fields(root, expected);
+            // An existing transaction always contains an accepted document; empty state is only valid before the first write.
+            if (expected.size() == 1) throw new IOException("Empty release state transaction");
+            if (SaoReleaseSignatures.number(root, "schema") != 1) throw new IOException("Unsupported release state");
+        } catch (IOException | RuntimeException damaged) {
+            org.jackhuang.hmcl.util.logging.Logger.LOG.warning("Release state unreadable; starting empty: " + damaged.getClass().getSimpleName());
+            Files.move(state, state.resolveSibling(NAME + ".corrupt-" + System.currentTimeMillis()), StandardCopyOption.REPLACE_EXISTING);
+            return initial;
         }
-        byte @Unmodifiable [] bytes = bounded(state, MAX_STATE_BYTES);
-        JsonObject root = SaoReleaseSignatures.object(SaoReleaseSignatures.utf8(bytes));
-        Set<String> expected = new HashSet<>(Set.of("schema"));
-        for (Kind kind : Kind.values()) if (root.has(kind.field)) expected.add(kind.field);
-        SaoReleaseSignatures.fields(root, expected);
-        // An existing transaction always contains an accepted document; empty state is only valid before the first write.
-        if (expected.size() == 1) throw new IOException("Empty release state transaction");
-        if (SaoReleaseSignatures.number(root, "schema") != 1) throw new IOException("Unsupported release state");
         for (Kind kind : Kind.values()) {
             if (!root.has(kind.field)) continue;
-            if (!root.get(kind.field).isJsonObject()) throw new IOException("Invalid release state entry");
-            document(root.getAsJsonObject(kind.field), kind);
+            JsonElement element = root.get(kind.field);
+            if (element.isJsonObject() && element.getAsJsonObject().keySet().equals(Set.of("highWater"))) continue;
+            try {
+                if (!element.isJsonObject()) throw new IOException("Invalid release state entry");
+                document(element.getAsJsonObject(), kind);
+            } catch (IOException | RuntimeException invalid) {
+                org.jackhuang.hmcl.util.logging.Logger.LOG.warning("Cached " + kind.field + " release dropped; keeping its sequence floor");
+                JsonObject floor = new JsonObject(); floor.addProperty("highWater", floor(element, kind));
+                root.add(kind.field, floor);
+            }
         }
         return root;
+    }
+
+    /// Highest sequence an invalid entry still proves: its recorded high-water or its document's signed sequence.
+    private long floor(JsonElement element, Kind kind) {
+        long floor = 0;
+        if (!element.isJsonObject()) return floor;
+        JsonObject entry = element.getAsJsonObject();
+        try { floor = Math.max(floor, SaoReleaseSignatures.number(entry, "highWater")); } catch (IOException | RuntimeException ignored) { }
+        try {
+            byte[] bytes = Base64.getDecoder().decode(SaoReleaseSignatures.text(entry, "document"));
+            trust.verify(bytes, Base64.getDecoder().decode(SaoReleaseSignatures.text(entry, "signature")));
+            floor = Math.max(floor, kind.sequence(bytes));
+        } catch (IOException | RuntimeException ignored) { }
+        return floor;
     }
 
     /// Decodes a bounded envelope, verifies its raw bytes, then checks the persisted high-water against the signed sequence.
