@@ -309,7 +309,16 @@ class SaoWindowsTest {
         assertTrue(files.packs(true).get(0).enabled());
         assertTrue(Files.readString(instance.resolve("config/oculus.properties")).contains("other=kept"));
         files.setShader(null); assertFalse(files.packs(true).get(0).enabled());
-        assertFalse(Files.exists(instance.resolve("config/iris.properties")));
+        assertFalse(Files.exists(instance.resolve("config/iris.properties")));        // A Chinese pack name is written escaped, as Oculus reads the file as ISO-8859-1.
+        zip(instance.resolve("shaderpacks/光影（汉化）.zip"), Map.of("shaders/fixture.fsh", "shader"));
+        SaoData.Pack chinese = files.packs(true).stream().filter(pack -> pack.file().getFileName().toString().startsWith("光影")).findFirst().orElseThrow();
+        files.setShader(chinese);
+        String written = Files.readString(instance.resolve("config/oculus.properties"), java.nio.charset.StandardCharsets.ISO_8859_1);
+        assertTrue(written.chars().allMatch(c -> c < 128));
+        Properties loaded = new Properties();
+        try (var input = Files.newInputStream(instance.resolve("config/oculus.properties"))) { loaded.load(input); }
+        assertEquals("光影（汉化）.zip", loaded.getProperty("shaderPack"));
+        assertTrue(files.packs(true).stream().anyMatch(pack -> pack.enabled() && pack.file().equals(chinese.file())));
     }
 
     /// Resource toggles preserve required defaults, vanilla IDs, application order and unrelated option lines.

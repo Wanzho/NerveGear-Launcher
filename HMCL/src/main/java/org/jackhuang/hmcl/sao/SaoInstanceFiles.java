@@ -262,7 +262,8 @@ final class SaoInstanceFiles {
         Files.createDirectories(config.getParent());
         Path temporary = Files.createTempFile(config.getParent(), "shader-", ".tmp");
         try {
-            try (Writer writer = Files.newBufferedWriter(temporary)) { values.store(writer, "SAO Oath shader selection"); }
+            // Oculus/Iris read this file as ISO-8859-1; the stream form escapes non-ASCII pack names.
+            try (OutputStream output = Files.newOutputStream(temporary)) { values.store(output, "SAO Oath shader selection"); }
             SaoPackFiles.atomicMove(temporary, config);
         } finally { Files.deleteIfExists(temporary); }
     }
@@ -364,7 +365,7 @@ final class SaoInstanceFiles {
     /// Loads the active shader properties without treating a missing file as an error.
     private static Properties properties(Path file) throws IOException {
         Properties properties = new Properties();
-        if (Files.exists(file)) try (Reader input = Files.newBufferedReader(file)) { properties.load(input); }
+        if (Files.exists(file)) try (InputStream input = Files.newInputStream(file)) { properties.load(input); }
         return properties;
     }
 
