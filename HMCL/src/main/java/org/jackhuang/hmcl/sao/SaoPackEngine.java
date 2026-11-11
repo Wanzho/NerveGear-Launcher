@@ -385,6 +385,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
                 if (accepted != null && (source == null
                         || VersionNumber.compare(accepted.manifest().version(), source.manifest().version()) >= 0)) source = accepted;
                 files.requiredResources(source);
+                installer.recover();
                 refreshLocalNow();
                 refreshJavaNow();
                 logs.loadPrevious();
@@ -496,6 +497,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
                 if (!launcherPermitted()) { busy.set(false); refreshState(); return; }
                 // A prior ARGUS launch must not leak a handoff into dependency preparation or this run.
                 if (offline) game.clearOfflineTicket();
+                installer.recover();
                 SaoPackArchive pack = requireSource();
                 @Nullable SaoPackManifest previous = installer.installed();
                 if (previous == null || VersionNumber.compare(pack.manifest().version(), previous.version()) > 0) extras.checkInstallCapacity();

@@ -82,7 +82,31 @@ class SaoPackInstallerTest {
         assertEquals("0.8", Objects.requireNonNull(installer.installed()).version());
     }
 
-    /// A dropped full pack keeps player-edited settings it does not change and backs up the ones it replaces.
+    /// A commit cut off by a crash is rolled back on the next start; a commit whose receipt landed is kept.
+    @Test void interruptedCommitIsRolledBack() throws Exception {
+        Path instance = temporary.resolve("instance");
+        SaoPackInstaller installer = installer(instance, new AtomicInteger());
+        installer.apply(fixture("0.8", Map.of("mods/x-1.0.jar", "old"), List.of(), false), false);
+        Path stage = Files.createDirectories(instance.resolve(".sao-stage-crashed"));
+        Files.createDirectories(stage.resolve("backup/mods"));
+        Files.move(instance.resolve("mods/x-1.0.jar"), stage.resolve("backup/mods/x-1.0.jar"));
+        Files.writeString(instance.resolve("mods/x-1.1.jar"), "new");
+        Files.writeString(stage.resolve(SaoPackInstaller.JOURNAL),
+                "{\"manifest\":\"0000000000000000000000000000000000000000\",\"paths\":[\"mods/x-1.0.jar\",\"mods/x-1.1.jar\"],\"changed\":[\"mods/x-1.1.jar\"]}");
+        installer.recover();
+        assertEquals("old", Files.readString(instance.resolve("mods/x-1.0.jar")));
+        assertFalse(Files.exists(instance.resolve("mods/x-1.1.jar")));
+        assertFalse(Files.exists(stage));
+        Path finished = Files.createDirectories(instance.resolve(".sao-stage-finished"));
+        String receipt;
+        try (InputStream input = Files.newInputStream(instance.resolve(SaoPackInstaller.RECEIPT))) { receipt = SaoPackArchive.sha1(input); }
+        Files.writeString(finished.resolve(SaoPackInstaller.JOURNAL), "{\"manifest\":\"" + receipt + "\",\"paths\":[\"mods/x-1.0.jar\"],\"changed\":[\"mods/x-1.0.jar\"]}");
+        installer.recover();
+        assertEquals("old", Files.readString(instance.resolve("mods/x-1.0.jar")));
+        assertFalse(Files.exists(finished));
+    }
+
+        /// A dropped full pack keeps player-edited settings it does not change and backs up the ones it replaces.
     @Test void fullPackUpdateKeepsPlayerSettings() throws Exception {
         Path instance = temporary.resolve("instance");
         SaoPackInstaller installer = installer(instance, new AtomicInteger());
