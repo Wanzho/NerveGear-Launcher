@@ -758,7 +758,9 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
         extras.checkInstallCapacity(update);
         SaoPackArchive cached = cacheSource(update);
         game.ensureInstalled(false);
-        installer.applyUpdate(cached);
+        // Dropping the installed version again is how players repair a broken pack; newer versions keep their settings.
+        if (previous != null && VersionNumber.compare(update.manifest().version(), previous.version()) == 0) installer.apply(cached, true);
+        else installer.applyUpdate(cached);
         acceptSource(cached);
     }
 
