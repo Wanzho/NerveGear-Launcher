@@ -53,6 +53,7 @@ import org.jackhuang.hmcl.game.TexturesLoader;
 import org.jackhuang.hmcl.sao.SaoData;
 import org.jackhuang.hmcl.sao.SaoLauncherService;
 import org.jackhuang.hmcl.sao.SaoPackState;
+import org.jackhuang.hmcl.sao.SaoReadiness;
 import org.jackhuang.hmcl.sao.SaoServices;
 import org.jackhuang.hmcl.setting.Accounts;
 import org.jackhuang.hmcl.ui.Controllers;
@@ -809,8 +810,15 @@ public final class SaoHelmetPage extends StackPane {
         start.getStyleClass().add("vr-start");
         SaoUiKit.font(start, 22, true);
         start.setMinWidth(Region.USE_PREF_SIZE);
-        start.setOnAction(e -> linkStart());
+        start.setOnAction(e -> pressMain());
         start.defaultButtonProperty().bind(signedIn.visibleProperty());
+        // James, 11 Nov: "link start 是启动游戏，下载还是老实叫下载吧": 下载 / 更新 until everything is there.
+        Runnable label = () -> {
+            SaoReadiness r = service.readiness().get();
+            if (r.kind() != SaoReadiness.Kind.CHECKING) start.setText(r.buttonText());
+        };
+        service.readiness().addListener((o, a, b) -> label.run());
+        label.run();
         // Installed: only the version beside Link Start ("安装完了那个进度条也删了，只剩v0.x").
         Text version = dim("", 14);
         // What needs doing before Link Start, as one small button beside the version: import the pack, a pack update,
@@ -1704,6 +1712,30 @@ public final class SaoHelmetPage extends StackPane {
         offlineName.requestFocus();
     }
 
+    /// The main button: Link Start when ready; otherwise 下载 / 更新, which only prepares and needs no account.
+    private void pressMain() {
+        SaoReadiness r = service.readiness().get();
+        // Still checking: Link Start, which checks again before launching.
+        if (r.ready() || r.kind() == SaoReadiness.Kind.CHECKING) {
+            linkStart();
+            return;
+        }
+        SaoData.UpdateStatus u = service.updateStatus().get();
+        if (u.launcherBlocked()) {
+            problem.setText("! " + u.message());
+            openPack(SaoPackApp.Mode.LAUNCHER);
+            return;
+        }
+        @Nullable String block = blockText();
+        if (block != null) {
+            problem.setText("! " + block);
+            return;
+        }
+        problem.setText("");
+        if (r.action() == SaoReadiness.Action.PACK_WINDOW) openPack(SaoPackApp.Mode.PACK);
+        else service.download();
+    }
+
     /// Link Start, as the signed-in ARGUS ID.
     private void linkStart() {
         SaoData.@Nullable OathAccount a = service.oathAccount().get();
@@ -1748,6 +1780,10 @@ public final class SaoHelmetPage extends StackPane {
                 } else if (b == SaoPackState.FAILED || b == SaoPackState.READY && a != SaoPackState.RUNNING) {
                     o.removeListener(this);
                     pendingLaunch = null;
+                    // Refused for a newer pack with no Quark link known: the 整合包 window instead.
+                    SaoReadiness r = service.readiness().get();
+                    if (b == SaoPackState.FAILED && r.kind() == SaoReadiness.Kind.UPDATE && r.action() == SaoReadiness.Action.PACK_WINDOW)
+                        openPack(SaoPackApp.Mode.PACK);
                 }
             }
         };
@@ -1969,9 +2005,9 @@ public final class SaoHelmetPage extends StackPane {
         }
     }
 
-    /// Presses Link Start (screenshot tools).
+    /// Presses the main button, Link Start or 下载 / 更新 (screenshot tools).
     void forceLinkStart() {
-        linkStart();
+        pressMain();
     }
 
     /// Whether the display is on (screenshot tools).

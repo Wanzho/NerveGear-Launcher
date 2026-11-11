@@ -54,6 +54,8 @@ public final class SaoFakeService implements SaoLauncherService {
 
     /// Mirrors account linking and signout into the observable local sample state.
     public SaoFakeService() {
+        // Nothing installed: 下载; a pretend pack: ready (forceReadiness shows the other states).
+        installed.addListener((o, a, b) -> readiness.set(b == null ? NOT_DOWNLOADED : org.jackhuang.hmcl.sao.SaoReadiness.READY));
         oath.addListener((observable, previous, current) -> {
             if (current == null || current.premiumName() == null) inherited.set(SaoTextureState.empty());
             else if (previous == null || previous.premiumName() == null) inherited.set(new SaoTextureState(true, "premium", "mojang", "premium", "mojang", appearanceSamples, System.currentTimeMillis(), 0, "synced"));
@@ -70,6 +72,11 @@ public final class SaoFakeService implements SaoLauncherService {
     private final SimpleObjectProperty<@Nullable String> error = new SimpleObjectProperty<>();
     /// The pretend installed version.
     private final SimpleObjectProperty<@Nullable String> installed = new SimpleObjectProperty<>();
+    /// Nothing installed yet.
+    private static final org.jackhuang.hmcl.sao.SaoReadiness NOT_DOWNLOADED = new org.jackhuang.hmcl.sao.SaoReadiness(
+            org.jackhuang.hmcl.sao.SaoReadiness.Kind.DOWNLOAD, "还没下载", org.jackhuang.hmcl.sao.SaoReadiness.Action.PREPARE);
+    /// The pretend readiness.
+    private final SimpleObjectProperty<org.jackhuang.hmcl.sao.SaoReadiness> readiness = new SimpleObjectProperty<>(NOT_DOWNLOADED);
     /// The pretend skin.
     private @Nullable Path skin;
     /// The pretend arm model.
@@ -129,11 +136,21 @@ public final class SaoFakeService implements SaoLauncherService {
         return "0.8";
     }
 
-    /// Plays a pretend install over six seconds, then a pretend game for four.
+    /// {@inheritDoc}
     @Override
-    public void linkStart(Account account, char @Nullable [] authPassword) {
-        if (authPassword != null) Arrays.fill(authPassword, '\0');
-        String[] steps = {"解压整合包", "下载 Minecraft", "安装 NeoForge", "校验文件", "启动游戏"};
+    public ReadOnlyObjectProperty<org.jackhuang.hmcl.sao.SaoReadiness> readiness() {
+        return readiness;
+    }
+
+    /// Sets the readiness directly (screenshots of 下载 / 更新 / Link Start).
+    public void forceReadiness(org.jackhuang.hmcl.sao.SaoReadiness r) {
+        readiness.set(r);
+    }
+
+    /// Plays a pretend install over six seconds, then stops ready; never a pretend game.
+    @Override
+    public void download() {
+        String[] steps = {"解压整合包", "下载 Minecraft", "安装 NeoForge", "校验文件", "整合包已就绪"};
         state.set(SaoPackState.WORKING);
         Timeline t = new Timeline();
         for (int i = 0; i <= 60; i++) {
@@ -145,9 +162,25 @@ public final class SaoFakeService implements SaoLauncherService {
         }
         t.getKeyFrames().add(new KeyFrame(Duration.millis(6200), e -> {
             installed.set("0.8");
-            state.set(SaoPackState.RUNNING);
+            readiness.set(org.jackhuang.hmcl.sao.SaoReadiness.READY);
+            step.set("");
+            state.set(SaoPackState.READY);
         }));
-        t.getKeyFrames().add(new KeyFrame(Duration.millis(10200), e -> state.set(SaoPackState.READY)));
+        t.play();
+    }
+
+    /// Refuses when not ready, like the engine; ready, a pretend game for four seconds.
+    @Override
+    public void linkStart(Account account, char @Nullable [] authPassword) {
+        if (authPassword != null) Arrays.fill(authPassword, '\0');
+        org.jackhuang.hmcl.sao.SaoReadiness r = readiness.get();
+        if (!r.ready()) {
+            error.set(r.reason());
+            state.set(SaoPackState.FAILED);
+            return;
+        }
+        state.set(SaoPackState.RUNNING);
+        Timeline t = new Timeline(new KeyFrame(Duration.millis(4000), e -> state.set(SaoPackState.READY)));
         t.play();
     }
 
