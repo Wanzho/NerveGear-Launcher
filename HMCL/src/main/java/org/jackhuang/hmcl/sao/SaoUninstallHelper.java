@@ -96,8 +96,8 @@ final class SaoUninstallHelper {
         Path script = directory.resolve(windows ? "cleanup.ps1" : "cleanup.sh");
         Path log = directory.resolve("result.log");
         org.jackhuang.hmcl.util.logging.Logger.LOG.info("Uninstall helper report: " + log);
-        Files.writeString(script, script(roots, application, directory, ProcessHandle.current().pid(),
-                System.getProperty("os.name")), StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW);
+        Files.write(script, scriptBytes(script(roots, application, directory, ProcessHandle.current().pid(),
+                System.getProperty("os.name")), windows), StandardOpenOption.CREATE_NEW);
         @Unmodifiable List<String> command = windows
                 ? List.of("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script.toString())
                 : List.of("/bin/sh", script.toString());
@@ -127,6 +127,17 @@ final class SaoUninstallHelper {
                 catch (IOException ignored) { child.destroy(); }
             }
         };
+    }
+
+    /// Encodes the script as UTF-8; Windows PowerShell 5.1 `-File` reads BOM-less scripts in the ANSI code page,
+    /// which garbles non-ASCII user names and install paths, so the Windows script starts with a UTF-8 BOM.
+    static byte[] scriptBytes(String script, boolean windows) {
+        byte[] text = script.getBytes(StandardCharsets.UTF_8);
+        if (!windows) return text;
+        byte[] result = new byte[text.length + 3];
+        result[0] = (byte) 0xEF; result[1] = (byte) 0xBB; result[2] = (byte) 0xBF;
+        System.arraycopy(text, 0, result, 3, text.length);
+        return result;
     }
 
     /// Generates reviewable native code without spawning a process or removing any file.

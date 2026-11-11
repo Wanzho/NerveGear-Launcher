@@ -37,7 +37,8 @@ class SaoUninstallerTest {
                 || actual.startsWith(evidence.resolve("gitee3/fixtures"))
                 || actual.startsWith(evidence.resolve("merge1/fixtures"))
                 || actual.startsWith(evidence.resolve("merge2/fixtures"))
-                || actual.startsWith(evidence.resolve("loginmail1/fixtures")), "Configure an isolated launcher fixture directory before these tests");
+                || actual.startsWith(evidence.resolve("loginmail1/fixtures"))
+                || actual.startsWith(evidence.resolve("fixreview1/fixtures")), "Configure an isolated launcher fixture directory before these tests");
     }
 
     /// Counts shared/nested roots once and never traverses a link into unrelated data.
@@ -379,5 +380,13 @@ class SaoUninstallerTest {
     private interface CheckedCondition {
         /// Returns true when the expected synthetic state has been observed.
         boolean get() throws Exception;
+    }
+
+    /// The Windows cleanup script carries a UTF-8 BOM so PowerShell 5.1 keeps Chinese paths intact.
+    @Test void windowsScriptHasUtf8Bom() {
+        byte[] windows = SaoUninstallHelper.scriptBytes("$p = 'C:\\Users\\张三'", true);
+        assertEquals((byte) 0xEF, windows[0]); assertEquals((byte) 0xBB, windows[1]); assertEquals((byte) 0xBF, windows[2]);
+        assertEquals("$p = 'C:\\Users\\张三'", new String(windows, 3, windows.length - 3, java.nio.charset.StandardCharsets.UTF_8));
+        assertEquals('#', (char) SaoUninstallHelper.scriptBytes("#!/bin/sh", false)[0]);
     }
 }
