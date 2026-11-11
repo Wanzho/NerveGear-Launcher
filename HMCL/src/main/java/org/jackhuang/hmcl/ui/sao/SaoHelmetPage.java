@@ -1194,8 +1194,14 @@ public final class SaoHelmetPage extends StackPane {
 
     /// Opens the 整合包 / 启动器更新 window (it replaces another app; Esc closes it).
     void openPack(SaoPackApp.Mode mode) {
+        // Rebuilding an open pack window would stop its Downloads watch and drop the quick updates gathered so far.
+        if (app != null && app == packWin && mode == packMode) { requestFocus(); return; }
+        packMode = mode;
         openApp(new SaoApps.App(SVG.DOWNLOAD, PACK_LABEL, (s, c) -> SaoPackApp.make(s, c, mode)), null);
     }
+
+    /// Mode of the open 整合包 window, compared before reopening it.
+    private SaoPackApp.@Nullable Mode packMode;
 
     /// One announcement in its own window; another one replaces it, Esc closes it.
     ///
