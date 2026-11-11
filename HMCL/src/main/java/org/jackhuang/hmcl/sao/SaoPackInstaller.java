@@ -99,6 +99,29 @@ public final class SaoPackInstaller {
         }
     }
 
+    /// Applies a dropped full pack as an update: only files whose inventory entry changed are written, so player-edited
+    /// settings survive; replaced or removed game-written settings are kept in `.sao-config-backups`.
+    public Result applyUpdate(SaoPackArchive source) throws Exception {
+        SaoPackFiles.resolve(instance, "sao-pack-lock-check");
+        Files.createDirectories(instance);
+        Path lockPath = instance.resolve(".sao-pack.lock");
+        if (Files.isSymbolicLink(lockPath)) throw new IOException("Invalid pack lock file");
+        try (FileChannel channel = FileChannel.open(lockPath, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
+             var lock = channel.tryLock()) {
+            if (lock == null) throw new IOException("Another SAO launcher is updating this instance");
+            @Nullable SaoPackManifest previous = installed();
+            if (previous == null) return applyLocked(source, false);
+            Map<String, SaoPackManifest.PackFile> next = new HashMap<>();
+            for (var file : source.manifest().files()) next.put(file.path(), file);
+            Set<String> touched = new HashSet<>();
+            for (var old : previous.files()) {
+                @Nullable SaoPackManifest.PackFile replacement = next.get(old.path());
+                if (replacement == null || !replacement.sha1().equals(old.sha1()) || replacement.size() != old.size()) touched.add(old.path());
+            }
+            return applyLocked(source, false, touched);
+        }
+    }
+
     /// Verifies and composes all quick hops while holding the same lock as the single preserving commit.
     /// The complete resulting source is cached before writes, so repair survives restart without the original drops.
     public SaoPackArchive applyQuick(List<Path> archives, @Nullable SaoPackArchive pristine, Path cache) throws Exception {

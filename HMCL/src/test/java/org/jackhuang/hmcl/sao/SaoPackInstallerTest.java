@@ -82,7 +82,27 @@ class SaoPackInstallerTest {
         assertEquals("0.8", Objects.requireNonNull(installer.installed()).version());
     }
 
-    /// A release that only changes a file name's case keeps exactly one copy, on case-insensitive filesystems too.
+    /// A dropped full pack keeps player-edited settings it does not change and backs up the ones it replaces.
+    @Test void fullPackUpdateKeepsPlayerSettings() throws Exception {
+        Path instance = temporary.resolve("instance");
+        SaoPackInstaller installer = installer(instance, new AtomicInteger());
+        installer.apply(fixture("0.8", Map.of("config/a.toml", "default-a", "config/b.toml", "default-b"), List.of(), false), false);
+        Files.writeString(instance.resolve("config/a.toml"), "player-a");
+        Files.writeString(instance.resolve("config/b.toml"), "player-b");
+        installer.applyUpdate(fixture("0.9", Map.of("config/a.toml", "default-a", "config/b.toml", "new-b"), List.of(), false));
+        assertEquals("player-a", Files.readString(instance.resolve("config/a.toml")));
+        assertEquals("new-b", Files.readString(instance.resolve("config/b.toml")));
+        try (var backups = Files.walk(instance.resolve(".sao-config-backups"))) {
+            assertTrue(backups.anyMatch(path -> path.endsWith("config/b.toml") && readQuietly(path).equals("player-b")));
+        }
+    }
+
+    /// Reads a small fixture file inside a stream predicate.
+    private static String readQuietly(Path path) {
+        try { return Files.readString(path); } catch (IOException failure) { return ""; }
+    }
+
+        /// A release that only changes a file name's case keeps exactly one copy, on case-insensitive filesystems too.
     @Test void caseOnlyRenameKeepsTheMod() throws Exception {
         Path instance = temporary.resolve("instance");
         SaoPackInstaller installer = installer(instance, new AtomicInteger());
