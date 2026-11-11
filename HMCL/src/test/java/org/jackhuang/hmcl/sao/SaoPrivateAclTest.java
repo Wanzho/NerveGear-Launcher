@@ -23,7 +23,19 @@ class SaoPrivateAclTest {
         assertThrows(java.io.IOException.class,()->SaoWindowsPrivatePaths.plan(root,temporary.resolve("outside")));
         assertThrows(java.io.IOException.class,()->SaoWindowsPrivatePaths.plan(root,root.resolve("../outside")));
     }
-    /// D:P removes inheritance and the single full-control ACE belongs only to the current token SID.
+    /// Production splits per-user account storage from the data root that holds the instance; tickets plan from the latter.
+    @Test void ticketRootOwnsInstanceWithSplitRoots() throws Exception {
+        Path user=temporary.resolve("AppData/.sao-oath-launcher"), data=temporary.resolve("Games/.sao-oath-launcher");
+        Path instance=data.resolve("minecraft/versions/sao-oath");
+        assertThrows(java.io.IOException.class,()->SaoWindowsPrivatePaths.plan(user,instance));
+        java.net.URI none=java.net.URI.create("http://127.0.0.1:1/");
+        try(var accounts=new SaoOathAccounts(user,data,()->none,()->"zh_cn",new SaoOathCredentialStore(user,false),
+                ()->{throw new AssertionError("Microsoft must not open");},none,account->{throw new AssertionError("Game must not start");},message->{})){
+            assertEquals(data,accounts.ticketRoot());
+            assertEquals(instance,SaoWindowsPrivatePaths.plan(accounts.ticketRoot(),instance).get(3));
+        }
+    }
+        /// D:P removes inheritance and the single full-control ACE belongs only to the current token SID.
     @Test void protectedDaclHasExactlyOneOwnerGrant() {
         String sid="S-1-5-21-11-22-33-1001";
         assertEquals("D:P(A;OICI;FA;;;"+sid+")",SaoWindowsPrivatePaths.descriptor(sid,true));

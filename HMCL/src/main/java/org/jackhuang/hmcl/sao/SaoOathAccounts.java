@@ -75,6 +75,8 @@ final class SaoOathAccounts implements AutoCloseable {
     final SaoFriends friends;
     /// Root enclosing only this launcher's credentials, texture cache and libraries.
     private final Path root;
+    /// Launcher data root that owns the game instance; launch tickets are hardened from here down.
+    private final Path launcherRoot;
     /// Explicit protected storage implementation, replaceable in isolated tests.
     private final SaoOathCredentials credentials;
     /// Original local Microsoft session acquisition.
@@ -149,7 +151,13 @@ final class SaoOathAccounts implements AutoCloseable {
     /// Fully injectable controller for literal-loopback headless contracts, without a game process or windows.
     SaoOathAccounts(Path root, Supplier<URI> endpoint, Supplier<String> language, SaoOathCredentials credentials,
                     PremiumProof premium, URI mojangJoin, Consumer<Account> launch, Consumer<String> errors) {
-        this.root = root; this.fallbackEndpoint = endpoint;
+        this(root, root, endpoint, language, credentials, premium, mojangJoin, launch, errors);
+    }
+
+    /// Production layout: per-user account storage and the launcher data root that holds the instance may differ.
+    SaoOathAccounts(Path root, Path launcherRoot, Supplier<URI> endpoint, Supplier<String> language, SaoOathCredentials credentials,
+                    PremiumProof premium, URI mojangJoin, Consumer<Account> launch, Consumer<String> errors) {
+        this.root = root; this.launcherRoot = launcherRoot; this.fallbackEndpoint = endpoint;
         this.client = new SaoAccountClient(this::accountEndpoint, language); this.credentials = credentials;
         this.friends = new SaoFriends(root, client, errors);
         this.premium = premium; this.mojangJoin = mojangJoin; this.launch = launch; this.errors = errors;
@@ -397,6 +405,9 @@ final class SaoOathAccounts implements AutoCloseable {
     }
 
     /// Refreshes before launch; accounts awaiting mailbox verification or a replacement nickname cannot start.
+    /// Root from which launch-ticket ancestors are hardened; it must contain the game instance.
+    Path ticketRoot() { return launcherRoot; }
+
     void linkStart() {
         SaoData.@Nullable OathAccount checked = current;
         if (checked == null) return;
@@ -441,7 +452,7 @@ final class SaoOathAccounts implements AutoCloseable {
                         JsonObject ticket = client.json("POST", "sao/launch", new JsonObject(), prepared.access());
                         try {
                             if (session != prepared || preparedGeneration != generation.get()) throw new SaoAccountException("请重新登录 ARGUS ID", "invalidSession");
-                            return new SaoOathLaunchTicket(root, instance, prepared.root().toString(), prepared.id(), server, ticket);
+                            return new SaoOathLaunchTicket(launcherRoot, instance, prepared.root().toString(), prepared.id(), server, ticket);
                         }
                         finally { ticket.remove("launchTicket"); }
                     });

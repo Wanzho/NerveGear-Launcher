@@ -334,7 +334,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
         Path accountRoot = production ? Metadata.HMCL_USER_HOME : root;
         try {
             SaoOathCredentials credentialStore = accountHooks == null ? new SaoOathCredentialStore(accountRoot, production) : accountHooks.credentials();
-            oath = new SaoOathAccounts(accountRoot,
+            oath = new SaoOathAccounts(accountRoot, root,
                     accountHooks == null ? this::accountEndpoint : accountHooks.endpoint(),
                     () -> production ? org.jackhuang.hmcl.util.i18n.I18n.getLocale().getLocale().toLanguageTag() : Locale.getDefault().toLanguageTag(), credentialStore,
                     accountHooks == null ? SaoMicrosoftLogin::session : accountHooks.premium(),
