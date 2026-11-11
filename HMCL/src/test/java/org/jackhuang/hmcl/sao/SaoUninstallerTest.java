@@ -64,6 +64,8 @@ class SaoUninstallerTest {
         Files.createDirectories(instance.resolve("screenshots"));
         Files.writeString(instance.resolve("saves/world/level.dat"), "synthetic world");
         Files.write(instance.resolve("screenshots/one.png"), new byte[]{1, 2, 3});
+        Files.createDirectories(instance.resolve("backups"));
+        Files.write(instance.resolve("backups/world-1.zip"), new byte[]{4, 5});
         Files.writeString(root.resolve("launcher-settings.json"), "fixture");
         SaoUninstaller uninstaller = plan(List.of(root), instance, noTrash());
         uninstaller.preserve();
@@ -76,6 +78,7 @@ class SaoUninstallerTest {
         uninstaller.remove(List.of());
         assertFalse(Files.exists(root));
         assertTrue(Files.isRegularFile(kept.resolve("saves/world/level.dat")));
+        assertTrue(Files.isRegularFile(kept.resolve("backups/world-1.zip")));
     }
 
     /// Existing recovery folders are never replaced; creation selects the first available numbered suffix atomically.

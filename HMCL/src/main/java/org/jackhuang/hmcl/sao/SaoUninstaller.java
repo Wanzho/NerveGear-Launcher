@@ -177,7 +177,7 @@ final class SaoUninstaller {
         return bytes;
     }
 
-    /// Copies only saves/screenshots and verifies the complete source and destination inventories and SHA-256.
+    /// Copies only saves, screenshots and world backups, and verifies the complete source and destination inventories and SHA-256.
     /// A failed copy is retained for recovery, while all original data remains untouched.
     void preserve() throws IOException {
         validate();
@@ -189,7 +189,7 @@ final class SaoUninstaller {
             catch (FileAlreadyExistsException collision) { candidate = desktop.resolve("刀剑神域·誓约 存档 (" + suffix + ")"); }
         }
         kept = candidate;
-        for (String name : List.of("saves", "screenshots")) {
+        for (String name : List.of("saves", "screenshots", "backups")) {
             Path from = instance.resolve(name);
             @Unmodifiable Map<String, String> before = fingerprint(from);
             if (before.isEmpty()) continue;
