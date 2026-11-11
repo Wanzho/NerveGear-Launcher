@@ -420,4 +420,17 @@ class SaoUninstallerTest {
         assertNull(SaoUninstaller.xdgDesktop(dirs, home));
         assertNull(SaoUninstaller.xdgDesktop(home.resolve("missing"), home));
     }
+
+    /// A link above the launcher's data root (a moved profile or junctioned folder) does not block play; one inside does.
+    @Test void routineCheckIgnoresLinksAboveTheDataRoot() throws Exception {
+        Path real = Files.createDirectories(temporary.resolve("real"));
+        Path moved = Files.createSymbolicLink(temporary.resolve("moved"), real);
+        Path base = Files.createDirectories(moved.resolve(".sao-oath-launcher"));
+        Path inside = Files.createDirectories(base.resolve("minecraft/versions/sao-oath"));
+        SaoUninstaller.rejectLinksBelow(base, inside.resolve(".sao-launch-ticket.json"));
+        assertThrows(IOException.class, () -> SaoUninstaller.rejectSymlinkAncestors(inside));
+        Path elsewhere = Files.createDirectories(temporary.resolve("elsewhere"));
+        Files.createSymbolicLink(base.resolve("skins"), elsewhere);
+        assertThrows(IOException.class, () -> SaoUninstaller.rejectLinksBelow(base, base.resolve("skins/a.png")));
+    }
 }

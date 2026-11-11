@@ -36,7 +36,7 @@ final class SaoWindowsPrivatePaths {
     static void prepare(Path root,Path instance) throws IOException {
         if(!Platform.isWindows())return;
         for(Path directory:plan(root,instance)){
-            SaoUninstaller.rejectSymlinkAncestors(directory);
+            SaoUninstaller.rejectLinksBelowRoot(directory);
             Files.createDirectories(directory);
             protect(directory,true);
         }

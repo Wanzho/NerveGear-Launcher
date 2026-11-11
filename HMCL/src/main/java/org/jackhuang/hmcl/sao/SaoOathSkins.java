@@ -107,17 +107,17 @@ final class SaoOathSkins {
         Path file = skin.file().toAbsolutePath().normalize();
         if (!Objects.equals(file.getParent(), root.toAbsolutePath().normalize()) || !file.getFileName().toString().matches("[a-f0-9-]{36}\\.png"))
             throw new IOException("皮肤不属于当前账号的皮肤库");
-        SaoUninstaller.rejectSymlinkAncestors(file);
+        SaoUninstaller.rejectLinksBelowRoot(file);
         Files.deleteIfExists(file);
         Files.deleteIfExists(file.resolveSibling(file.getFileName().toString().replaceFirst("\\.png$", ".json")));
     }
 
     /// Refuses a symbolic-link storage root or existing target file before reading or writing.
-    private void checked() throws IOException { SaoUninstaller.rejectSymlinkAncestors(root); }
+    private void checked() throws IOException { SaoUninstaller.rejectLinksBelowRoot(root); }
 
     /// Atomically replaces a complete sanitized image or bounded metadata file.
     private void write(Path file, byte[] bytes) throws IOException {
-        checked(); SaoUninstaller.rejectSymlinkAncestors(file); Files.createDirectories(root);
+        checked(); SaoUninstaller.rejectLinksBelowRoot(file); Files.createDirectories(root);
         Path temporary = Files.createTempFile(root, "skin-", ".tmp");
         try { Files.write(temporary, bytes); SaoPackFiles.atomicMove(temporary, file); }
         finally { Files.deleteIfExists(temporary); }

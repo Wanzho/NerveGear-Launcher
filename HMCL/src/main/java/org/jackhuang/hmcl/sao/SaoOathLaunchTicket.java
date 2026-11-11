@@ -47,7 +47,7 @@ final class SaoOathLaunchTicket implements AutoCloseable {
         file.addProperty("ticket", ticket); file.addProperty("expiresAtMillis", expires);
         expected = file.toString().getBytes(StandardCharsets.UTF_8);
         path = instance.resolve(FILE_NAME);
-        SaoUninstaller.rejectSymlinkAncestors(path);
+        SaoUninstaller.rejectLinksBelowRoot(path);
         SaoWindowsPrivatePaths.prepare(launcherRoot,instance);
         Files.createDirectories(instance);
         Path temporary = Files.getFileStore(instance).supportsFileAttributeView(PosixFileAttributeView.class)

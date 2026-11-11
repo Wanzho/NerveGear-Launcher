@@ -109,7 +109,7 @@ final class SaoGameBridge {
     /// Removes only the fixed ticket entry, never following a ticket symlink or accepting aliased parent folders.
     /// Any deletion failure aborts offline preparation before installation or process creation.
     void clearOfflineTicket() throws IOException {
-        SaoUninstaller.rejectSymlinkAncestors(instanceDir());
+        SaoUninstaller.rejectLinksBelowRoot(instanceDir());
         Files.deleteIfExists(instanceDir().resolve(SaoOathLaunchTicket.FILE_NAME));
     }
 

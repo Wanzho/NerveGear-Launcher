@@ -130,6 +130,30 @@ final class SaoUninstaller {
         }
     }
 
+    /// Routine (sign-in, Link Start, skins) check: rejects links and aliases only below the launcher data root that holds
+    /// the path, so a junction or moved profile above the launcher does not block play. Uninstall keeps the full check.
+    static void rejectLinksBelowRoot(Path path) throws IOException {
+        Path absolute = path.toAbsolutePath().normalize();
+        @Nullable Path base = null;
+        for (Path root : List.of(org.jackhuang.hmcl.Metadata.HMCL_LOCAL_HOME, org.jackhuang.hmcl.Metadata.HMCL_USER_HOME))
+            if (absolute.startsWith(root) && !absolute.equals(root) && (base == null || root.getNameCount() > base.getNameCount())) base = root;
+        if (base == null) { rejectSymlinkAncestors(absolute); return; }
+        rejectLinksBelow(base, absolute);
+    }
+
+    /// Rejects symbolic links, reparse points and aliases strictly below `base`; `base` and its ancestors may be links.
+    static void rejectLinksBelow(Path base, Path path) throws IOException {
+        Path absolute = path.toAbsolutePath().normalize();
+        @Nullable Path real = Files.exists(base) ? base.toRealPath() : null;
+        for (@Nullable Path current = absolute; current != null && !current.equals(base); current = current.getParent()) {
+            if (Files.isSymbolicLink(current)) throw new IOException("启动器文件夹「" + current.getFileName() + "」是链接，已停止操作");
+            if (!Files.exists(current, LinkOption.NOFOLLOW_LINKS)) continue;
+            BasicFileAttributes attributes = Files.readAttributes(current, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+            if (attributes.isOther() || real != null && !current.toRealPath().equals(real.resolve(base.relativize(current))))
+                throw new IOException("启动器文件夹「" + current.getFileName() + "」是链接或别名，已停止操作");
+        }
+    }
+
     /// Measures regular file bytes without following links or counting a nested root twice.
     long installedBytes() throws IOException {
         validate();

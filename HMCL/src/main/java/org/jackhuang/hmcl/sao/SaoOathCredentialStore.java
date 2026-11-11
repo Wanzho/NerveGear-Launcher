@@ -85,7 +85,7 @@ final class SaoOathCredentialStore implements SaoOathCredentials {
 
     /// Decrypts the native item or fallback envelope; corrupt payloads fail closed without deletion.
     @Override public synchronized @Nullable Credential read() throws IOException {
-        SaoUninstaller.rejectSymlinkAncestors(directory);
+        SaoUninstaller.rejectLinksBelowRoot(directory);
         if (Files.exists(directory.resolve("signed-out"), LinkOption.NOFOLLOW_LINKS)) return null;
         byte @Nullable [] bytes = null;
         try {
@@ -152,7 +152,7 @@ final class SaoOathCredentialStore implements SaoOathCredentials {
 
     /// Creates/rechecks owner-only storage while rejecting symlink ancestors and secret-file aliases.
     private void checkedDirectory() throws IOException {
-        SaoUninstaller.rejectSymlinkAncestors(directory);
+        SaoUninstaller.rejectLinksBelowRoot(directory);
         Files.createDirectories(directory);
         try { Files.setPosixFilePermissions(directory, PosixFilePermissions.fromString("rwx------")); }
         catch (UnsupportedOperationException windows) { }

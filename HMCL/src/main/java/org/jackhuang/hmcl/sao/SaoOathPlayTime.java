@@ -100,7 +100,7 @@ final class SaoOathPlayTime {
         if (!id.matches("[a-fA-F0-9]{32}")) throw new IOException("角色信息无效");
         try {
             String namespace = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(api.toString().getBytes(StandardCharsets.UTF_8)));
-            SaoUninstaller.rejectSymlinkAncestors(root.resolve(namespace).resolve(id.toLowerCase(java.util.Locale.ROOT) + ".json"));
+            SaoUninstaller.rejectLinksBelowRoot(root.resolve(namespace).resolve(id.toLowerCase(java.util.Locale.ROOT) + ".json"));
             return root.resolve(namespace).resolve(id.toLowerCase(java.util.Locale.ROOT) + ".json");
         } catch (java.security.NoSuchAlgorithmException impossible) { throw new AssertionError(impossible); }
     }
