@@ -122,8 +122,10 @@ class SaoDownloadButtonTest {
             engine.setGraphicsPreset(SaoData.GraphicsPreset.FAST);
             awaitReadiness(engine, SaoReadiness.Kind.READY);
             engine.linkStartOffline("Fixture");
+            // RUNNING is published just before the launch call; wait for the call itself.
+            await(() -> steps.launches.get() == 1);
             await(() -> engine.state().get() == SaoPackState.RUNNING);
-            assertEquals(1, steps.launches.get()); assertEquals(1, steps.installs.get());
+            assertEquals(1, steps.installs.get());
             assertNull(engine.lastError().get());
         }
     }
