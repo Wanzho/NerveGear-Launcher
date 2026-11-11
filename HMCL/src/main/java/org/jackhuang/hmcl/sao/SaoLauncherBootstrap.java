@@ -34,7 +34,8 @@ public final class SaoLauncherBootstrap {
         if (!Files.isRegularFile(bundled, LinkOption.NOFOLLOW_LINKS)) throw new IOException("Native launcher requires a bundled JAR");
         SaoSelfUpdate.Selection selection;
         try { selection = updates.select(bundled, Metadata.VERSION); }
-        catch (IOException failure) {
+        // A RuntimeException (for example an unparsable version) must not stop the bundled launcher from opening.
+        catch (IOException | RuntimeException failure) {
             // Refuse concurrent startup attempts; a damaged local state still leaves the packaged JAR usable.
             if (failure.getMessage() != null && failure.getMessage().contains("另一个启动器")) throw failure;
             System.err.println("Launcher update state unavailable; using bundled launcher: " + failure.getClass().getSimpleName());
