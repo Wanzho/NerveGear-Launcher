@@ -66,18 +66,12 @@ def check_space(path):
 
 
 def linked_copy(source, destination):
-    """Share immutable large JAR bytes across same-volume staging directories."""
+    """Copy JAR bytes so later builds cannot rewrite an existing release."""
     destination.parent.mkdir(parents=True, exist_ok=True)
     if destination.exists():
-        if os.path.samefile(source, destination):
-            return
         destination.unlink()
-    try:
-        os.link(source, destination)
-    except OSError:
-        # Different volumes can still use the script; the disk guard remains active.
-        check_space(destination.parent)
-        shutil.copy2(source, destination)
+    check_space(destination.parent)
+    shutil.copy2(source, destination)
 
 
 def obtain_toolchains(work, lock):
