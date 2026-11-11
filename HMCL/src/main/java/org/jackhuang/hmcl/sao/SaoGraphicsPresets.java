@@ -70,10 +70,18 @@ final class SaoGraphicsPresets {
             performance.addProperty("animate_only_visible_textures", !quality);
             replacements.put("config/embeddium-options.json", new GsonBuilder().setPrettyPrinting().create().toJson(embeddium) + "\n");
         } catch (RuntimeException failure) { throw new IOException("Embeddium 配置无效，未修改画质", failure); }
-        Path shader = SaoPackFiles.resolve(instance, "shaderpacks/" + SHADER);
-        boolean shaderPresent = Files.isRegularFile(shader, LinkOption.NOFOLLOW_LINKS);
-        replacements.put("config/oculus.properties", edit(read(instance, "config/oculus.properties"),
-                Map.of("enableShaders", Boolean.toString(quality && shaderPresent), "shaderPack", SHADER), '='));
+        // A shader pack the player picked stays picked; the preset only seeds the default pack when none is chosen.
+        String oculus = read(instance, "config/oculus.properties");
+        java.util.Properties current = new java.util.Properties();
+        current.load(new java.io.StringReader(oculus));
+        String chosen = current.getProperty("shaderPack", "").strip();
+        boolean keep = !chosen.isEmpty() && !chosen.equals(SHADER) && chosen.indexOf('/') < 0 && chosen.indexOf('\\') < 0
+                && Files.exists(instance.resolve("shaderpacks").resolve(chosen), LinkOption.NOFOLLOW_LINKS);
+        Path shader = SaoPackFiles.resolve(instance, "shaderpacks/" + (keep ? chosen : SHADER));
+        boolean shaderPresent = Files.exists(shader, LinkOption.NOFOLLOW_LINKS);
+        replacements.put("config/oculus.properties", edit(oculus, keep
+                ? Map.of("enableShaders", Boolean.toString(quality && shaderPresent))
+                : Map.of("enableShaders", Boolean.toString(quality && shaderPresent), "shaderPack", SHADER), '='));
         String dynamic = dynamicLights(read(instance, "config/sodiumdynamiclights-client.toml"), fast ? "OFF" : quality ? "REALTIME" : "FAST");
         if (org.tomlj.Toml.parse(dynamic).hasErrors()) throw new IOException("动态光源配置无效，未修改画质");
         replacements.put("config/sodiumdynamiclights-client.toml", dynamic);
