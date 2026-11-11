@@ -47,6 +47,10 @@ Windows ICO and macOS ICNS are derived from that source. Its current 256-pixel
 resolution is preserved for Windows and upscaled for larger macOS icon slots.
 
 The product name is **NerveGear启动器**; the ASCII fallback is **NerveGear Launcher**.
+There is no windows-arm64 bundle. Windows 11 on ARM runs the x64 bundle through
+its built-in x64 emulation; Windows 10 on ARM cannot run it. The game itself still
+receives a native ARM64 Java from the runtime selector.
+
 The Windows bootstrap is the target JDK's real x64 jpackage executable template,
 with its icon resources replaced. `NerveGear启动器.exe` is paired with an identically
 named UTF-8 `.cfg` in `app/`. Its `app.mainclass` and `app.classpath` invoke the fixed
