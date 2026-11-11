@@ -25,6 +25,8 @@ import java.util.zip.ZipFile;
 public final class SaoPackInstaller {
     /// Receipt is launcher-owned and never supplied by a pack override.
     public static final String RECEIPT = ".sao-pack.json";
+    /// SHA-1-named verified downloads kept after a failed batch, reused by the next attempt and removed on success.
+    static final String DOWNLOAD_CACHE = ".sao-download-cache";
     /// Fixed, isolated game directory managed by this installer.
     private final Path instance;
     /// Downloader injected by the HMCL bridge or deterministic tests.
@@ -207,13 +209,24 @@ public final class SaoPackInstaller {
                 if (!SaoPackFiles.matches(destination, file)) throw new IOException("Pack checksum mismatch: " + file.path());
                 staged++;
             }
-            // All remote bytes stay in this transaction's stage until the entire batch verifies.
-            downloader.downloadAll(remote);
+            // All remote bytes stay in this transaction's stage until the entire batch verifies. Files verified by an
+            // earlier failed batch are reused from the SHA-1 cache, and this batch's verified files are kept there on failure.
+            Path cache = instance.resolve(DOWNLOAD_CACHE);
+            Map<SaoPackManifest.PackFile, Path> missing = new LinkedHashMap<>();
+            for (var item : remote.entrySet()) {
+                Path cached = SaoPackFiles.resolve(cache, item.getKey().sha1());
+                if (SaoPackFiles.matches(cached, item.getKey())) SaoPackFiles.atomicMove(cached, item.getValue());
+                else missing.put(item.getKey(), item.getValue());
+            }
+            try { downloader.downloadAll(missing); }
+            catch (Exception failure) { keepVerified(missing, cache, failure); throw failure; }
             for (var item : remote.entrySet()) {
                 if (!SaoPackFiles.matches(item.getValue(), item.getKey()))
                     throw new IOException("Pack checksum mismatch: " + item.getKey().path());
             }
             commit(stage, changed, removed, manifest, quickTouched);
+            try { if (Files.exists(cache, LinkOption.NOFOLLOW_LINKS)) SaoPackFiles.deleteTree(cache); }
+            catch (IOException ignored) { /* A leftover cache is reused or replaced by the next install. */ }
             verified += changed.size();
             if (!repair && previous != null) {
                 // Incremental update deliberately avoids rehashing unchanged managed payloads.
@@ -228,6 +241,19 @@ public final class SaoPackInstaller {
         } finally {
             if (cleanStage) SaoPackFiles.deleteTree(stage);
         }
+    }
+
+    /// Moves every verified file of a failed batch into the SHA-1 cache so the next attempt does not download it again.
+    private static void keepVerified(Map<SaoPackManifest.PackFile, Path> files, Path cache, Exception failure) {
+        try {
+            if (Files.isSymbolicLink(cache)) return;
+            Files.createDirectories(cache);
+            for (var item : files.entrySet()) {
+                Path cached = SaoPackFiles.resolve(cache, item.getKey().sha1());
+                if (!Files.exists(cached, LinkOption.NOFOLLOW_LINKS) && SaoPackFiles.matches(item.getValue(), item.getKey()))
+                    SaoPackFiles.atomicMove(item.getValue(), cached);
+            }
+        } catch (IOException | RuntimeException cacheFailure) { failure.addSuppressed(cacheFailure); }
     }
 
     /// Replaces files and managed removals, restoring previous contents on failure.

@@ -82,7 +82,29 @@ class SaoPackInstallerTest {
         assertEquals("0.8", Objects.requireNonNull(installer.installed()).version());
     }
 
-    /// A filesystem failure after the first replacement restores the preceding file and original receipt.
+    /// A failed download batch keeps its verified files; the retry downloads only what is still missing.
+    @Test void failedBatchKeepsVerifiedDownloadsForRetry() throws Exception {
+        Path instance = temporary.resolve("instance");
+        SaoPackManifest.PackFile good = remote("mods/good.jar", "good-payload"), bad = remote("mods/bad.jar", "bad-payload");
+        SaoPackArchive pack = archive("0.8", List.of(good, bad));
+        Map<String, String> payloads = Map.of(good.path(), "good-payload", bad.path(), "bad-payload");
+        List<String> fetched = Collections.synchronizedList(new ArrayList<>());
+        AtomicInteger badFailures = new AtomicInteger(1);
+        SaoPackInstaller installer = new SaoPackInstaller(instance, (file, path) -> {
+            fetched.add(file.path());
+            if (file.path().equals(bad.path()) && badFailures.getAndDecrement() > 0) throw new IOException("network dropped");
+            Files.writeString(path, payloads.get(file.path()));
+        }, Map.of(), (label, progress) -> { });
+        assertThrows(IOException.class, () -> installer.apply(pack, false));
+        assertEquals(Set.of(good.path(), bad.path()), new HashSet<>(fetched));
+        fetched.clear();
+        installer.apply(pack, false);
+        assertEquals(List.of(bad.path()), fetched);
+        assertEquals("good-payload", Files.readString(instance.resolve(good.path())));
+        assertFalse(Files.exists(instance.resolve(SaoPackInstaller.DOWNLOAD_CACHE)));
+    }
+
+        /// A filesystem failure after the first replacement restores the preceding file and original receipt.
     @Test void commitFailureRollsBackEarlierWrites() throws Exception {
         Path instance = temporary.resolve("instance");
         SaoPackInstaller installer = installer(instance, new AtomicInteger());
@@ -179,7 +201,24 @@ class SaoPackInstallerTest {
         return SaoPackArchive.open(zip);
     }
 
-    /// Computes one deterministic fixture identity from its UTF-8 payload.
+    /// Remote-only fixture identity with no archive member.
+    private static SaoPackManifest.PackFile remote(String path, String value) {
+        SaoPackManifest.PackFile local = file(path, value);
+        return new SaoPackManifest.PackFile(path, local.sha1(), local.size(), null, List.of("https://example.invalid/" + path));
+    }
+
+    /// Writes a manifest-only archive for the given files.
+    private SaoPackArchive archive(String version, List<SaoPackManifest.PackFile> files) throws Exception {
+        SaoPackManifest manifest = new SaoPackManifest(version, "1.20.1", "47.1.106", "", files, List.of());
+        Path zip = Files.createTempFile(temporary, "pack-", ".zip");
+        try (ZipOutputStream output = new ZipOutputStream(Files.newOutputStream(zip))) {
+            output.putNextEntry(new ZipEntry(SaoPackManifest.NAME));
+            output.write(manifest.toJson().getBytes(StandardCharsets.UTF_8)); output.closeEntry();
+        }
+        return SaoPackArchive.open(zip);
+    }
+
+        /// Computes one deterministic fixture identity from its UTF-8 payload.
     private static SaoPackManifest.PackFile file(String path, String value) {
         byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
         try { return new SaoPackManifest.PackFile(path, SaoPackArchive.sha1(new ByteArrayInputStream(bytes)), bytes.length, "overrides/" + path, List.of()); }
