@@ -295,16 +295,26 @@ final class SaoUninstaller {
                 // CSIDL_DESKTOPDIRECTORY, SHGFP_TYPE_CURRENT
                 if (com.sun.jna.Native.load("shell32", ShellFolders.class).SHGetFolderPathW(null, 0x10, null, 0, buffer) == 0) {
                     Path desktop = Path.of(com.sun.jna.Native.toString(buffer));
-                    if (desktop.isAbsolute() && Files.isDirectory(desktop)) return desktop;
+                    if (desktop.isAbsolute() && safeDesktop(desktop)) return desktop;
                 }
             } else if (com.sun.jna.Platform.isLinux()) {
                 @Nullable String config = System.getenv("XDG_CONFIG_HOME");
                 @Nullable Path desktop = xdgDesktop((config == null || config.isBlank() ? home.resolve(".config") : Path.of(config))
                         .resolve("user-dirs.dirs"), home);
-                if (desktop != null && Files.isDirectory(desktop)) return desktop;
+                if (desktop != null && safeDesktop(desktop)) return desktop;
             }
         } catch (IOException | RuntimeException | LinkageError ignored) { /* Fall back to the conventional folder. */ }
         return home.resolve("Desktop");
+    }
+
+    /// Whether a shell-reported desktop exists and passes the uninstall link check; a redirected (for example
+    /// OneDrive) desktop behind a reparse point falls back to the home Desktop instead of blocking uninstall.
+    private static boolean safeDesktop(Path desktop) {
+        try {
+            if (!Files.isDirectory(desktop)) return false;
+            rejectSymlinkAncestors(desktop);
+            return true;
+        } catch (IOException | RuntimeException rejected) { return false; }
     }
 
     /// Reads `XDG_DESKTOP_DIR` from a `user-dirs.dirs` file; only `$HOME/...` and absolute values are accepted.
