@@ -57,6 +57,14 @@ named UTF-8 `.cfg` in `app/`. Its `app.mainclass` and `app.classpath` invoke the
 bundled `org.jackhuang.hmcl.sao.SaoLauncherBootstrap`. macOS and Linux invoke the
 same class with `-cp app/launcher.jar`, using only their bundled runtime.
 
+The same Windows folder is also wrapped in `NerveGear启动器-安装-0.1.0.exe`, a per-user
+NSIS installer (`windows-installer.nsi`; needs `brew install makensis`, NSIS 3.13). It
+installs to `%LOCALAPPDATA%\Programs\NerveGear-Launcher` without admin, refuses a folder
+the player cannot write to, adds Start-menu and desktop shortcuts and an HKCU Uninstall
+entry, and never touches `.sao-oath-launcher`. Its `uninstall.exe` keeps the game and
+saves unless the player says otherwise; the launcher's own uninstall runs it with `/S`
+last, so the shortcuts and the entry go too. Any makensis warning fails the build.
+
 The bootstrap verifies per-user update JARs before starting them with `-jar`, so
 the selected launcher's manifest JVM options still apply. Updates live under the
 existing user data root's `self-update` directory; no update writes inside the

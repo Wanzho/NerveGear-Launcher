@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import plistlib
+import re
 import shutil
 import struct
 import subprocess
@@ -304,6 +305,7 @@ def portable(target, host, home, dist, work, jar, ico, evidence, lock):
             for path in sorted(root.rglob("*")):
                 if path.is_file():
                     output.write(path, path.relative_to(root.parent))
+        windows_installer(root, dist, ico, evidence)
     else:
         script = root / "NerveGear-Launcher.sh"
         script.write_text("#!/bin/sh\nset -eu\nROOT=$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\n"
@@ -314,6 +316,25 @@ def portable(target, host, home, dist, work, jar, ico, evidence, lock):
         with tarfile.open(dist / "NerveGear-Launcher-0.1.0-linux-x64.tar.gz", "w:gz", compresslevel=1) as output:
             output.add(root, arcname=root.name)
     return root / "runtime", root / "app/launcher.jar", root
+
+
+INSTALLER_NAME = "NerveGear启动器-安装-0.1.0.exe"
+
+
+def windows_installer(root, dist, ico, evidence):
+    """Wrap the exact portable Windows folder in the per-user NSIS installer (windows-installer.nsi)."""
+    makensis = shutil.which("makensis")
+    if makensis is None:
+        raise RuntimeError("The Windows installer needs NSIS 3.13: brew install makensis")
+    size_kb = sum(path.stat().st_size for path in root.rglob("*") if path.is_file()) // 1024 + 1
+    output = dist / INSTALLER_NAME
+    log = evidence / "windows-installer-makensis.log"
+    # -WX: any NSIS warning fails the build.
+    run([makensis, "-V4", "-WX", "-INPUTCHARSET", "UTF8", "-DPAYLOAD=" + str(root), "-DICON=" + str(ico),
+         "-DOUTFILE=" + str(output), "-DVERSION=0.1.0", "-DSIZE_KB=" + str(size_kb), HERE / "windows-installer.nsi"], log=log)
+    if re.search(r"\b[1-9][0-9]* warnings?:", log.read_text(encoding="utf-8", errors="replace")):
+        raise RuntimeError("makensis reported a warning; see " + str(log))
+    return output
 
 
 def probe(host, paths, work, evidence):
