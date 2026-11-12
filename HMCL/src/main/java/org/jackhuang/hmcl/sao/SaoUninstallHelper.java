@@ -53,6 +53,11 @@ final class SaoUninstallHelper {
     static final @Unmodifiable List<String> SHIPPED = List.of("NerveGear启动器.exe", "NerveGear-Launcher.sh", "icon.png",
             "app", "runtime", "licenses", "README-zh.txt");
 
+    /// The Windows installer's own uninstaller (packaging/windows-installer.nsi), beside the shipped entries. It is not
+    /// shipped content: the cleanup script runs it silently last, so it removes the Start-menu and desktop shortcuts,
+    /// the HKCU Uninstall entry, itself and the then-empty folder.
+    static final String NSIS_UNINSTALLER = "uninstall.exe";
+
     /// Native install that owns a bundled `app/launcher.jar`: the `.app` on macOS, else the bundle's folder; null otherwise.
     static @Nullable Path installRoot(Path jar) {
         Path absolute = jar.toAbsolutePath().normalize();
@@ -189,7 +194,10 @@ final class SaoUninstallHelper {
         List<Path> targets = new ArrayList<>(roots);
         for (Path app : application) if (targets.stream().noneMatch(app::startsWith)) targets.add(app);
         String os = operatingSystem.toLowerCase(Locale.ROOT);
-        if (os.contains("win")) return windowsScript(targets, roots.size(), directory, pid);
+        @Nullable Path install = null;
+        for (Path app : application)
+            if (app.getFileName() != null && SHIPPED.contains(app.getFileName().toString())) { install = app.getParent(); break; }
+        if (os.contains("win")) return windowsScript(targets, roots.size(), directory, pid, install);
         return unixScript(targets, roots.size(), directory, pid, os.contains("mac"));
     }
 
@@ -222,7 +230,7 @@ final class SaoUninstallHelper {
     }
 
     /// Waits with native PowerShell and sends files/bundles to the Windows Recycle Bin through the platform API.
-    private static String windowsScript(List<Path> targets, int applicationIndex, Path directory, long pid) {
+    private static String windowsScript(List<Path> targets, int applicationIndex, Path directory, long pid, @Nullable Path install) {
         StringBuilder script = new StringBuilder("$ErrorActionPreference = 'Stop'\nSet-Location $env:SystemRoot\n$helper = ")
                 .append(powershell(directory.toString())).append("\nNew-Item -ItemType File -Path (Join-Path $helper 'ready') | Out-Null\n$count = 0\n")
                 .append("while (!(Test-Path -LiteralPath (Join-Path $helper 'armed'))) {\n  if (Test-Path -LiteralPath (Join-Path $helper 'cancelled')) { exit 0 }\n  if (++$count -gt 600) { exit 1 }\n  Start-Sleep -Seconds 1\n}\n")
@@ -239,7 +247,11 @@ final class SaoUninstallHelper {
                     .append("  try { Remove-Owned $target; break } catch {\n    if (++$count -ge 20) { Write-Output 'REMOVE_FAILED_").append(i).append("'; $failed = $true; break }\n    Start-Sleep -Seconds 1\n  }\n}\n");
         }
         if (applicationIndex < targets.size()) script.append("}\n");
-        script.append("if ($failed) { Write-Output 'UNINSTALL_INCOMPLETE'; exit 1 }\nWrite-Output 'UNINSTALL_COMPLETE'\n")
+        script.append("if ($failed) { Write-Output 'UNINSTALL_INCOMPLETE'; exit 1 }\nWrite-Output 'UNINSTALL_COMPLETE'\n");
+        // An installer-made install: its uninstaller removes the shortcuts, the Uninstall entry and the empty folder.
+        if (install != null) script.append("$nsis = Join-Path ").append(powershell(install.toString())).append(" '").append(NSIS_UNINSTALLER)
+                .append("'\nif (Test-Path -LiteralPath $nsis -PathType Leaf) { try { Start-Process -FilePath $nsis -ArgumentList '/S' } catch { Write-Output 'NSIS_UNINSTALL_FAILED' } }\n");
+        script
                 .append("Remove-Item -LiteralPath (Join-Path $helper 'armed'), (Join-Path $helper 'ready'), $PSCommandPath -Force\nexit 0\n");
         return script.toString();
     }

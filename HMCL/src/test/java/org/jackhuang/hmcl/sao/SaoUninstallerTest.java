@@ -398,6 +398,23 @@ class SaoUninstallerTest {
         assertEquals('#', (char) SaoUninstallHelper.scriptBytes("#!/bin/sh", false)[0]);
     }
 
+    /// An installer-made Windows install: after the shipped entries are gone the script runs the NSIS uninstaller silently,
+    /// which removes the shortcuts and the HKCU Uninstall entry; a bare JAR or a non-Windows script never does.
+    @Test void windowsScriptRunsInstallerUninstallerLast() {
+        Path install = temporary.resolve("Programs/NerveGear-Launcher");
+        List<Path> shipped = List.of(install.resolve("NerveGear启动器.exe"), install.resolve("app"), install.resolve("runtime"));
+        String script = SaoUninstallHelper.script(List.of(install.resolve(".sao-oath-launcher")), shipped, temporary.resolve("helper"), 42, "Windows 11");
+        String run = "$nsis = Join-Path '" + install + "' 'uninstall.exe'";
+        assertTrue(script.contains(run), script);
+        assertTrue(script.contains("Start-Process -FilePath $nsis -ArgumentList '/S'"));
+        assertTrue(script.indexOf("Write-Output 'UNINSTALL_COMPLETE'") < script.indexOf(run), "only after every target is gone");
+        assertTrue(script.indexOf("if ($failed) { Write-Output 'UNINSTALL_INCOMPLETE'; exit 1 }") < script.indexOf(run));
+        assertFalse(SaoUninstallHelper.SHIPPED.contains(SaoUninstallHelper.NSIS_UNINSTALLER), "the launcher must not delete it first");
+        assertFalse(SaoUninstallHelper.script(List.of(install), List.of(temporary.resolve("launcher.jar")), temporary.resolve("helper"), 42, "Windows 11")
+                .contains("uninstall.exe"));
+        assertFalse(SaoUninstallHelper.script(List.of(install), shipped, temporary.resolve("helper"), 42, "Linux").contains("uninstall.exe"));
+    }
+
     /// Uninstall targets the native install's shipped entries (or the whole .app), never the folder's other files.
     @Test void installTargetsCoverShippedEntriesOnly() throws Exception {
         Path install = Files.createDirectories(temporary.resolve("Games/NerveGear-Launcher"));
