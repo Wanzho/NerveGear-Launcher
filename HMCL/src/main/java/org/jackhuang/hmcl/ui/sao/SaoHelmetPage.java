@@ -158,6 +158,10 @@ public final class SaoHelmetPage extends StackPane {
     /// The power-on and the hand-over to the game.
     private final SaoBoot boot;
     /// App windows asked for during the power-on, opened when it ends.
+    /// The Link Start hand-over to the game's visor (SaoBoot.putAway). Off until its risks are worked through (James,
+    /// 13 Nov: "你风险考虑的还不够多，在此之前只把启动器开启的这个东西先给我"); off, Link Start powers the display down
+    /// and the engine hides the launcher at game start, as before.
+    static final boolean HANDOFF = false;
     private final List<Runnable> afterBoot = new java.util.ArrayList<>();
     /// The app window open in front, or null.
     private @Nullable SaoFloatWindow app;
@@ -292,7 +296,7 @@ public final class SaoHelmetPage extends StackPane {
             }
         });
         // The engine's hide at game start waits for the hand-over (James, 13 Nov).
-        SaoHandoff.install(hide -> boot.holdHide(() -> {
+        if (HANDOFF) SaoHandoff.install(hide -> boot.holdHide(() -> {
             hide.run();
             handedOver();
         }), boot::cancel);
@@ -1561,6 +1565,10 @@ public final class SaoHelmetPage extends StackPane {
     /// Link Start: the windows put themselves away and the launcher stays over the game's window until the game shows
     /// its own visor (see SaoBoot); kept on top meanwhile so the game's first windows open behind it.
     private void linkStartOut() {
+        if (!HANDOFF) {
+            powerDown();
+            return;
+        }
         if (getScene() != null && getScene().getWindow() instanceof javafx.stage.Stage st) st.setAlwaysOnTop(true);
         if (app == null) {
             boot.putAway();
