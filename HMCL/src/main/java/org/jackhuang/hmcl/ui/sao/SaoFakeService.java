@@ -45,6 +45,11 @@ import org.jackhuang.hmcl.sao.SaoAccountException;
 /// and launch; appearance previews use small temporary PNGs and never contact the network.
 @NotNullByDefault
 public final class SaoFakeService implements SaoLauncherService {
+    /// Starts a browser-free script; force(kind) freezes any state for screenshot capture.
+    @Override public org.jackhuang.hmcl.sao.SaoScriptedMicrosoftFlow microsoftSignIn() {
+        return new org.jackhuang.hmcl.sao.SaoScriptedMicrosoftFlow();
+    }
+
     /// Deterministic local preview PNGs matching all production appearance slots.
     private final @Unmodifiable Map<String,SaoTextureState.Image> appearanceSamples = SaoTextureSamples.images();
     /// Observable fake source choices, changed by the same actions used by production screens.

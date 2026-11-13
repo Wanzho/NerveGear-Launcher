@@ -35,6 +35,7 @@ import static org.jackhuang.hmcl.util.Lang.mapOf;
 import static org.jackhuang.hmcl.util.Pair.pair;
 import static org.jackhuang.hmcl.util.logging.Logger.LOG;
 
+/// Authorization-code, device-code, and refresh-token operations for an OAuth provider.
 public class OAuth {
     public static final OAuth MICROSOFT = new OAuth(
             "https://login.live.com/oauth20_authorize.srf",
@@ -113,6 +114,7 @@ public class OAuth {
         }
     }
 
+    /// Obtains a device code and polls until authorization, expiry, rejection, or thread interruption.
     private Result authenticateDevice(Options options) throws IOException, InterruptedException, JsonParseException, AuthenticationException {
         DeviceTokenResponse deviceTokenResponse = HttpRequest.POST(deviceCodeURL)
                 .form(pair("client_id", options.callback.getClientId()), pair("scope", options.scope))
@@ -141,7 +143,7 @@ public class OAuth {
             TokenResponse tokenResponse = HttpRequest.POST(tokenURL)
                     .form(
                             pair("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
-                            pair("code", deviceTokenResponse.deviceCode),
+                            pair("device_code", deviceTokenResponse.deviceCode),
                             pair("client_id", options.callback.getClientId()))
                     .ignoreHttpCode()
                     .retry(5)
@@ -160,6 +162,10 @@ public class OAuth {
                 continue;
             }
 
+            // Do not pass rejected or malformed token responses into Xbox authentication.
+            handleErrorResponse(tokenResponse);
+            if (tokenResponse.accessToken == null || tokenResponse.refreshToken == null)
+                throw new ServerResponseMalformedException("Missing device token response");
             options.callback.loginCompletedDeviceCode();
 
             return new Result(tokenResponse.accessToken, tokenResponse.refreshToken);

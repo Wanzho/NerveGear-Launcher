@@ -6,8 +6,6 @@ import org.jackhuang.hmcl.auth.Account;
 import org.jackhuang.hmcl.auth.AuthInfo;
 import org.jackhuang.hmcl.auth.microsoft.MicrosoftAccount;
 import org.jackhuang.hmcl.setting.Accounts;
-import org.jackhuang.hmcl.ui.Controllers;
-import org.jackhuang.hmcl.ui.account.MicrosoftAccountLoginPane;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 import java.util.concurrent.CompletableFuture;
@@ -40,9 +38,19 @@ final class SaoMicrosoftLogin {
         } catch (InterruptedException interrupted) { result.cancel(false); Thread.currentThread().interrupt(); throw new SaoAccountException("已取消 Microsoft 登录", "cancelled"); }
     }
 
-    /// Shows the upstream sign-in or relogin dialog only after the player explicitly chose Microsoft login.
+    /// Routes a new login through the page hook, retaining upstream UI only when no hook is installed.
     private static void showLogin(@Nullable MicrosoftAccount previous, CompletableFuture<AuthInfo> result) {
-        if (!result.isDone()) Controllers.dialog(new MicrosoftAccountLoginPane(previous, result::complete,
-                () -> result.completeExceptionally(new SaoAccountException("已取消 Microsoft 登录", "cancelled")), false));
+        if (result.isDone()) return;
+        Runnable cancel = SaoMicrosoftFlows.present(() -> {
+            if (!(Accounts.getSelectedAccount() instanceof MicrosoftAccount account)) {
+                result.completeExceptionally(new SaoAccountException("Microsoft 登录失败，请重试", "microsoftLoginFailed"));
+                return;
+            }
+            CompletableFuture.runAsync(() -> {
+                try { result.complete(account.logIn()); }
+                catch (Exception failure) { result.completeExceptionally(failure); }
+            });
+        }, message -> result.completeExceptionally(new SaoAccountException(message, "microsoftLoginFailed")));
+        result.whenComplete((auth, failure) -> { if (result.isCancelled()) Platform.runLater(cancel); });
     }
 }

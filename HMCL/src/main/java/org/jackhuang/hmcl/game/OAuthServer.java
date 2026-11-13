@@ -42,6 +42,7 @@ import static org.jackhuang.hmcl.util.Lang.thread;
 import static org.jackhuang.hmcl.util.i18n.I18n.i18n;
 import static org.jackhuang.hmcl.util.logging.Logger.LOG;
 
+/// Local PKCE OAuth callback server used by Microsoft authorization-code login.
 public final class OAuthServer extends NanoHTTPD implements OAuth.Session {
     private final int port;
     private final CompletableFuture<String> future = new CompletableFuture<>();
@@ -101,6 +102,7 @@ public final class OAuthServer extends NanoHTTPD implements OAuth.Session {
         return idToken;
     }
 
+    /// Accepts matching OAuth callbacks and preserves only a safe redirect-configuration failure marker.
     @Override
     public Response serve(IHTTPSession session) {
         if (!"/auth-response".equals(session.getUri())) {
@@ -138,6 +140,10 @@ public final class OAuthServer extends NanoHTTPD implements OAuth.Session {
                 LOG.warning("Failed to authenticate: missing state in parameters");
                 future.completeExceptionally(new AuthenticationException("Failed to authenticate: missing state"));
             }
+        } else if ("invalid_request".equals(query.get("error"))
+                && query.getOrDefault("error_description", "").contains("redirect_uri")
+                && this.state.equals(query.get("state"))) {
+            future.completeExceptionally(new AuthenticationException("invalid_request redirect_uri"));
         } else {
             LOG.warning("Failed to authenticate: missing authorization code in parameters");
             future.completeExceptionally(new AuthenticationException("Failed to authenticate: missing authorization code"));

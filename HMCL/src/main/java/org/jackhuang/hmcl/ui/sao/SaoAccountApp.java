@@ -26,7 +26,6 @@ import org.jackhuang.hmcl.auth.microsoft.MicrosoftAccount;
 import org.jackhuang.hmcl.sao.SaoData;
 import org.jackhuang.hmcl.setting.Accounts;
 import org.jackhuang.hmcl.ui.Controllers;
-import org.jackhuang.hmcl.ui.account.CreateAccountPane;
 import org.jackhuang.hmcl.sao.SaoLauncherService;
 import org.jackhuang.hmcl.ui.SVG;
 import org.jetbrains.annotations.NotNullByDefault;
@@ -383,35 +382,11 @@ final class SaoAccountApp {
         return null;
     }
 
-    /// Runs a step that needs Microsoft: at once when signed in, else after the Microsoft sign-in dialog succeeds.
+    /// Runs immediately for an existing account, otherwise after the presented backend flow succeeds.
     static void withMicrosoft(Runnable then) {
-        if (microsoftAccount() != null) {
-            then.run();
-            return;
-        }
-        // Only the latest request waits; a cancelled sign-in drops its action instead of firing it later.
-        @Nullable ListChangeListener<Account> previous = pendingMicrosoft;
-        if (previous != null) Accounts.getAccounts().removeListener(previous);
-        @SuppressWarnings("unchecked") ListChangeListener<Account>[] once = new ListChangeListener[1];
-        once[0] = c -> {
-            if (microsoftAccount() == null) return;
-            Accounts.getAccounts().removeListener(once[0]);
-            if (pendingMicrosoft == once[0]) pendingMicrosoft = null;
-            then.run();
-        };
-        pendingMicrosoft = once[0];
-        Accounts.getAccounts().addListener(once[0]);
-        CreateAccountPane pane = new CreateAccountPane(Accounts.FACTORY_MICROSOFT);
-        pane.addEventHandler(org.jackhuang.hmcl.ui.construct.DialogCloseEvent.CLOSE, e -> {
-            if (microsoftAccount() != null || pendingMicrosoft != once[0]) return;
-            Accounts.getAccounts().removeListener(once[0]);
-            pendingMicrosoft = null;
-        });
-        Controllers.dialog(pane);
+        if (microsoftAccount() != null) then.run();
+        else org.jackhuang.hmcl.sao.SaoMicrosoftFlow.present(then);
     }
-
-    /// The one Microsoft sign-in currently waiting to run its follow-up step, or null.
-    private static @Nullable ListChangeListener<Account> pendingMicrosoft;
 
     /// "47 小时" or "12 分钟".
     static String hours(long seconds) {

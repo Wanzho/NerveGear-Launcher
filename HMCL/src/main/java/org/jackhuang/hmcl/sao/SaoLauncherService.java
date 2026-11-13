@@ -28,6 +28,10 @@ import java.util.concurrent.CompletableFuture;
 @NotNullByDefault
 public interface SaoLauncherService {
 
+    /// Starts headless Microsoft OAuth and immediately opens the browser; the page owns presentation.
+    default SaoMicrosoftFlow microsoftSignIn() { return SaoMicrosoftFlows.start(); }
+
+
     /// The pack's state; drives what Link Start does and what the screen shows.
     ReadOnlyObjectProperty<SaoPackState> state();
 
