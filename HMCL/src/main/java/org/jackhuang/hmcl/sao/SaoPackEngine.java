@@ -365,10 +365,15 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
                 oath.friends.notifications.attention(false, false);
                 if (!production) return;
                 @Nullable javafx.stage.Stage stage = org.jackhuang.hmcl.ui.Controllers.getStage();
-                if (stage != null) { implicitExit = Platform.isImplicitExit(); Platform.setImplicitExit(false); stage.hide(); }
+                if (stage == null) return;
+                implicitExit = Platform.isImplicitExit();
+                Platform.setImplicitExit(false);
+                // The screen may hold the hide until the game shows its own visor (see SaoHandoff).
+                SaoHandoff.hide(stage::hide);
             }
             /// The crash property is already published before this operation is queued.
             @Override public void show() {
+                SaoHandoff.cancel();
                 if (closed.get()) return;
                 oath.friends.notifications.attention(true, false);
                 if (!production) return;

@@ -50,6 +50,11 @@ final class SaoFloatWindow extends Group {
     final DoubleProperty glass = new SimpleDoubleProperty(1);
     /// Extra depth while another window is in front (animated).
     final DoubleProperty recede = new SimpleDoubleProperty(0);
+    /// The bright outline drawn round the window before its glass comes in at power-on, and left behind for a moment
+    /// when the glass goes at Link Start (James, 13 Nov, the boot prototype he approved).
+    final javafx.scene.shape.Rectangle edge = new javafx.scene.shape.Rectangle();
+    /// How much of [#edge] is drawn, 0 to 1, going round from the top left.
+    final DoubleProperty edgeDrawn = new SimpleDoubleProperty(0);
     /// The size of the glass in design pixels.
     private final double w, h;
     /// The home place, depth and turn.
@@ -108,6 +113,20 @@ final class SaoFloatWindow extends Group {
         // gaps and pulled to the front (James, 8 Nov: "打开这个了后不应该选择不了别的界面了吗？").
         mouseTransparentProperty().bind(glass.lessThan(0.99));
         getChildren().add(0, body);
+        double perimeter = 2 * (w + h);
+        edge.setWidth(w);
+        edge.setHeight(h);
+        edge.setArcWidth(12);
+        edge.setArcHeight(12);
+        edge.setFill(javafx.scene.paint.Color.TRANSPARENT);
+        edge.setStroke(javafx.scene.paint.Color.rgb(223, 241, 255));
+        edge.setStrokeWidth(1.6);
+        edge.setMouseTransparent(true);
+        edge.setOpacity(0);
+        edge.getStrokeDashArray().setAll(perimeter, perimeter);
+        edge.strokeDashOffsetProperty().bind(edgeDrawn.multiply(-perimeter).add(perimeter));
+        edge.visibleProperty().bind(edge.opacityProperty().greaterThan(0.001));
+        getChildren().add(edge);
         // The glass and its shadow are kept as a picture between changes so the shadow is not blurred again every
         // frame; the page builds the space at the screen's pixel scale, so the picture is made at full resolution.
         if (Boolean.parseBoolean(System.getProperty("sao.cacheWindows", "true"))) {

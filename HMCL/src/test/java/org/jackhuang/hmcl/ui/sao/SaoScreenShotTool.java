@@ -82,6 +82,12 @@ public final class SaoScreenShotTool {
         if (!opened.equals(java.util.List.of(SaoUi.AFDIAN_URL, SaoUi.QUARK_URL)))
             throw new IllegalStateException("About links opened " + opened);
         System.out.println("About links OK: " + opened);
+        // SAO_SHOTS=boot: the power-on and the Link Start hand-over at set times (James's boot, 13 Nov).
+        if ("boot".equals(System.getenv("SAO_SHOTS"))) {
+            shootBoot(base);
+            Platform.exit();
+            System.exit(0);
+        }
         // SAO_SHOTS=maint: only the 服务器 window's maintenance shots (maint1, 10 Nov).
         if ("maint".equals(System.getenv("SAO_SHOTS"))) {
             shootMaint(base);
@@ -281,6 +287,60 @@ public final class SaoScreenShotTool {
     }
 
     /// Puts the page in a state, an app and a head turn, waits for the windows to settle and writes a shot.
+    /// The power-on and the Link Start hand-over as a frame sequence (25 fps of animation time) at 1920 x 1080, for a
+    /// review film: power-on, a short rest, Link Start, the loading row (its long wait shown faster), the hand-over.
+    private static void shootBoot(Path base) throws Exception {
+        Path out = base.resolve("boot");
+        if (Files.exists(out)) try (var walk = Files.walk(out)) {
+            walk.sorted(java.util.Comparator.reverseOrder()).forEach(f -> f.toFile().delete());
+        }
+        Files.createDirectories(out);
+        System.setProperty("sao.windowButtons", "left");
+        SaoFakeService fake = new SaoFakeService();
+        fake.setPreference("theme", "light");
+        fake.forceInstalled("0.8.1");
+        SaoHelmetPage[] page = new SaoHelmetPage[1];
+        Scene[] scene = new Scene[1];
+        fx(() -> {
+            page[0] = new SaoHelmetPage(fake);
+            scene[0] = new Scene(page[0], 1920, 1080);
+        });
+        Thread.sleep(3500);
+        fx(() -> fake.forceOath(true));
+        fx(() -> page[0].debugCloseApp());
+        Thread.sleep(900);
+        WritableImage[] im = new WritableImage[1];
+        int[] n = {0};
+        java.util.function.Consumer<Runnable> frame = r -> {
+            try {
+                fx(r);
+                Thread.sleep(120);
+                fx(() -> im[0] = scene[0].snapshot(null));
+                write(im[0], out.resolve(String.format("f%04d.png", n[0]++)));
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        };
+        for (double t = 0; t <= SaoBoot.OPEN_MS + 1; t += 40) {
+            double tt = t;
+            frame.accept(() -> page[0].boot().debugOpening(tt));
+        }
+        for (int i = 0; i < 25; i++) frame.accept(() -> { });
+        // Link Start: the put-away in real time, the loading row's wait compressed, then the hand-over in real time.
+        for (double u = 0; u <= 1300; u += 40) {
+            double uu = u;
+            frame.accept(() -> page[0].boot().debugPutAway(uu, Math.min(0.06, uu / 20000), -1));
+        }
+        for (double u = 1300; u <= 8000; u += 200) {
+            double uu = u, pr = 0.06 + 0.84 * (u - 1300) / 6700;
+            frame.accept(() -> page[0].boot().debugPutAway(uu, pr, -1));
+        }
+        for (double u = 8000; u <= 8700; u += 40) {
+            double uu = u;
+            frame.accept(() -> page[0].boot().debugPutAway(uu, 0.9, 8000));
+        }
+    }
+
     private static void shot(Scene scene, SaoHelmetPage page, SaoFakeService fake, SaoPackState st, double p, String label,
                              double hx, double hy, int app, Path file) throws Exception {
         fx(() -> {

@@ -6,6 +6,7 @@
 package org.jackhuang.hmcl.ui.sao;
 
 import javafx.animation.AnimationTimer;
+import org.jackhuang.hmcl.sao.SaoHandoff;
 import javafx.animation.Interpolator;
 import javafx.animation.KeyFrame;
 import javafx.animation.KeyValue;
@@ -154,6 +155,10 @@ public final class SaoHelmetPage extends StackPane {
 
     /// The home windows.
     private final SaoFloatWindow news, player, server, dock;
+    /// The power-on and the hand-over to the game.
+    private final SaoBoot boot;
+    /// App windows asked for during the power-on, opened when it ends.
+    private final List<Runnable> afterBoot = new java.util.ArrayList<>();
     /// The app window open in front, or null.
     private @Nullable SaoFloatWindow app;
     /// The 整合包 / 启动器更新 window while it is the app in front.
@@ -270,6 +275,31 @@ public final class SaoHelmetPage extends StackPane {
         player = buildPlayer();
         dock = buildDock();
         windows.getChildren().addAll(news, server, player, dock);
+        boot = new SaoBoot(new SaoBoot.Page() {
+            @Override
+            public SaoFloatWindow[] windows() {
+                return new SaoFloatWindow[]{dock, news, player, server};
+            }
+
+            @Override
+            public Node chrome() {
+                return pad;
+            }
+
+            @Override
+            public Node[] visor() {
+                return new Node[]{glass, world, frame, pad, glint};
+            }
+        });
+        // The engine's hide at game start waits for the hand-over (James, 13 Nov).
+        SaoHandoff.install(hide -> boot.holdHide(() -> {
+            hide.run();
+            handedOver();
+        }), boot::cancel);
+        boot.windowFade().addListener((o, a, f) -> {
+            if (getScene() != null && getScene().getWindow() != null) getScene().getWindow().setOpacity(1 - f.doubleValue());
+        });
+        service.gameLog().addListener((ListChangeListener<String>) c -> boot.readLog(service.gameLog()));
 
         buildPad();
         // The window style James picked (6 Nov, from four): the anime's light menu panels with orange highlights.
@@ -321,7 +351,7 @@ public final class SaoHelmetPage extends StackPane {
         characterLayer.setManaged(false);
         characterLayer.setPickOnBounds(false);
         characterBox.getTransforms().addAll(characterAt, characterFit);
-        screen.getChildren().setAll(glass, world, characterLayer, frame, pad, cover, glint, black);
+        screen.getChildren().setAll(glass, world, characterLayer, frame, pad, boot.dim(), cover, glint, boot.layer, black);
         // Friend messages, requests and invites that arrive while the launcher is in the background.
         toast.setManaged(false);
         toast.setVisible(false);
@@ -1194,6 +1224,11 @@ public final class SaoHelmetPage extends StackPane {
 
     /// Opens an app's window in front; the home windows move back and dim.
     private void openApp(SaoApps.App a, @Nullable Button b) {
+        // An app opens once the power-on is over (the first start's 安装整合包 window, a file dropped meanwhile).
+        if (boot.busy()) {
+            afterBoot.add(() -> openApp(a, b));
+            return;
+        }
         if (app != null) {
             SaoFloatWindow old = app;
             old.moveBack(380, 0, 200);
@@ -1220,6 +1255,10 @@ public final class SaoHelmetPage extends StackPane {
 
     /// Opens the 整合包 / 启动器更新 window (it replaces another app; Esc closes it).
     void openPack(SaoPackApp.Mode mode) {
+        if (boot.busy()) {
+            afterBoot.add(() -> openPack(mode));
+            return;
+        }
         // Rebuilding an open pack window would stop its Downloads watch and drop the quick updates gathered so far.
         if (app != null && app == packWin && mode == packMode) { requestFocus(); return; }
         packMode = mode;
@@ -1346,6 +1385,7 @@ public final class SaoHelmetPage extends StackPane {
         turnX.setAngle(lookY * 2.4);
 
         black.resizeRelocate(0, 0, w, h);
+        boot.fit(w, h, s);
         glass.relocate(0, 0);
         frame.relocate(0, 0);
         placeCharacter();
@@ -1494,22 +1534,58 @@ public final class SaoHelmetPage extends StackPane {
     private void powerOn() {
         poweredOn = true;
         world.setOpacity(1);
-        SaoFloatWindow[] order = {player, news, server, dock};
-        for (SaoFloatWindow w : order) {
-            w.glass.set(0);
-            w.recede.set(420);
+        frame.setImage(frameLit);
+        black.setOpacity(0);
+        windowNormal();
+        // James, 13 Nov: the boot he approved (see SaoBoot), played in full every time ("2.9秒跳啥").
+        boot.open(() -> {
+            List<Runnable> queued = new java.util.ArrayList<>(afterBoot);
+            afterBoot.clear();
+            queued.forEach(Runnable::run);
+        });
+    }
+
+    /// The power-on and the hand-over, for the screenshot tool.
+    SaoBoot boot() {
+        return boot;
+    }
+
+    /// The launcher window as it is outside the hand-over: opaque, not kept over other windows.
+    private void windowNormal() {
+        if (getScene() != null && getScene().getWindow() instanceof javafx.stage.Stage st) {
+            st.setOpacity(1);
+            st.setAlwaysOnTop(false);
         }
-        Timeline t = new Timeline(
-                new KeyFrame(Duration.ZERO, new KeyValue(black.opacityProperty(), black.getOpacity())),
-                new KeyFrame(Duration.millis(520), new KeyValue(black.opacityProperty(), 0)),
-                new KeyFrame(Duration.millis(560), e -> frame.setImage(frameLit)),
-                new KeyFrame(Duration.millis(620), e -> frame.setImage(frameDark)),
-                new KeyFrame(Duration.millis(680), e -> frame.setImage(frameLit)));
-        for (int i = 0; i < order.length; i++) {
-            SaoFloatWindow w = order[i];
-            t.getKeyFrames().add(new KeyFrame(Duration.millis(640 + 70 * i), e -> w.moveBack(0, 1, 420)));
+    }
+
+    /// Link Start: the windows put themselves away and the launcher stays over the game's window until the game shows
+    /// its own visor (see SaoBoot); kept on top meanwhile so the game's first windows open behind it.
+    private void linkStartOut() {
+        if (getScene() != null && getScene().getWindow() instanceof javafx.stage.Stage st) st.setAlwaysOnTop(true);
+        if (app == null) {
+            boot.putAway();
+            return;
         }
-        t.play();
+        // An app in front closes first and the home windows come back; then they all go together.
+        closeApp();
+        PauseTransition p = new PauseTransition(Duration.millis(340));
+        p.setOnFinished(e -> {
+            if (service.state().get() == SaoPackState.RUNNING) boot.putAway();
+        });
+        p.play();
+    }
+
+    /// The screenshot tool: closes the app in front.
+    void debugCloseApp() {
+        closeApp();
+    }
+
+    /// The launcher has left the game's screen: dark until it comes back.
+    private void handedOver() {
+        poweredOn = false;
+        black.setOpacity(1);
+        frame.setImage(frameDark);
+        windowNormal();
     }
 
     /// Powers the display down like the pack's helmet screen: a flicker, the windows fall away, the view sinks to
@@ -1839,7 +1915,7 @@ public final class SaoHelmetPage extends StackPane {
                 if (b == SaoPackState.RUNNING) {
                     o.removeListener(this);
                     pendingLaunch = null;
-                    powerDown();
+                    linkStartOut();
                 } else if (b == SaoPackState.FAILED || b == SaoPackState.READY && a != SaoPackState.RUNNING) {
                     o.removeListener(this);
                     pendingLaunch = null;
@@ -1856,7 +1932,7 @@ public final class SaoHelmetPage extends StackPane {
         if (service.state().get() == SaoPackState.RUNNING && pendingLaunch == l) {
             service.state().removeListener(l);
             pendingLaunch = null;
-            powerDown();
+            linkStartOut();
         }
     }
 
