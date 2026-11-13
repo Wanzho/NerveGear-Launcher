@@ -210,9 +210,8 @@ public class DefaultLauncher extends Launcher {
                         && res.noneMatch(arg -> "-XX:-UseG1GC".equals(arg) || (arg.startsWith("-XX:+Use") && arg.endsWith("GC")))) {
                     res.addUnstableDefault("UseG1GC", true);
                     res.addUnstableDefault("G1MixedGCCountTarget", "5");
-                    res.addUnstableDefault("G1NewSizePercent", "20");
                     res.addUnstableDefault("G1ReservePercent", "20");
-                    res.addUnstableDefault("MaxGCPauseMillis", "50");
+                    res.addUnstableDefault("MaxGCPauseMillis", "20");
                     res.addUnstableDefault("G1HeapRegionSize", "32m");
                 }
 
