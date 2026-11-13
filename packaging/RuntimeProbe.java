@@ -24,6 +24,7 @@ public final class RuntimeProbe {
     }
 
     /// Resolves classes without static initialization and verifies TLS and ZIP providers.
+    /// --hold keeps the headless process alive for 30 seconds for external identity inspection.
     public static void main(String[] args) throws Exception {
         if (!Boolean.getBoolean("java.awt.headless")) {
             throw new IllegalStateException("The packaging probe requires headless mode");
@@ -41,5 +42,10 @@ public final class RuntimeProbe {
                 + System.getProperty("os.arch") + " javafx="
                 + ModuleLayer.boot().findModule("javafx.controls").orElseThrow()
                 .getDescriptor().version().orElseThrow());
+        if (args.length == 1 && args[0].equals("--hold")) {
+            System.out.println("PROBE_PID " + ProcessHandle.current().pid());
+            System.out.flush();
+            Thread.sleep(30000);
+        }
     }
 }

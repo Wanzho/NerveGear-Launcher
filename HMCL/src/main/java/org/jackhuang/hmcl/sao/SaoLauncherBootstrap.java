@@ -26,12 +26,14 @@ public final class SaoLauncherBootstrap {
 
     /// Native shells invoke -cp BUNDLED.jar this-class ARGS using their bundled runtime and module options.
     /// --self-update-status prints persisted state only and never starts JavaFX or a subprocess.
+    /// The macOS classpath overlay supplies sao.bundledJar to retain the original JAR as the update baseline.
     public static void main(String[] args) throws Exception {
         SaoSelfUpdate updates = new SaoSelfUpdate(SaoSelfUpdate.defaultRoot());
         if (args.length == 1 && args[0].equals("--self-update-status")) {
             System.out.println(new Gson().toJson(updates.status())); return;
         }
-        Path bundled = Path.of(SaoLauncherBootstrap.class.getProtectionDomain().getCodeSource().getLocation().toURI()).toAbsolutePath().normalize();
+        @Nullable String nativeBundle = System.getProperty("sao.bundledJar");
+        Path bundled = nativeBundle != null ? Path.of(nativeBundle).toAbsolutePath().normalize() : Path.of(SaoLauncherBootstrap.class.getProtectionDomain().getCodeSource().getLocation().toURI()).toAbsolutePath().normalize();
         if (!Files.isRegularFile(bundled, LinkOption.NOFOLLOW_LINKS)) throw new IOException("Native launcher requires a bundled JAR");
         SaoSelfUpdate.Selection selection;
         try { selection = updates.select(bundled, Metadata.VERSION); }
@@ -66,13 +68,19 @@ public final class SaoLauncherBootstrap {
 
     /// Forwards relevant JVM module, headless and storage options to the selected JAR process.
     /// Inherited environment preserves all native package storage overrides.
+    /// On macOS, sao.nativeLauncher routes the UI JVM through the bundle executable and its in-process JLI.
     static @Unmodifiable List<String> command(SaoSelfUpdate.Selection selection, Path bundled, String[] args) {
         List<String> command = new ArrayList<>();
         boolean windows = System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
         boolean headless = Boolean.getBoolean("java.awt.headless");
         Path bin = Path.of(System.getProperty("java.home"), "bin");
         Path javaw = bin.resolve("javaw.exe");
-        command.add(windows && !headless && Files.isRegularFile(javaw) ? javaw.toString() : bin.resolve(windows ? "java.exe" : "java").toString());
+        @Nullable String nativeLauncher = System.getProperty("sao.nativeLauncher");
+        if (nativeLauncher != null && System.getProperty("os.name", "").startsWith("Mac")) {
+            // Keep the selected UI JVM inside the signed bundle executable as well.
+            command.add(nativeLauncher);
+            command.add("--sao-jvm");
+        } else command.add(windows && !headless && Files.isRegularFile(javaw) ? javaw.toString() : bin.resolve(windows ? "java.exe" : "java").toString());
         for (String option : ManagementFactory.getRuntimeMXBean().getInputArguments()) {
             if (option.startsWith("--add-modules=") || option.startsWith("--add-opens=") || option.startsWith("--add-exports=")
                     || option.startsWith("-Djava.awt.headless=") || option.startsWith("-Dsao.") || option.startsWith("-Xdock:name=")) command.add(option);

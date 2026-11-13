@@ -254,8 +254,17 @@ def mac_app(target, host, home, dist, work, jar, icns, evidence, lock, skip_sign
     runtime(host, home, contents / "runtime", evidence / (target + "-jlink.log"))
     architecture = "arm64" if target.endswith("arm64") else "x86_64"
     run(["clang", "-arch", architecture, "-mmacosx-version-min=11.0", "-Os", "-Wall", "-Wextra",
-         HERE / "macos-launcher.c", "-o", contents / "MacOS/NerveGear-Launcher"])
+         "-Wl,-export_dynamic", HERE / "macos-launcher.c", "-o", contents / "MacOS/NerveGear-Launcher"])
     linked_copy(jar, contents / "app/launcher.jar")
+    # Overlay only the native handoff class; preserve the supplied launcher JAR byte-for-byte.
+    bootstrap = work / "macos-bootstrap"
+    bootstrap.mkdir(parents=True, exist_ok=True)
+    annotation = next((Path.home() / ".cache/sao-launcher-gradle/caches/modules-2/files-2.1/org.jetbrains/annotations/26.1.0").rglob("*.jar"))
+    run([host / "bin/javac", "-J" + HEADLESS, "--release", "17", "-cp",
+         str(jar) + os.pathsep + str(annotation), "-d", bootstrap,
+         REPO / "HMCL/src/main/java/org/jackhuang/hmcl/sao/SaoLauncherBootstrap.java"])
+    run([host / "bin/jar", "-J" + HEADLESS, "--create", "--file",
+         contents / "app/macos-bootstrap.jar", "-C", bootstrap, "."])
     shutil.copy2(icns, contents / "Resources/launcher.icns")
     info = {"CFBundleExecutable": "NerveGear-Launcher", "CFBundleIdentifier": "com.saooath.launcher",
             "CFBundleName": PRODUCT, "CFBundleDisplayName": PRODUCT,
@@ -349,6 +358,16 @@ def probe(host, paths, work, evidence):
     annotation = next(item for item in annotations if "26.1.0" in str(item))
     run([host / "bin/javac", "-J" + HEADLESS, "--release", "17", "-cp", annotation,
          "-d", classes, HERE / "RuntimeProbe.java"])
+    _, mac_jar, mac_bundle = paths["macos-arm64"]
+    mac_classpath = str(mac_bundle / "Contents/app/macos-bootstrap.jar") + os.pathsep + str(mac_jar)
+    run([host / "bin/javac", "-J" + HEADLESS, "--release", "17", "-cp",
+         mac_classpath + os.pathsep + str(annotation), "-d", classes, HERE / "MacBootstrapProbe.java"])
+    native = mac_bundle / "Contents/MacOS/NerveGear-Launcher"
+    run([native, "--sao-jvm", HEADLESS, "--add-modules=" + ADD_MODULES,
+         "-Xdock:name=" + PRODUCT, "-Dsao.home=" + str(directory / "isolated-home"),
+         "-cp", str(classes) + os.pathsep + mac_classpath,
+         "org.jackhuang.hmcl.sao.MacBootstrapProbe", mac_jar, native],
+        log=evidence / "macos-native-handoff.txt")
     run([host / "bin/jar", "-J" + HEADLESS, "--create", "--file", directory / "runtime-probe.jar", "-C", classes, "."])
     for target in ("macos-arm64", "macos-x64"):
         runtime_home, jar, _ = paths[target]
