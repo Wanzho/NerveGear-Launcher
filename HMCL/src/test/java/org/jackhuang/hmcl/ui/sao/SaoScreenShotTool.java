@@ -277,6 +277,27 @@ public final class SaoScreenShotTool {
                     write(img[0], out.resolve(p + String.format("%02d-account-%s.png", 23 + i, pg.name().toLowerCase(java.util.Locale.ROOT))));
                 }
                 Files.deleteIfExists(out.resolve(p + "tmp.png"));
+                // 微软正版登录 (James 13 Nov: HMCL's dialog replaced): every state of a sign-in.
+                org.jackhuang.hmcl.sao.SaoMicrosoftFlow.State[] ms = {
+                        new org.jackhuang.hmcl.sao.SaoMicrosoftFlow.State(org.jackhuang.hmcl.sao.SaoMicrosoftFlow.Kind.BROWSER, "https://login.live.com/oauth20_authorize.srf?client_id=x", "", "", "", "", ""),
+                        new org.jackhuang.hmcl.sao.SaoMicrosoftFlow.State(org.jackhuang.hmcl.sao.SaoMicrosoftFlow.Kind.DEVICE_CODE, "", "J46BA8HC", "https://www.microsoft.com/link", "", "", ""),
+                        new org.jackhuang.hmcl.sao.SaoMicrosoftFlow.State(org.jackhuang.hmcl.sao.SaoMicrosoftFlow.Kind.SIGNING_IN, "", "", "", "正在验证 Xbox 账号", "", ""),
+                        new org.jackhuang.hmcl.sao.SaoMicrosoftFlow.State(org.jackhuang.hmcl.sao.SaoMicrosoftFlow.Kind.FAILED, "", "", "", "", "", "这个微软账号还没有购买 Minecraft"),
+                        new org.jackhuang.hmcl.sao.SaoMicrosoftFlow.State(org.jackhuang.hmcl.sao.SaoMicrosoftFlow.Kind.DONE, "", "", "", "", "Wzho", "")};
+                String[] msNames = {"browser", "device", "signing", "failed", "done"};
+                for (boolean d : new boolean[]{false, true}) {
+                    fx(() -> page[0].setDark(d));
+                    for (int i = 0; i < ms.length; i++) {
+                        org.jackhuang.hmcl.sao.SaoMicrosoftFlow.State st = ms[i];
+                        shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "tmp.png"));
+                        fx(() -> page[0].openMicrosoft(() -> new FixedFlow(st)));
+                        Thread.sleep(1000);
+                        fx(() -> img[0] = scene[0].snapshot(null));
+                        write(img[0], out.resolve(p + String.format("%02d-microsoft-%s-%s.png", 40 + i, msNames[i], d ? "dark" : "light")));
+                    }
+                }
+                fx(() -> page[0].setDark(dark));
+                Files.deleteIfExists(out.resolve(p + "tmp.png"));
             } else {
                 shot(scene[0], page[0], fake, SaoPackState.WORKING, 0.42, "安装 NeoForge", 0, 0, -1, out.resolve(p + "01-home-installing.png"));
                 shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, 0, out.resolve(p + "10-app-settings.png"));
@@ -284,6 +305,14 @@ public final class SaoScreenShotTool {
         }
         Platform.exit();
         System.exit(0);
+    }
+
+    /// A sign-in that stays in one state (the 微软正版登录 shots).
+    private record FixedFlow(org.jackhuang.hmcl.sao.SaoMicrosoftFlow.State fixed) implements org.jackhuang.hmcl.sao.SaoMicrosoftFlow {
+        @Override public javafx.beans.property.ReadOnlyObjectProperty<State> state() { return new javafx.beans.property.SimpleObjectProperty<>(fixed); }
+        @Override public void openBrowser() { }
+        @Override public void useDeviceCode() { }
+        @Override public void cancel() { }
     }
 
     /// Puts the page in a state, an app and a head turn, waits for the windows to settle and writes a shot.

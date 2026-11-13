@@ -394,7 +394,7 @@ final class SaoAccountApp {
     }
 
     /// A page: on the left its icon, title and one line; on the right the form.
-    private static Node page(SVG icon, String title, String sub, Node form, Node below) {
+    static Node page(SVG icon, String title, String sub, Node form, Node below) {
         Text t = ink(title, 22);
         SaoUiKit.font(t, 22, true);
         Text line = dim(sub, 13);
@@ -411,7 +411,7 @@ final class SaoAccountApp {
     }
 
     /// The form column.
-    private static VBox form(Node... nodes) {
+    static VBox form(Node... nodes) {
         VBox v = new VBox(6, nodes);
         v.setMinWidth(320);
         v.setMaxWidth(320);
@@ -438,7 +438,7 @@ final class SaoAccountApp {
     }
 
     /// Buttons at the bottom right of a form.
-    private static HBox footer(Node... nodes) {
+    static HBox footer(Node... nodes) {
         HBox h = new HBox(8, nodes);
         h.setAlignment(Pos.CENTER_RIGHT);
         VBox.setMargin(h, new javafx.geometry.Insets(6, 0, 0, 0));
@@ -500,7 +500,7 @@ final class SaoAccountApp {
     }
 
     /// The line a form's problem shows in.
-    private static Text warn() {
+    static Text warn() {
         Text t = new Text();
         t.getStyleClass().add("vr-warn");
         SaoUiKit.font(t, 12, false);

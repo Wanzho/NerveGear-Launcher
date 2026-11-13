@@ -238,6 +238,15 @@ public final class SaoHelmetPage extends StackPane {
     /// @param service the engine
     public SaoHelmetPage(SaoLauncherService service) {
         this.service = service;
+        // 微软正版登录 (James, 13 Nov: "为什么不直接做个新界面"): every Microsoft sign-in opens our own window, never
+        // HMCL's dialog. The first flow is the one already running; 重试 starts a fresh one from the engine.
+        org.jackhuang.hmcl.sao.SaoMicrosoftFlow.setPresenter(flow -> {
+            boolean[] first = {true};
+            openMicrosoft(() -> {
+                if (first[0]) { first[0] = false; return flow; }
+                return service.microsoftSignIn();
+            });
+        });
         String css = Objects.requireNonNull(SaoHelmetPage.class.getResource("/assets/css/sao.css")).toExternalForm();
         getStylesheets().add(css);
         // A SubScene does not inherit the page's stylesheets: the space carries its own.
@@ -2196,6 +2205,11 @@ public final class SaoHelmetPage extends StackPane {
     /// Opens the 誓约账号 window on a page (screenshot tools).
     void forceAccount(SaoAccountApp.Page page) {
         openAccount(page);
+    }
+
+    /// Opens the 微软正版登录 window on a sign-in (the Microsoft presenter and the screenshot tools).
+    void openMicrosoft(java.util.function.Supplier<org.jackhuang.hmcl.sao.SaoMicrosoftFlow> start) {
+        openApp(new SaoApps.App(SVG.PERSON, "微软正版登录", (s, c) -> SaoMicrosoftApp.make(start, c)), null);
     }
 
     /// Opens the server's other nodes (the screenshot tool).
