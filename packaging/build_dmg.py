@@ -19,8 +19,8 @@ def build(app, image, work):
             raise RuntimeError("Install the pinned packaging/dmg-requirements.txt: " + package)
     here = Path(__file__).resolve().parent
     background = work / "launcher-dmg-background.tiff"
-    subprocess.run(["tiffutil", "-cathidpicheck", here / "launcher-dmg-background-v2.png",
-                    here / "launcher-dmg-background-v2@2x.png", "-out", background], check=True)
+    subprocess.run(["tiffutil", "-cathidpicheck", here / "launcher-dmg-background-v4.png",
+                    here / "launcher-dmg-background-v4@2x.png", "-out", background], check=True)
     mounted = None
 
     def relocate_background(mount_point, options):
@@ -43,8 +43,8 @@ def build(app, image, work):
 
     dmgbuild.build_dmg(str(image), "NerveGear启动器", lookForHiDPI=False, callback=event, settings={
         "format": "UDZO", "files": [str(app)], "symlinks": {"Applications": "/Applications"},
-        "background": str(background), "window_rect": ((100, 100), (660, 400)),
-        "default_view": "icon-view", "icon_locations": {app.name: (170, 210), "Applications": (490, 210)},
+        "background": str(background), "window_rect": ((100, 100), (660, 594)),
+        "default_view": "icon-view", "icon_locations": {app.name: (170, 187), "Applications": (490, 187)},
         "icon_size": 128, "text_size": 13, "label_pos": "bottom", "arrange_by": None,
         "show_toolbar": False, "show_status_bar": False, "show_sidebar": False,
         "show_pathbar": False, "show_tab_view": False, "sidebar_width": 0,
