@@ -244,8 +244,8 @@ def notices(destination, lock):
     shutil.copy2(HERE / "README-zh.txt", destination / "README-zh.txt")
 
 
-def mac_app(target, host, home, dist, work, jar, icns, evidence, lock):
-    """Assemble and sign a target-architecture app bundle without launching it."""
+def mac_app(target, host, home, dist, work, jar, icns, evidence, lock, skip_signing=False):
+    """Assemble a target app and headless install image, optionally omitting signing."""
     root = dist / target
     app = root / (PRODUCT + ".app")
     contents = app / "Contents"
@@ -265,14 +265,16 @@ def mac_app(target, host, home, dist, work, jar, icns, evidence, lock):
             "NSHumanReadableCopyright": "Copyright 2013-2025 huangyuhui and HMCL contributors; SAO fork contributors"}
     (contents / "Info.plist").write_bytes(plistlib.dumps(info))
     notices(contents / "Resources", lock)
-    sign_app(app, evidence / (target + "-codesign.txt"))
+    if skip_signing:
+        (evidence / (target + "-codesign.txt")).write_text("SKIPPED: --skip-signing requested; no codesign invoked.\n")
+    else:
+        sign_app(app, evidence / (target + "-codesign.txt"))
     check_space(work)
     image = dist / f"NerveGear-Launcher-0.1.0-{target}.dmg"
     if image.exists():
         image.unlink()
-    # -srcfolder creates an image directly; no Finder, mount or .app execution occurs.
-    run(["hdiutil", "create", "-format", "UDZO", "-volname", PRODUCT, "-srcfolder", root,
-         "-ov", image], log=evidence / (target + "-dmg.log"))
+    run([sys.executable, HERE / "build_dmg.py", app, image, work],
+        log=evidence / (target + "-dmg.log"))
     run(["hdiutil", "verify", image], log=evidence / (target + "-dmg-verify.txt"))
     return contents / "runtime", contents / "app/launcher.jar", app
 
@@ -385,6 +387,7 @@ def main():
     parser.add_argument("--pack", type=Path, default=Path.home() / "Downloads/SAO OATH0.8.zip")
     parser.add_argument("--baseline", type=Path, default=Path.home() / "Developer/sao-launcher-runs/jarname1/input")
     parser.add_argument("--jar", type=Path, help="Reuse an already built JAR; performs no Gradle invocation")
+    parser.add_argument("--skip-signing", action="store_true", help="Do not invoke codesign for macOS bundles")
     parser.add_argument("--finalize-only", action="store_true", help="Only refresh the committed source archive and checksums")
     args = parser.parse_args()
     if sys.platform != "darwin" or os.uname().machine != "arm64":
@@ -409,7 +412,8 @@ def main():
     for target in TARGETS:
         check_space(work)
         if target.startswith("macos"):
-            paths[target] = mac_app(target, host, homes[target], dist, work, jar, icns, evidence, lock)
+            paths[target] = mac_app(target, host, homes[target], dist, work, jar, icns, evidence, lock,
+                                    skip_signing=args.skip_signing)
         else:
             paths[target] = portable(target, host, homes[target], dist, work, jar, ico, evidence, lock)
         print("ARTIFACT_READY " + target, flush=True)
