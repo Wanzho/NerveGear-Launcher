@@ -35,7 +35,7 @@ def verify(image):
                 icons = store["."]["icvp"]
                 view = store["."]["icvl"]
                 positions = {name: store[name]["Iloc"] for name in ("NerveGear启动器.app", "Applications")}
-            assert window["WindowBounds"] == "{{100, 100}, {660, 594}}"
+            assert window["WindowBounds"] == "{{100, 100}, {660, 530}}"
             for key in ("ShowToolbar", "ShowStatusBar", "ShowSidebar", "ContainerShowSidebar", "ShowTabView", "ShowPathbar"):
                 assert window[key] is False, key
             assert view == (b"type", b"icnv"), view
@@ -48,8 +48,8 @@ def verify(image):
             assert alias.volume.name == "NerveGear启动器", alias.volume.name
             assert alias.target.cnid == background.stat().st_ino
             tiff_info = subprocess.check_output(["tiffutil", "-info", background], stderr=subprocess.STDOUT, text=True)
-            assert "Image Width: 660 Image Length: 548" in tiff_info
-            assert "Image Width: 1320 Image Length: 1096" in tiff_info
+            assert "Image Width: 660 Image Length: 498" in tiff_info
+            assert "Image Width: 1320 Image Length: 996" in tiff_info
             assert "Resolution: 72, 72" in tiff_info and "Resolution: 144, 144" in tiff_info
             with image.open("rb") as stream:
                 sha256 = hashlib.file_digest(stream, "sha256").hexdigest()
