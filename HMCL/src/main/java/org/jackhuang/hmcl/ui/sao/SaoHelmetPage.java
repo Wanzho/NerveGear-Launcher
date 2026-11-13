@@ -143,6 +143,16 @@ public final class SaoHelmetPage extends StackPane {
     /// The 16:9 picture everything is drawn in, and its clip.
     private final Pane screen = new Pane();
     private final Rectangle screenClip = new Rectangle();
+    /// High-resolution still used only while the window size is changing; it never receives input.
+    private final ImageView resizePreview = new ImageView();
+    /// Applies the preview's resize to the hidden live nodes too, keeping their hit targets aligned.
+    private final Scale resizeFit = new Scale(1, 1, 0, 0);
+    /// Last requested preview size and the monotonic time it changed.
+    private int resizeWidth, resizeHeight;
+    /// Nanoseconds of the most recent size change during a preview.
+    private long resizeChangedAt;
+    /// Quiet interval before restoring the exact live rendering at the final size.
+    private static final long RESIZE_QUIET_NS = 150_000_000L;
     /// Shows the k-times world at the window's size (see [#frame(double)]).
     private final Scale worldShrink = new Scale(1, 1, 0, 0);
     /// The pixel scale the visor and world were last made for.
@@ -312,6 +322,11 @@ public final class SaoHelmetPage extends StackPane {
         // James, 7 Nov: "make sure only 16:9 is available": the helmet is one 16:9 picture, centred, black around it
         // when the window or the screen is another shape.
         screen.setManaged(false);
+        screen.getTransforms().add(resizeFit);
+        resizePreview.setManaged(false);
+        resizePreview.setMouseTransparent(true);
+        resizePreview.setSmooth(true);
+        resizePreview.setVisible(false);
         screen.setClip(screenClip);
         current = this;
         cover.setManaged(false);
@@ -362,7 +377,7 @@ public final class SaoHelmetPage extends StackPane {
         toast.setOnMouseClicked(e -> { toast.setVisible(false); openFriendsApp(); });
         screen.getChildren().add(toast);
         service.notification().addListener((o, a, n) -> { if (n != null) showNotification(n); });
-        getChildren().setAll(screen);
+        getChildren().setAll(screen, resizePreview);
 
         setOnKeyPressed(e -> {
             if (e.getCode() == KeyCode.ESCAPE && app != null) closeApp();
@@ -1322,6 +1337,7 @@ public final class SaoHelmetPage extends StackPane {
                 ? Math.max(1, Math.max(getScene().getWindow().getOutputScaleX(), getScene().getWindow().getOutputScaleY())) : 1;
         int w = (int) Math.floor(Math.min(pw, ph * 16 / 9)), h = (int) Math.round(w * 9 / 16.0);
         if (w <= 1 || h <= 1) return;
+        if (previewResize(w, h, k)) return;
         screen.resizeRelocate(Math.floor((pw - w) / 2), Math.floor((ph - h) / 2), w, h);
         screenClip.setWidth(w);
         screenClip.setHeight(h);
@@ -1393,6 +1409,65 @@ public final class SaoHelmetPage extends StackPane {
         glass.relocate(0, 0);
         frame.relocate(0, 0);
         placeCharacter();
+    }
+
+    /// Reuses one high-resolution picture through a resize gesture, then returns to the original live renderer.
+    /// JavaFX resizes a SubScene's render texture even when its design coordinates stay fixed; that repeatedly
+    /// rasterizes text on different pixel grids. The still avoids those changes and the visor's expensive bitmap
+    /// rebuilds. Hidden live nodes retain picking, with the same scale as the still. Boot frames remain live.
+    ///
+    /// @return true when the preview supplies this frame
+    private boolean previewResize(int w, int h, double k) {
+        boolean active = resizePreview.isVisible();
+        boolean changed = w != renderedW || h != renderedH;
+        if (!boot.busy() && k == renderedK && renderedW > 1 && renderedH > 1 && (active || changed)) {
+            if (!active) {
+                javafx.scene.SnapshotParameters params = new javafx.scene.SnapshotParameters();
+                params.setFill(Color.TRANSPARENT);
+                // Headroom for enlargement during a gesture, in addition to the display's pixel density.
+                double density = Math.max(2, k * 1.5);
+                params.setTransform(new Scale(density, density));
+                params.setViewport(new javafx.geometry.Rectangle2D(0, 0, renderedW * density, renderedH * density));
+                double oldX = screen.getLayoutX(), oldY = screen.getLayoutY();
+                screen.setLayoutX(0);
+                screen.setLayoutY(0);
+                try {
+                    resizePreview.setImage(screen.snapshot(params, null));
+                } finally {
+                    screen.setLayoutX(oldX);
+                    screen.setLayoutY(oldY);
+                }
+                resizePreview.setVisible(true);
+                screen.setOpacity(0);
+                resizeWidth = w;
+                resizeHeight = h;
+                resizeChangedAt = System.nanoTime();
+            }
+            if (w != resizeWidth || h != resizeHeight) {
+                resizeWidth = w;
+                resizeHeight = h;
+                resizeChangedAt = System.nanoTime();
+            }
+            if (System.nanoTime() - resizeChangedAt < RESIZE_QUIET_NS) {
+                double x = Math.floor((getWidth() - w) / 2), y = Math.floor((getHeight() - h) / 2);
+                resizePreview.setFitWidth(w);
+                resizePreview.setFitHeight(h);
+                resizePreview.relocate(x, y);
+                screen.setLayoutX(x);
+                screen.setLayoutY(y);
+                resizeFit.setX(w / (double) renderedW);
+                resizeFit.setY(h / (double) renderedH);
+                return true;
+            }
+        }
+        if (resizePreview.isVisible()) {
+            resizePreview.setVisible(false);
+            resizePreview.setImage(null);
+            resizeFit.setX(1);
+            resizeFit.setY(1);
+            screen.setOpacity(1);
+        }
+        return false;
     }
 
     /// The character's stage inside the player window, and the character itself with its pencil.
@@ -1957,7 +2032,8 @@ public final class SaoHelmetPage extends StackPane {
         addEventFilter(MouseEvent.MOUSE_PRESSED, e -> pressOnWindow = false);
         addEventHandler(MouseEvent.MOUSE_PRESSED, e -> {
             moving = !pressOnWindow && e.isPrimaryButtonDown() && getCursor() == null && getScene() != null
-                    && getScene().getWindow() instanceof javafx.stage.Stage st && !st.isFullScreen() && !st.isMaximized();
+                    && getScene().getWindow() instanceof javafx.stage.Stage st && !st.isFullScreen()
+                    && !org.jackhuang.hmcl.ui.decorator.WindowState.isMaximized(st);
             if (!moving) return;
             javafx.stage.Window win = getScene().getWindow();
             moveFromX = win.getX() - e.getScreenX();
