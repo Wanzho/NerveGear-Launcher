@@ -523,6 +523,10 @@ public final class SaoHelmetPage extends StackPane {
     /// The player, in the middle: the logo over the character on the left, the ARGUS ID on the right as James drew it
     /// (7 Nov); Link Start lives here too, at the bottom right once signed in. The skin has its own page (James, 7 Nov:
     /// "把classic slim等等塞到一个新的页面").
+    /// James, 13 Nov: "中间图标先去掉吧，我不喜欢在那里": the logo under the friends is hidden for now; its room stays
+    /// empty so Link Start keeps its place.
+    private static final boolean SHOW_PLAYER_LOGO = false;
+
     private SaoFloatWindow buildPlayer() {
         // James, 9 Nov: "左边只放人，logo放到好友在线这里": the logo-49 title fills the room under the friends, signed
         // in; it shrinks when warnings take that room and hides when too little is left.
@@ -534,7 +538,7 @@ public final class SaoHelmetPage extends StackPane {
         logoBox.heightProperty().addListener((o, a, h) -> {
             double fit = Math.min(170, h.doubleValue() - 4);
             logo.setFitHeight(Math.max(1, fit));
-            logo.setVisible(fit >= 48);
+            logo.setVisible(SHOW_PLAYER_LOGO && fit >= 48);
         });
 
         Button editSkin = round(SVG.EDIT, 30, 15);
