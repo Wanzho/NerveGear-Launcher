@@ -19,8 +19,8 @@ def build(app, image, work):
             raise RuntimeError("Install the pinned packaging/dmg-requirements.txt: " + package)
     here = Path(__file__).resolve().parent
     background = work / "launcher-dmg-background.tiff"
-    subprocess.run(["tiffutil", "-cathidpicheck", here / "launcher-dmg-background-v4.png",
-                    here / "launcher-dmg-background-v4@2x.png", "-out", background], check=True)
+    subprocess.run(["tiffutil", "-cathidpicheck", here / "launcher-dmg-background-v5.png",
+                    here / "launcher-dmg-background-v5@2x.png", "-out", background], check=True)
     mounted = None
 
     def relocate_background(mount_point, options):

@@ -22,7 +22,7 @@ The volume is `NerveGear启动器`. The stored window is 660×594 at (100, 100),
 128-point icons at (170, 187) and (490, 187), bottom labels in 13-point text, and
 stored settings hiding the toolbar, sidebar, status bar, path bar, and tabs.
 Finder may override the path-bar setting globally; the taller frame leaves about
-520 points of picture with the path bar and 547 without it. The v4 artwork includes
+520 points of picture with the path bar and 547 without it. The v5 artwork includes
 drag-to-install and System Settings → Privacy & Security → 仍要打开 instructions. `Applications` links to
 `/Applications`. Packaging retains `hdiutil verify` and per-target evidence logs.
 
