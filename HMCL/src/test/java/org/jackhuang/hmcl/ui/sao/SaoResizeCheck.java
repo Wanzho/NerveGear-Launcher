@@ -55,7 +55,7 @@ public final class SaoResizeCheck {
                 stage = new Stage();
                 stage.setScene(new Scene(page, 1280, 720));
                 double scale = Double.parseDouble(System.getProperty("sao.checkScale", "2"));
-                com.sun.javafx.stage.WindowHelper.notifyScaleChanged(stage, scale, scale);
+                try { Class.forName("com.sun.javafx.stage.WindowHelper").getMethod("notifyScaleChanged", javafx.stage.Window.class, double.class, double.class).invoke(null, stage, scale, scale); } catch (ReflectiveOperationException e) { throw new IllegalStateException(e); } // reflection: packaging compiles tests as modules
                 page.forceAwake(true);
             });
             Thread.sleep(4500);

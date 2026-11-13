@@ -68,7 +68,7 @@ public final class SaoDragCheck {
             stage[0].setHeight(736);
             scene[0] = decorator.attachStage(stage[0]);
             double scale = Double.parseDouble(System.getProperty("sao.checkScale", "2"));
-            com.sun.javafx.stage.WindowHelper.notifyScaleChanged(stage[0], scale, scale);
+            try { Class.forName("com.sun.javafx.stage.WindowHelper").getMethod("notifyScaleChanged", javafx.stage.Window.class, double.class, double.class).invoke(null, stage[0], scale, scale); } catch (ReflectiveOperationException e) { throw new IllegalStateException(e); } // reflection: packaging compiles tests as modules
             // macOS can report this native flag for an ordinary transparent window at startup.
             stage[0].setMaximized(Boolean.parseBoolean(System.getProperty("sao.checkMaximized", "true")));
             stage[0].setFullScreen(Boolean.getBoolean("sao.checkFullScreen"));
