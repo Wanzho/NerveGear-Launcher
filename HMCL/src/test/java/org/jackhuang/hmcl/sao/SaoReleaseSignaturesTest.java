@@ -195,9 +195,13 @@ class SaoReleaseSignaturesTest {
         try (SaoOnlineData online = SaoReleaseTestSupport.online(temporary, (request, limit) -> {
             visited.add(request.uri()); remaining.add(request.timeout().orElseThrow());
             boolean signature = request.uri().getPath().endsWith(".sig");
-            assertEquals(signature ? SaoReleaseSignatures.MAX_SIGNATURE_BYTES : SaoUpdates.MAX_VERSION_BYTES, limit);
-            if (request.uri().getHost().equals("gitee.com")) return new SaoOnlineData.Response(302,
-                    "https://raw.giteeusercontent.com/release/version.json" + (signature ? ".sig" : ""), new byte[0]);
+            int base = signature ? SaoReleaseSignatures.MAX_SIGNATURE_BYTES : SaoUpdates.MAX_VERSION_BYTES;
+            boolean firstHop = request.uri().getHost().equals("gitee.com");
+            // The first hop has room for Gitee's redirect page; the redirected document keeps its own limit.
+            assertEquals(firstHop ? Math.max(base, SaoOnlineData.REDIRECT_BODY_LIMIT) : base, limit);
+            // Gitee's real 302 carries an HTML body (~400 bytes), larger than any signature (14 Nov regression).
+            if (firstHop) return new SaoOnlineData.Response(302,
+                    "https://raw.giteeusercontent.com/release/version.json" + (signature ? ".sig" : ""), new byte[400]);
             return new SaoOnlineData.Response(200, null, signature ? SaoReleaseTestSupport.sign(document) : bytes(document));
         })) {
             assertEquals(6, online.fetchVersion("https://gitee.com/release/version.json?fixture=1").sequence());

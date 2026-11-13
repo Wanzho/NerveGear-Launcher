@@ -202,7 +202,9 @@ final class SaoOnlineData implements AutoCloseable {
 
     /// Uses the caller's whole-operation deadline for each independent JSON/signature request and its permitted hop.
     private byte @Unmodifiable [] fetchBytes(URI uri, int limit, long deadline) throws Exception {
-        Response response = exchange.send(request(uri, deadline), limit);
+        // Gitee's 302 carries a small HTML body (~400 bytes) that is larger than a 128-byte signature: read the first hop
+        // with room for it; the final document is still held to its own limit below (14 Nov: every .sig was refused).
+        Response response = exchange.send(request(uri, deadline), Math.max(limit, REDIRECT_BODY_LIMIT));
         if (redirect(response.status())) {
             uri = redirected(uri, response.location());
             response = exchange.send(request(uri, deadline), limit);
@@ -212,6 +214,9 @@ final class SaoOnlineData implements AutoCloseable {
         if (response.body().length > limit) throw new IOException("Metadata document is too large");
         return response.body();
     }
+
+    /// Room for a redirect response's own body on the first hop.
+    static final int REDIRECT_BODY_LIMIT = 16384;
 
     /// Builds each hop from the remaining whole-operation timeout.
     private static HttpRequest request(URI uri, long deadline) throws IOException {

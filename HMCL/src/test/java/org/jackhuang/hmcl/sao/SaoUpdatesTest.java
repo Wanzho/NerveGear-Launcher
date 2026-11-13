@@ -129,10 +129,10 @@ class SaoUpdatesTest {
         AtomicReference<String> response = new AtomicReference<>(valid);
         try (SaoOnlineData online = SaoReleaseTestSupport.online(temporary, (request, limit) -> {
             if (request.uri().getPath().endsWith(".sig")) {
-                assertEquals(SaoReleaseSignatures.MAX_SIGNATURE_BYTES, limit);
+                assertEquals(Math.max(SaoReleaseSignatures.MAX_SIGNATURE_BYTES, SaoOnlineData.REDIRECT_BODY_LIMIT), limit);
                 return new SaoOnlineData.Response(200, null, SaoReleaseTestSupport.sign(response.get()));
             }
-            assertEquals(SaoUpdates.MAX_VERSION_BYTES, limit);
+            assertEquals(Math.max(SaoUpdates.MAX_VERSION_BYTES, SaoOnlineData.REDIRECT_BODY_LIMIT), limit);
             return new SaoOnlineData.Response(200, null, response.get().getBytes(StandardCharsets.UTF_8));
         })) {
             assertEquals("0.10", online.fetchVersion(SaoUpdates.VERSION_URL).pack().version());
