@@ -15,6 +15,8 @@ import javafx.stage.Stage;
 import javafx.stage.StageStyle;
 import org.jackhuang.hmcl.ui.decorator.Decorator;
 import org.jetbrains.annotations.NotNullByDefault;
+import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.Unmodifiable;
 
 import java.nio.file.Files;
 import java.util.ArrayList;
@@ -22,20 +24,16 @@ import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
-/// Checks that the launcher window still drags (James, 8 Nov: "为什么没有任何一个可以拖动整个窗口的地方？", then
-/// "得，我现在又拖不动窗口了"): the SAO page inside HMCL's real decorator, in a stage that is never shown (no window,
-/// no focus), gets synthetic presses and drags as the mouse would send them. A drag from the empty space around the
-/// windows must move the stage by exactly the drag; a press on a window, a dock button or the character must not
-/// ("现在steve焊上面了"). Exits 1 when any case fails.
-///
-/// Run with the test classpath and `-Djava.awt.headless=true -Dglass.taskbarApplication=false -Dsao.mute=true`.
+/// Exercises real scene picking after the complete power-on, without showing a stage.
+/// Empty glass must move the stage; windows, character and controls must keep it still.
 @NotNullByDefault
 public final class SaoDragCheck {
     /// Not instantiable.
     private SaoDragCheck() {
     }
 
-    public static void main(String[] args) {
+    /// Runs the offscreen regression and exits nonzero on failure.
+    public static void main(String @Unmodifiable [] args) {
         int failed;
         try {
             failed = run();
@@ -46,6 +44,7 @@ public final class SaoDragCheck {
         System.exit(failed == 0 ? 0 : 1);
     }
 
+    /// Creates an isolated launcher and checks presses after the boot finishes.
     private static int run() throws Exception {
         // A throwaway launcher home, never the player's.
         var home = Files.createTempDirectory("sao-drag-check");
@@ -68,13 +67,27 @@ public final class SaoDragCheck {
             stage[0].setWidth(1296);
             stage[0].setHeight(736);
             scene[0] = decorator.attachStage(stage[0]);
+            double scale = Double.parseDouble(System.getProperty("sao.checkScale", "2"));
+            com.sun.javafx.stage.WindowHelper.notifyScaleChanged(stage[0], scale, scale);
+            // macOS can report this native flag for an ordinary transparent window at startup.
+            stage[0].setMaximized(Boolean.parseBoolean(System.getProperty("sao.checkMaximized", "true")));
+            stage[0].setFullScreen(Boolean.getBoolean("sao.checkFullScreen"));
+            org.jackhuang.hmcl.setting.StyleSheets.init(scene[0]);
             // The stage is never shown, so the page would rest as if minimised.
             page[0].forceAwake(true);
         });
-        Thread.sleep(2500);
+        Thread.sleep(4500);
         fx(() -> {
             fake.forceOath(true);
-            page[0].forceLit();
+            try {
+                var accessor = SaoHelmetPage.class.getDeclaredMethod("boot");
+                accessor.setAccessible(true);
+                if (((SaoBoot) accessor.invoke(page[0])).busy()) throw new IllegalStateException("Boot still running");
+            } catch (NoSuchMethodException preBootRevision) {
+                // The historical bisection endpoint predates the power-on controller.
+            } catch (ReflectiveOperationException error) {
+                throw new IllegalStateException(error);
+            }
             page[0].forceApp(-1);
             scene[0].snapshot(null);
         });
@@ -82,7 +95,7 @@ public final class SaoDragCheck {
         fx(() -> scene[0].snapshot(null));
         double w = scene[0].getWidth(), h = scene[0].getHeight();
         // x, y in parts of the scene, and whether the drag must move the window.
-        Object[][] cases = {
+        Object @Unmodifiable [] @Unmodifiable [] cases = {
                 {0.50, 0.975, true, "below the windows"},
                 {0.97, 0.10, true, "top right, beside the battery"},
                 {0.50, 0.05, true, "top middle"},
@@ -91,12 +104,16 @@ public final class SaoDragCheck {
                 {0.50, 0.46, false, "the player window"},
                 {0.40, 0.58, false, "the character"},
                 {0.05, 0.47, false, "a dock button"},
+                {0.57, 0.29, false, "account button"},
         };
+        fx(() -> scene[0].addEventFilter(MouseEvent.MOUSE_PRESSED, e ->
+                System.out.println("PICK " + e.getTarget() + " pageCursor=" + page[0].getCursor())));
         List<String> lines = new ArrayList<>();
         int[] failed = {0};
         for (Object[] c : cases) {
             double x = w * (double) c[0], y = h * (double) c[1];
-            boolean shouldMove = (boolean) c[2];
+            boolean shouldMove = (boolean) c[2] && !stage[0].isFullScreen()
+                    && !org.jackhuang.hmcl.ui.decorator.WindowState.isMaximized(stage[0]);
             fx(() -> {
                 stage[0].setX(100);
                 stage[0].setY(100);
@@ -136,15 +153,20 @@ public final class SaoDragCheck {
         SceneHelper.processMouseEvent(scene, e);
     }
 
+    /// Runs on the FX thread and propagates assertion failures to the process.
     private static void fx(Runnable r) throws InterruptedException {
         CountDownLatch done = new CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicReference<@Nullable Throwable> failure = new java.util.concurrent.atomic.AtomicReference<>();
         Platform.runLater(() -> {
             try {
                 r.run();
+            } catch (Throwable t) {
+                failure.set(t);
             } finally {
                 done.countDown();
             }
         });
         if (!done.await(30, TimeUnit.SECONDS)) throw new IllegalStateException("FX thread stuck");
+        if (failure.get() != null) throw new AssertionError("FX check failed", failure.get());
     }
 }
