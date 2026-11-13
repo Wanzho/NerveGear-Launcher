@@ -22,6 +22,12 @@ def verify(image):
         try:
             assert os.readlink(mount / "Applications") == "/Applications"
             assert (mount / "NerveGear启动器.app/Contents/Info.plist").is_file()
+            app = mount / "NerveGear启动器.app"
+            subprocess.run(["codesign", "--verify", "--deep", "--strict", "--verbose=2", app], check=True)
+            signature = subprocess.check_output(["codesign", "-dv", "--verbose=4", app],
+                                                stderr=subprocess.STDOUT, text=True)
+            assert "Signature=adhoc" in signature, signature
+            print(signature, flush=True)
             background = mount / ".background/launcher.tiff"
             assert background.is_file()
             with DSStore.open(str(mount / ".DS_Store"), "r") as store:
@@ -51,7 +57,7 @@ def verify(image):
                               "Applications": os.readlink(mount / "Applications"), "window": window,
                               "icons": icons, "positions": positions, "view": str(view),
                               "background_alias": alias.target.posix_path, "volume": alias.volume.name,
-                              "alias_file_id_matches": True, "tiff_info": tiff_info, "result": "PASS"},
+                              "alias_file_id_matches": True, "codesign_deep_strict": "PASS (ad-hoc)", "tiff_info": tiff_info, "result": "PASS"},
                              ensure_ascii=False, indent=2), flush=True)
         finally:
             subprocess.run(["hdiutil", "detach", mount], check=True)

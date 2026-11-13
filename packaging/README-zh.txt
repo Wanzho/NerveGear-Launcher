@@ -1,6 +1,7 @@
 NerveGear启动器 / NerveGear Launcher 0.1.0
 
-Windows x64：完整解压 ZIP 后，双击“NerveGear启动器.exe”。请保留同目录的 app、runtime 文件夹。
+Windows x64 安装版：双击安装程序，自动安装、创建开始菜单和桌面快捷方式并启动。升级前请关闭启动器；原有数据保留。
+Windows x64 便携版：完整解压 ZIP 后，双击“NerveGear启动器.exe”。请保留同目录的 app、runtime 文件夹。
 Windows on ARM：没有单独的 ARM64 版本。Windows 11 ARM 可以通过系统自带的 x64 转译运行 x64 版；Windows 10 ARM 不能运行。
 macOS：按处理器选择 arm64（Apple 芯片）或 x64（Intel）。打开 DMG，将整个 .app 拖入“应用程序”。
 Linux x64：解压 tar.gz，在桌面会话运行 ./NerveGear-Launcher.sh。需要系统提供 GTK3、X11/图形驱动和音频库。

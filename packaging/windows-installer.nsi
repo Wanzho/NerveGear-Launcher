@@ -1,4 +1,4 @@
-﻿; NerveGear启动器 Windows installer (James, 12 Nov 2026: "能做个更方便的东西吗？").
+﻿; NerveGear启动器 one-click, per-user Windows installer.
 ; Per-user, no admin. Installs the exact portable folder (exe, app, runtime, licenses, README-zh.txt); the launcher keeps
 ; its data in .sao-oath-launcher beside itself (D-1), which install, upgrade and the default uninstall never touch.
 ; Built by packaging/package.py with: -DPAYLOAD=<NerveGear-Launcher folder> -DICON=<launcher.ico> -DOUTFILE=<exe>
@@ -23,6 +23,7 @@ OutFile "${OUTFILE}"
 InstallDir "$LOCALAPPDATA\Programs\NerveGear-Launcher"
 InstallDirRegKey HKCU "${UNINSTALL_KEY}" "InstallLocation"
 BrandingText "${APP_NAME} ${VERSION}"
+AutoCloseWindow true
 ShowInstDetails nevershow
 ShowUninstDetails nevershow
 
@@ -30,19 +31,7 @@ ShowUninstDetails nevershow
 !define MUI_UNICON "${ICON}"
 !define MUI_ABORTWARNING
 
-!define MUI_LICENSEPAGE_TEXT_TOP "GPL-3.0 开源许可"
-!define MUI_LICENSEPAGE_TEXT_BOTTOM " "
-!define MUI_LICENSEPAGE_BUTTON "$(^NextBtn)"
-!insertmacro MUI_PAGE_LICENSE "${PAYLOAD}\licenses\LICENSE-launcher-GPL-3.0.txt"
-!define MUI_PAGE_CUSTOMFUNCTION_LEAVE DirectoryLeave
-!insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
-!define MUI_FINISHPAGE_RUN "$INSTDIR\${APP_EXE}"
-!define MUI_FINISHPAGE_RUN_TEXT "启动 ${APP_NAME}"
-!define MUI_FINISHPAGE_SHOWREADME ""
-!define MUI_FINISHPAGE_SHOWREADME_TEXT "桌面快捷方式"
-!define MUI_FINISHPAGE_SHOWREADME_FUNCTION DesktopShortcut
-!insertmacro MUI_PAGE_FINISH
 !insertmacro MUI_UNPAGE_INSTFILES
 !insertmacro MUI_LANGUAGE "SimpChinese"
 
@@ -54,20 +43,38 @@ VIAddVersionKey /LANG=${LANG_SIMPCHINESE} "FileVersion" "${VERSION}"
 VIAddVersionKey /LANG=${LANG_SIMPCHINESE} "ProductVersion" "${VERSION}"
 VIAddVersionKey /LANG=${LANG_SIMPCHINESE} "LegalCopyright" "GPL-3.0-or-later"
 
-; A running launcher holds files under runtime\ open (jvm.dll, javaw.exe), so the folder cannot be renamed.
+; Enumerate processes without terminating them or renaming a live runtime.
+; NSIS is 32-bit: PROCESSENTRY32W is 556 bytes, with szExeFile at byte 36.
 !macro RUNNING_CHECK PREFIX
 Function ${PREFIX}WaitForLauncher
   retry:
-  IfFileExists "$INSTDIR\runtime\*.*" 0 done
-  ClearErrors
-  Rename "$INSTDIR\runtime" "$INSTDIR\runtime.nervegear-check"
-  IfErrors busy
-  Rename "$INSTDIR\runtime.nervegear-check" "$INSTDIR\runtime"
-  Goto done
+  System::Call 'kernel32::CreateToolhelp32Snapshot(i 2, i 0) p.r0'
+  StrCmp $0 -1 failed
+  System::Alloc 556
+  Pop $1
+  StrCmp $1 0 allocation_failed
+  System::Call '*$1(i 556)'
+  System::Call 'kernel32::Process32FirstW(p r0, p r1) i.r2'
+  loop:
+  StrCmp $2 0 finished
+  System::Call '*$1(i, i, i, i, i, i, i, i, i, w260 .r3)'
+  StrCmp $3 "${APP_EXE}" busy
+  System::Call 'kernel32::Process32NextW(p r0, p r1) i.r2'
+  Goto loop
   busy:
-  MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "${APP_NAME}正在运行，先关掉它。" /SD IDCANCEL IDRETRY retry
+  System::Free $1
+  System::Call 'kernel32::CloseHandle(p r0)'
+  MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "请先关闭 NerveGear启动器 再安装" /SD IDCANCEL IDRETRY retry
   Abort
-  done:
+  finished:
+  System::Free $1
+  System::Call 'kernel32::CloseHandle(p r0)'
+  Return
+  allocation_failed:
+  System::Call 'kernel32::CloseHandle(p r0)'
+  failed:
+  MessageBox MB_OK|MB_ICONSTOP "无法检查启动器是否正在运行，请重试。" /SD IDOK
+  Abort
 FunctionEnd
 !macroend
 !insertmacro RUNNING_CHECK ""
@@ -86,19 +93,20 @@ Function CheckWritable
   Delete "$INSTDIR\.nervegear-write-test"
 FunctionEnd
 
-Function DirectoryLeave
-  Call CheckWritable
+Function .onInit
+  SetShellVarContext current
   Call WaitForLauncher
 FunctionEnd
 
-Function DesktopShortcut
+; Only a successful installation launches the app; user execution level is inherited.
+Function .onInstSuccess
   SetOutPath "$INSTDIR"
-  CreateShortcut "$DESKTOP\${APP_NAME}.lnk" "$INSTDIR\${APP_EXE}" "" "$INSTDIR\${APP_EXE}" 0
+  Exec '"$INSTDIR\${APP_EXE}"'
 FunctionEnd
 
 Section "Install"
-  Call CheckWritable
   Call WaitForLauncher
+  Call CheckWritable
   ; Upgrade: replace the program, never .sao-oath-launcher.
   ${If} ${FileExists} "$INSTDIR\app\launcher.jar"
     RMDir /r "$INSTDIR\app"
@@ -111,6 +119,7 @@ Section "Install"
   File /r "${PAYLOAD}\*.*"
   WriteUninstaller "$INSTDIR\${UNINSTALLER}"
   CreateShortcut "$SMPROGRAMS\${APP_NAME}.lnk" "$INSTDIR\${APP_EXE}" "" "$INSTDIR\${APP_EXE}" 0
+  CreateShortcut "$DESKTOP\${APP_NAME}.lnk" "$INSTDIR\${APP_EXE}" "" "$INSTDIR\${APP_EXE}" 0
   WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayName" "${APP_NAME}"
   WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayIcon" "$INSTDIR\${APP_EXE},0"
   WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayVersion" "${VERSION}"
@@ -124,6 +133,7 @@ Section "Install"
 SectionEnd
 
 Function un.onInit
+  SetShellVarContext current
   Call un.WaitForLauncher
 FunctionEnd
 
