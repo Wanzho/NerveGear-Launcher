@@ -57,7 +57,7 @@ Function ${PREFIX}WaitForLauncher
   System::Call 'kernel32::Process32FirstW(p r0, p r1) i.r2'
   loop:
   StrCmp $2 0 finished
-  System::Call '*$1(i, i, i, i, i, i, i, i, i, w260 .r3)'
+  System::Call '*$1(i, i, i, i, i, i, i, i, i, &w260 .r3)'
   StrCmp $3 "${APP_EXE}" busy
   System::Call 'kernel32::Process32NextW(p r0, p r1) i.r2'
   Goto loop
