@@ -196,7 +196,8 @@ public final class SaoHelmetPage extends StackPane {
     /// The ARGUS ID side of the player window, drawn by James (7 Nov, two sketches): signed out, "ARGUS ID 未登录",
     /// the name and password, 记住 with 注册 and 忘记密码, 登录, a line, 使用 Microsoft; signed in, "ARGUS ID [退出登录]",
     /// the name large, the mailbox and Microsoft each with 验证, and Link Start at the bottom right.
-    private final TextField name = field("");
+    // The grey hint like 密码's (James, 14 Nov: "用户名这个里面没有灰掉的用户名输入的地方").
+    private final TextField name = field("用户名／邮箱");
     private final PasswordField pw = SaoAccountApp.password("");
     private final ToggleButton remember = new ToggleButton();
     private final Button login = SaoUiKit.accent("登录");
@@ -240,6 +241,16 @@ public final class SaoHelmetPage extends StackPane {
         this.service = service;
         // 微软正版登录 (James, 13 Nov: "为什么不直接做个新界面"): every Microsoft sign-in opens our own window, never
         // HMCL's dialog. The first flow is the one already running; 重试 starts a fresh one from the engine.
+        // A click anywhere but the focused text field takes the focus off it (James, 14 Nov: "选中一个textbox后点击旁边
+        // 取消不了textbox的选中"). Another field or a button then takes the focus itself, as before.
+        addEventFilter(javafx.scene.input.MouseEvent.MOUSE_PRESSED, e -> {
+            @Nullable javafx.scene.Scene sc = getScene();
+            @Nullable Node owner = sc == null ? null : sc.getFocusOwner();
+            if (!(owner instanceof javafx.scene.control.TextInputControl)) return;
+            for (@Nullable Node n = e.getPickResult().getIntersectedNode(); n != null; n = n.getParent())
+                if (n == owner) return;
+            requestFocus();
+        });
         org.jackhuang.hmcl.sao.SaoMicrosoftFlow.setPresenter(flow -> {
             boolean[] first = {true};
             openMicrosoft(() -> {
