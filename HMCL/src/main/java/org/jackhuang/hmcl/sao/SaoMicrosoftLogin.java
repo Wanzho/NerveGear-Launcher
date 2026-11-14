@@ -24,6 +24,10 @@ final class SaoMicrosoftLogin {
             public AuthInfo session() throws Exception { return SaoMicrosoftLogin.session(); }
             /// Reads an existing profile without network access or a login window.
             public @Nullable AuthInfo known() throws Exception { return SaoMicrosoftLogin.known(); }
+            /// Uses only the linked stored account, without renewal or interactive fallback.
+            public @Nullable AuthInfo stored(@Nullable String name) throws Exception {
+                return name == null ? SaoMicrosoftLogin.known() : SaoMicrosoftLogin.available(name);
+            }
         };
     }
 

@@ -749,6 +749,9 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     @Override public CompletableFuture<Void> setCapeSource(String source) { return oath.setCapeSource(source); }
     /// Refreshes linked cosmetics asynchronously under the server account cooldown.
     @Override public CompletableFuture<Void> refreshInheritedTextures() { return oath.refreshInheritedTextures(); }
+    /// Runs the explicit stored-session cosmetic sync without opening Microsoft sign-in.
+    @Override public CompletableFuture<Void> syncMicrosoftSkin() { return oath.syncMicrosoftSkin(); }
+
     /// {@inheritDoc}
     @Override public CompletableFuture<Void> uploadSkin(@Nullable Path png, boolean slim) { return oath.uploadSkin(png, slim); }
     /// {@inheritDoc}

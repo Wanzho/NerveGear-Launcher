@@ -738,6 +738,15 @@ public interface SaoLauncherService {
     /// Starts a provider refresh; the account server enforces one manual attempt every five minutes.
     default CompletableFuture<Void> refreshInheritedTextures() { return unsupported(); }
 
+    /// Fetches the stored Microsoft account's cosmetics on explicit request, replacing the own skin when needed.
+    default CompletableFuture<Void> syncMicrosoftSkin() { return unsupported(); }
+
+    /// Whether a Microsoft identity or an ARGUS Microsoft link is currently known; session availability is checked on sync.
+    default boolean microsoftLinked() {
+        SaoData.@Nullable OathAccount account = oathAccount().get();
+        return microsoftIdentity().get() != null || account != null && account.premiumName() != null;
+    }
+
     /// Puts a skin on the signed-in account (`PUT /api/user/profile/{uuid}/skin`), so every player sees it.
     ///
     /// @param png  a 64×64 PNG, or null to go back to the default (`DELETE`)

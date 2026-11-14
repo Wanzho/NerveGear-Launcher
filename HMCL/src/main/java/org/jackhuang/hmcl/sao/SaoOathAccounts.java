@@ -40,6 +40,11 @@ final class SaoOathAccounts implements AutoCloseable {
         AuthInfo session() throws Exception;
         /// Returns a stored identity before network authentication, or null for a new sign-in.
         default @Nullable AuthInfo known() throws Exception { return null; }
+        /// Reads a stored session only; never authenticates or opens a login window.
+        default @Nullable AuthInfo stored(@Nullable String name) throws Exception {
+            @Nullable AuthInfo auth = known();
+            return auth != null && (name == null || name.equalsIgnoreCase(auth.getUsername())) ? auth : null;
+        }
         /// Fetches public cosmetics through the bounded Microsoft provider; fixtures never use public endpoints.
         default SaoMicrosoftSkin.@Nullable Skin skin(AuthInfo auth) throws Exception {
             return SaoMicrosoftSkin.fetch(auth.getAccessToken(), SaoMicrosoftSkin::download);
@@ -276,6 +281,42 @@ final class SaoOathAccounts implements AutoCloseable {
         if (currentInherited.status().equals("syncing")) { scheduleAppearancePoll(active); throw new SaoAccountException("同步中", "textureSyncPending"); }
         if (currentInherited.status().equals("failed")) throw new SaoAccountException("同步失败", "textureSyncFailed");
     }); }
+    /// Explicitly replaces cosmetics from the stored Microsoft session, publishing the preview before ARGUS writes.
+    CompletableFuture<Void> syncMicrosoftSkin() { return submit(() -> {
+        long expected = generation.get();
+        try {
+            @Nullable AuthInfo microsoft = premium.stored(current == null ? null : current.premiumName());
+            if (microsoft == null) throw new SaoAccountException("请先用 Microsoft 登录", "noMicrosoftAccount");
+            Session active = requireSession();
+            SaoMicrosoftSkin.@Nullable Skin fetched;
+            try { fetched = premium.skin(microsoft); }
+            catch (java.io.IOException offline) { throw new SaoAccountException("网络连接失败，请联网后重试", "network"); }
+            if (fetched == null) throw new SaoAccountException("这个微软账号没有自定义皮肤", "noMicrosoftSkin");
+            publishMicrosoftSkin(microsoft, fetched, expected, false);
+            SaoTextureState fresh = client.inheritedTextures(active.root(), active.access());
+            checkGeneration(expected);
+            if (fresh.images().containsKey("premiumSkin")) {
+                currentInherited = client.textureChoices(active.root(), "premium", null, active.access());
+            } else {
+                client.skin(active.id(), fetched.png(), fetched.slim(), active.access());
+                checkGeneration(expected);
+                currentInherited = client.textureChoices(active.root(), "own", null, active.access());
+            }
+            checkGeneration(expected);
+            if (fresh.refreshAfter() == 0 && !fresh.status().equals("syncing")) {
+                currentInherited = client.refreshInheritedTextures(active.root(), active.access());
+                checkGeneration(expected);
+                if (awaitingAppearance(currentInherited)) scheduleAppearancePoll(active);
+            }
+        } catch (SaoAccountException failure) {
+            if (failure.code().equals("network") || failure.code().equals("unavailable"))
+                throw new SaoAccountException("网络连接失败，请联网后重试", failure.code());
+            if (failure.code().equals("textureSyncBusy"))
+                throw new SaoAccountException("皮肤正在同步，请稍后重试", failure.code());
+            throw failure;
+        }
+    }); }
+
     /// Returns the protected remembered name from memory, or null.
     @Nullable String rememberedName() { return remembered; }
     /// Returns the current account's downloaded texture, or null for the server's default skin.
@@ -854,19 +895,22 @@ final class SaoOathAccounts implements AutoCloseable {
         try {
             SaoMicrosoftSkin.@Nullable Skin fetched = SaoLoginSteps.timed("microsoft-skin", () -> premium.skin(microsoft));
             if (fetched == null) { SaoMicrosoftSkin.failed(); return; }
-            SaoOathSkins cache = new SaoOathSkins(root, namespace(URI.create("https://api.minecraftservices.com/")),
-                    microsoft.getUUID().toString().replace("-", ""));
-            synchronized (gate) {
-                checkGeneration(expected);
-                cache.current(fetched.png());
-                microsoftSkinPending = true;
-                microsoftSkin = fetched; slim = fetched.slim(); skin = cache.current();
-                if (currentIdentity != null) {
-                    currentIdentity = new SaoMicrosoftIdentity(microsoft.getUsername(), skin, slim);
-                    publishIdentity(expected);
-                }
-            }
+            publishMicrosoftSkin(microsoft, fetched, expected, true);
         } catch (Exception unavailable) { SaoMicrosoftSkin.failed(); }
+    }
+
+    /// Stores validated public pixels and publishes identity immediately, fenced against logout and cancellation.
+    private void publishMicrosoftSkin(AuthInfo microsoft, SaoMicrosoftSkin.Skin fetched, long expected, boolean automatic) throws Exception {
+        SaoOathSkins cache = new SaoOathSkins(root, namespace(URI.create("https://api.minecraftservices.com/")),
+                microsoft.getUUID().toString().replace("-", ""));
+        synchronized (gate) {
+            checkGeneration(expected);
+            cache.current(fetched.png());
+            microsoftSkinPending = automatic;
+            microsoftSkin = fetched; slim = fetched.slim(); skin = cache.current();
+            currentIdentity = new SaoMicrosoftIdentity(microsoft.getUsername(), skin, slim);
+            publishIdentity(expected);
+        }
     }
 
     /// Preserves own slots and treats unsupported/failed state reads as unknown, never as empty.
