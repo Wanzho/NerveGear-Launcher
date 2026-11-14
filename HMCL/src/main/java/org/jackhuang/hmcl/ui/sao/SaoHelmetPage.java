@@ -1481,10 +1481,11 @@ public final class SaoHelmetPage extends StackPane {
         turnX.setPivotX(EW / 2);
         turnX.setPivotY(EH / 2);
         turnX.setPivotZ(eye);
-        // James, 14 Nov (dist22): "为什么要invert" and "为什么要动的幅度这么大": the view turns WITH the mouse, and only
-        // about a third as far as before.
-        turnY.setAngle(-lookX * TURN_Y_DEG);
-        turnX.setAngle(-lookY * TURN_X_DEG);
+        // James, 14 Nov: "为什么要invert" / "为什么要动的幅度这么大", then (asked) "画面跟着鼠标走": the picture moves the
+        // same way as the mouse on BOTH axes (mouse right → windows right, mouse up → windows up), small.
+        // SaoHelmetTurnTest checks both directions through the same Rotate setup.
+        turnY.setAngle(turnYDeg(lookX));
+        turnX.setAngle(turnXDeg(lookY));
 
         black.resizeRelocate(0, 0, w, h);
         boot.fit(w, h, s);
@@ -2479,6 +2480,12 @@ public final class SaoHelmetPage extends StackPane {
         if (p < 0.9) return 0.5 + 0.5 * Math.cos(Math.PI * (p - 0.4) / 0.5);
         return 0;
     }
+
+    /// Y-axis turn for a mouse offset (-0.5 left .. 0.5 right). Positive turns the space so it moves right on screen.
+    static double turnYDeg(double lookX) { return lookX * TURN_Y_DEG; }
+
+    /// X-axis turn for a mouse offset (-0.5 top .. 0.5 bottom). Negative turns the space so it moves down on screen.
+    static double turnXDeg(double lookY) { return -lookY * TURN_X_DEG; }
 
     /// Turns the head (screenshot tools).
     void forceHead(double x, double y) {
