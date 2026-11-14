@@ -105,16 +105,17 @@ final class SaoSkinApp {
         viewBar.setAlignment(Pos.CENTER_LEFT);
 
         Text status = dim("", 12);
-        Button edit = accent("编辑");
-        edit.setMaxWidth(Double.MAX_VALUE);
-        HBox.setHgrow(edit, Priority.ALWAYS);
+        // James, 14 Nov: 穿上 is the main action, so it is the wide orange one and 编辑 the plain one.
+        Button edit = button("编辑");
         Runnable openEdit = () -> openEditor(view, () -> {
             arms.selectToggle(view.slim ? slim : classic);
             status.setText("改好了，记得存入或穿上");
         });
         edit.setOnAction(e -> openEdit.run());
         forceEdit = openEdit;
-        Button apply = button("穿上");
+        Button apply = accent("穿上");
+        apply.setMaxWidth(Double.MAX_VALUE);
+        HBox.setHgrow(apply, Priority.ALWAYS);
         apply.setOnAction(e -> {
             if (s.oathAccount().get() == null) {
                 status.setText("! 先登录 ARGUS ID");
@@ -138,7 +139,7 @@ final class SaoSkinApp {
                 status.setText("! 上传失败");
             }
         });
-        HBox actions = new HBox(8, edit, apply);
+        HBox actions = new HBox(8, apply, edit);
         // 同步正版皮肤 (James, 14 Nov: "add button to fetch skin aswell"): only for a Microsoft-linked account; takes the
         // active skin from Microsoft again, puts it on ARGUS and shows it here.
         Button syncPremium = button("同步正版皮肤");

@@ -656,8 +656,8 @@ public final class SaoHelmetPage extends StackPane {
         remember.selectedProperty().addListener((o, a, on) -> { if (on) SaoMotion.pop(remember.getGraphic()); });
         Text rememberLabel = dim("记住我", 14);
         rememberLabel.setOnMouseClicked(e -> remember.setSelected(!remember.isSelected()));
+        // James, 14 Nov: a new player's first step was a small grey 注册 link; it is a button beside 登录 now.
         HBox rememberRow = new HBox(7, remember, rememberLabel, grow(),
-                bigLink("注册", () -> openAccount(SaoAccountApp.Page.REGISTER)),
                 bigLink("忘记密码", () -> openAccount(SaoAccountApp.Page.FORGOT)));
         rememberRow.setAlignment(Pos.CENTER_LEFT);
         for (javafx.scene.control.TextField f : new javafx.scene.control.TextField[]{name, pw, offlineName}) {
@@ -665,7 +665,12 @@ public final class SaoHelmetPage extends StackPane {
             f.setMinHeight(FIELD_H);
             f.setPrefHeight(FIELD_H);
         }
-        for (Button b : new Button[]{login, useMicrosoft}) {
+        Button register = SaoUiKit.button("注册");
+        register.setOnAction(e -> openAccount(SaoAccountApp.Page.REGISTER));
+        register.setMinWidth(88);
+        HBox loginRow = new HBox(8, login, register);
+        HBox.setHgrow(login, javafx.scene.layout.Priority.ALWAYS);
+        for (Button b : new Button[]{login, register, useMicrosoft}) {
             SaoUiKit.font(b, 15, false);
             b.setMinHeight(BUTTON_H);
             b.setPrefHeight(BUTTON_H);
@@ -681,7 +686,7 @@ public final class SaoHelmetPage extends StackPane {
         // James, 8 Nov: "可以选择不登录任何东西，顶着个名字，但是提醒窗口写这样就登录不了咱服务器".
         HBox offlineRow = new HBox(bigLink("不登录，离线游玩", this::askOffline));
         offlineRow.setAlignment(Pos.CENTER);
-        signedOut.getChildren().setAll(outHead, bigKey("用户名／邮箱"), name, bigKey("密码"), pw, rememberRow, login, rule(), useMicrosoft, offlineRow);
+        signedOut.getChildren().setAll(outHead, bigKey("用户名／邮箱"), name, bigKey("密码"), pw, rememberRow, loginRow, rule(), useMicrosoft, offlineRow);
         // Every side of the account panel comes in, row after row, when it is shown (James, 14 Nov: "login时，成功等").
         SaoMotion.reveal(signedOut);
         SaoMotion.reveal(confirmOut);

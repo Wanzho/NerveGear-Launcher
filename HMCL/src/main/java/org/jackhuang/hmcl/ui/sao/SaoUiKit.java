@@ -62,10 +62,14 @@ final class SaoUiKit {
     /// The 字体大小 factor.
     ///
     /// @return 0.9 to 1.3
+    /// The common lift on top of 字体大小 (14 Nov).
+    static final double BASE_TEXT = 1.07;
+
     static double textScale() {
         var settings = settings();
         double k = settings == null ? 1 : settings.saoTextScaleProperty().get();
-        return k >= 0.8 && k <= 1.5 ? k : 1;
+        // James, 14 Nov: "字体稍微大一点点就行不要大太多": every step a little larger than its chip says.
+        return (k >= 0.8 && k <= 1.5 ? k : 1) * BASE_TEXT;
     }
 
     /// Gives a text, a button or a field the UI face and keeps it in step with 字体大小.

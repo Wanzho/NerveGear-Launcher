@@ -187,7 +187,8 @@ final class SaoAccountApp {
         // -------------------------------------------------------------- forgot
 
         private Node forgot() {
-            TextField name = field("角色名");
+            // James, 14 Nov: "角色名" read like it wanted the email; the server needs the user name (sao_auth forgot).
+            TextField name = field("游戏里的名字，不是邮箱");
             @Nullable String remembered = s.rememberedOathName();
             if (remembered != null) name.setText(remembered);
             TextField code = field("6 位数字");
@@ -200,8 +201,12 @@ final class SaoAccountApp {
             second.setDisable(true);
             send.setOnAction(e -> {
                 String n = name.getText().strip();
+                if (n.contains("@")) {
+                    problem.setText("! 这里填用户名，不是邮箱");
+                    return;
+                }
                 if (!NAME.matcher(n).matches()) {
-                    problem.setText("! 先填角色名");
+                    problem.setText("! 先填用户名");
                     return;
                 }
                 call(send, problem, () -> s.oathForgot(n), () -> {
@@ -230,7 +235,7 @@ final class SaoAccountApp {
                 }, p);
             });
             VBox form = form(
-                    key("角色名"), new HBox(8, name, send),
+                    key("用户名"), new HBox(8, name, send),
                     second,
                     problem, footer(go));
             HBox.setHgrow(name, Priority.ALWAYS);
