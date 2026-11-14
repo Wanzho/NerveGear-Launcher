@@ -136,6 +136,8 @@ public final class SaoHelmetPage extends StackPane {
     private static final boolean BREATHE = "true".equals(System.getProperty("sao.breathe"));
     /// How fast the view follows the mouse: the gap closes by 1 - e^(-dt / FOLLOW_S), a spring with no overshoot.
     private static final double FOLLOW_S = 0.16;
+    /// Turn at the window's edge (mouse 0.5 from the centre), in degrees.
+    private static final double TURN_Y_DEG = 1.1, TURN_X_DEG = 0.8;
     static final boolean SWAY = !"false".equals(System.getProperty("sao.sway"));
     /// The reflection texture under `/assets/sao-launcher/glint/` (-Dsao.glintTex=double|corner|arc): soft sheens on
     /// the glass and a faint rim along its edge, outshone over the lit plates so their text reads as before.
@@ -1479,8 +1481,10 @@ public final class SaoHelmetPage extends StackPane {
         turnX.setPivotX(EW / 2);
         turnX.setPivotY(EH / 2);
         turnX.setPivotZ(eye);
-        turnY.setAngle(lookX * 3.2);
-        turnX.setAngle(lookY * 2.4);
+        // James, 14 Nov (dist22): "为什么要invert" and "为什么要动的幅度这么大": the view turns WITH the mouse, and only
+        // about a third as far as before.
+        turnY.setAngle(-lookX * TURN_Y_DEG);
+        turnX.setAngle(-lookY * TURN_X_DEG);
 
         black.resizeRelocate(0, 0, w, h);
         boot.fit(w, h, s);
