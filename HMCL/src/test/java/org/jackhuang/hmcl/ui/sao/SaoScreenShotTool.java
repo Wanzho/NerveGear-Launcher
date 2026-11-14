@@ -356,13 +356,14 @@ public final class SaoScreenShotTool {
                 throw new RuntimeException(e);
             }
         };
-        for (double t = 0; t <= SaoBoot.OPEN_MS + 1; t += 40) {
+        // Starts below zero: the animation pulse can predate start(), and t < 0 once crashed renderOpening (14 Nov).
+        for (double t = -200; t <= SaoBoot.OPEN_MS + 1; t += 40) {
             double tt = t;
             frame.accept(() -> page[0].boot().debugOpening(tt));
         }
         for (int i = 0; i < 25; i++) frame.accept(() -> { });
         // Link Start: the put-away in real time, the loading row's wait compressed, then the hand-over in real time.
-        for (double u = 0; u <= 1300; u += 40) {
+        for (double u = -200; u <= 1300; u += 40) {
             double uu = u;
             frame.accept(() -> page[0].boot().debugPutAway(uu, Math.min(0.06, uu / 20000), -1));
         }
