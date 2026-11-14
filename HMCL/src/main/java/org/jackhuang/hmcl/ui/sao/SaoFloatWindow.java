@@ -316,8 +316,42 @@ final class SaoFloatWindow extends Group {
         popping.start();
     }
 
-    /// Opens the window about its centre, as a window opens in the game.
+    /// How an app window opens and closes: "boot" draws it as the power-on does (outline, then glass; James, 14 Nov:
+    /// "那这个你restyle看看"), "menu" as the game's menus do (MenuMotion).
+    static final String STYLE = System.getProperty("sao.windowMotion", "boot");
+
+    private static double eo(double x) {
+        x = clamp(x);
+        return 1 - Math.pow(1 - x, 3);
+    }
+
+    private static double eio(double x) {
+        x = clamp(x);
+        return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+    }
+
+    /// When the content starts coming in, in milliseconds after the open.
+    static double contentMs() {
+        return "boot".equals(STYLE) ? 200 : CONTENT_MS;
+    }
+
+    /// Opens the window: as at power-on (SaoBoot step 6: the outline runs round in 240 ms, the glass comes in from a
+    /// little behind between 110 and 460 ms, the outline fades from 320 to 620 ms), or as a menu window opens in the game.
     void open() {
+        if ("boot".equals(STYLE)) {
+            pop.setX(1);
+            pop.setY(1);
+            popWith(0.62, s -> {
+                double t = s * 1000;
+                double ol = eo(t / 240);
+                edgeDrawn.set(ol);
+                edge.setOpacity(s >= 0.62 ? 0 : ol > 0 ? 1 - clamp((t - 320) / 300) : 0);
+                double g = eo((t - 110) / 350);
+                glass.set(g);
+                recede.set(60 * (1 - g));
+            }, null);
+            return;
+        }
         recede.set(0);
         popWith(4.5 * FRAME, s -> {
             double k = openScale(s);
@@ -331,6 +365,19 @@ final class SaoFloatWindow extends Group {
     ///
     /// @param done when it is gone
     void close(Runnable done) {
+        if ("boot".equals(STYLE)) {
+            // as the windows put themselves away at Link Start: the glass goes, the outline is left, then runs back
+            popWith(0.52, s -> {
+                double u = s * 1000;
+                double g = 1 - eio(u / 300);
+                glass.set(g);
+                recede.set(30 * (1 - g));
+                double off = eio((u - 220) / 300);
+                edgeDrawn.set(1 - off);
+                edge.setOpacity(clamp(u / 40) * (1 - off));
+            }, done);
+            return;
+        }
         popWith(CLOSE_SECONDS, s -> {
             double k = closeScale(s);
             pop.setX(k * closeSqueeze(s));
