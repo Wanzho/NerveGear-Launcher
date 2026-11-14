@@ -171,6 +171,7 @@
 .vr-title, .vr-ink, .vr-big, .vr-code { -fx-fill: #ffffff; }
 .vr-dim, .vr-key { -fx-fill: rgba(255,255,255,0.62); }
 .vr-warn { -fx-fill: #ffd60a; }
+.vr-warn-label { -fx-text-fill: #ffd60a; }
 .vr-icon { -fx-fill: #ffffff; }
 .vr-rule { -fx-background-color: rgba(255,255,255,0.14); }
 
@@ -265,6 +266,7 @@
 .theme-sao .vr-dim, .theme-sao .vr-key { -fx-fill: #8c8c8c; }
 .theme-sao .vr-icon { -fx-fill: #6b6b6b; }
 .theme-sao .vr-warn { -fx-fill: #d9822b; }
+.theme-sao .vr-warn-label { -fx-text-fill: #d9822b; }
 .theme-sao .vr-rule { -fx-background-color: #dcdcdc; }
 /* James, 8 Nov: "很多button值得restyle". Soft light keys with no outline, rounder, the orange only for the
    main action and under the pointer; small text links instead of grey system buttons. */
@@ -345,6 +347,7 @@
 .theme-sao-dark .vr-dim, .theme-sao-dark .vr-key { -fx-fill: #9d9da6; }
 .theme-sao-dark .vr-icon { -fx-fill: #c9c9d0; }
 .theme-sao-dark .vr-warn { -fx-fill: #f5a95a; }
+.theme-sao-dark .vr-warn-label { -fx-text-fill: #f5a95a; }
 .theme-sao-dark .vr-rule { -fx-background-color: rgba(255,255,255,0.11); }
 .theme-sao-dark .vr-button, .theme-sao-dark .vr-round, .theme-sao-dark .vr-chip { -fx-background-color: rgba(255,255,255,0.08); -fx-text-fill: #dedee3; }
 .theme-sao-dark .vr-round { -fx-background-color: rgba(255,255,255,0.13); }
