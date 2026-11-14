@@ -87,6 +87,7 @@ final class SaoFloatWindow extends Group {
         body.setMinSize(w, h);
         body.setMaxSize(w, h);
         body.resize(w, h);
+        SaoUiKit.windowGlass(body);
         body.setPadding(new Insets(14, 18, 16, 18));
         body.setSpacing(10);
         if (!title.isEmpty()) {

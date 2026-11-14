@@ -156,15 +156,13 @@
 /* ---- Floating VR windows (6 Nov: "更像vr里窗口的样式", "真实VR系统", "给我几个样式").
    Base = visionOS-like frosted glass; .theme-sao (James's pick, 6 Nov) overrides it. No neon, no glow. */
 .vr-window {
-    -fx-background-color: linear-gradient(to bottom, rgba(158,158,168,0.46) 0%, rgba(118,118,128,0.40) 100%);
-    -fx-background-radius: 26;
     -fx-border-color: linear-gradient(to bottom, rgba(255,255,255,0.32) 0%, rgba(255,255,255,0.04) 100%);
     -fx-border-width: 1;
     -fx-border-radius: 26;
     -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.32), 40, 0.0, 0, 14);
 }
-.vr-window-start { -fx-background-radius: 33; -fx-border-radius: 33; }
-.vr-dock { -fx-background-radius: 26; -fx-border-radius: 26; }
+.vr-window-start { -fx-border-radius: 33; }
+.vr-dock { -fx-border-radius: 26; }
 .vr-pill { -fx-background-color: rgba(255,255,255,0.45); -fx-background-radius: 3; -fx-cursor: move; }
 .vr-pill:hover { -fx-background-color: rgba(255,255,255,0.85); }
 
@@ -259,9 +257,9 @@
 
 /* ---- Quest: solid dark grey panels, blue for the main action */
 
-/* ---- SAO anime menu: light panels, grey ink, orange for hover and the chosen one */
-.theme-sao .vr-window { -fx-background-color: rgba(243,243,245,0.94); -fx-background-radius: 6; -fx-border-radius: 6; -fx-border-color: rgba(255,255,255,0.95); -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.30), 26, 0, 0, 8); }
-.theme-sao .vr-window-start, .theme-sao .vr-dock { -fx-background-radius: 6; -fx-border-radius: 6; }
+/* ---- SAO anime menu: light panels, grey ink, orange for hover and the chosen one (`SaoUiKit.windowGlass` supplies the rounded glass fill) */
+.theme-sao .vr-window { -fx-border-radius: 6; -fx-border-color: rgba(255,255,255,0.95); -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.30), 26, 0, 0, 8); }
+.theme-sao .vr-window-start, .theme-sao .vr-dock { -fx-border-radius: 6; }
 .theme-sao .vr-title, .theme-sao .vr-ink, .theme-sao .vr-big, .theme-sao .vr-code { -fx-fill: #474747; }
 .theme-sao .vr-dim, .theme-sao .vr-key { -fx-fill: #8c8c8c; }
 .theme-sao .vr-icon { -fx-fill: #6b6b6b; }
@@ -342,7 +340,7 @@
 /* ---- 深色 (James, 9 Nov: "你设计个深色的版本？"): the same SAO menu as smoked glass. Set with .theme-sao-dark beside
    .theme-sao, so these rules come last and win. Translucent dark panels with a hairline edge, light ink, the same
    orange for the main action, hover and the chosen dock item; the logo-49 lettering was drawn for dark grounds. */
-.theme-sao-dark .vr-window { -fx-background-color: linear-gradient(to bottom, rgba(40,42,49,0.90) 0%, rgba(26,27,32,0.90) 100%); -fx-border-color: rgba(255,255,255,0.13); -fx-border-width: 1; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.45), 26, 0, 0, 8); }
+.theme-sao-dark .vr-window { -fx-border-color: rgba(255,255,255,0.13); -fx-border-width: 1; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.45), 26, 0, 0, 8); }
 .theme-sao-dark .vr-title, .theme-sao-dark .vr-ink, .theme-sao-dark .vr-big, .theme-sao-dark .vr-code { -fx-fill: #ececf0; }
 .theme-sao-dark .vr-dim, .theme-sao-dark .vr-key { -fx-fill: #9d9da6; }
 .theme-sao-dark .vr-icon { -fx-fill: #c9c9d0; }

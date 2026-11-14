@@ -418,4 +418,123 @@ final class SaoUiKit {
         if (m < 60 * 24) return m / 60 + " 小时前";
         return m / (60 * 24) + " 天前";
     }
+
+    // ------------------------------------------------------------------ window glass
+
+    /// Whether `.vr-window` panels use the smoked dark glass fill (`theme-sao-dark`).
+    private static boolean darkGlass;
+    /// Device pixels per design pixel (`s * k`), kept in step by `SaoHelmetPage.frame`.
+    private static double windowDensity = 2.0;
+    /// Live `.vr-window` panels so theme and display-scale changes update every open panel at once.
+    private static final java.util.Map<Region, Boolean> WINDOWS = new java.util.WeakHashMap<>();
+    /// Cached dithered dark-glass backgrounds keyed by `(iw << 16) | ih`.
+    private static final java.util.Map<Long, javafx.scene.layout.Background> DARK_GLASS_CACHE = new java.util.HashMap<>();
+    /// Cached light-mode `.theme-sao .vr-window` background (`rgba(243,243,245,0.94)`, radius 6).
+    private static javafx.scene.layout.@org.jetbrains.annotations.Nullable Background lightWindowGlass;
+
+    /// Records whether `.vr-window` panels should draw dark or light glass, updating all live windows.
+    static void setDark(boolean on) {
+        if (darkGlass == on) return;
+        darkGlass = on;
+        refreshWindows();
+    }
+
+    /// Records the current device-pixel density (`fitScale * outputScale`), updating live dark-glass windows on change.
+    static void setWindowDensity(double density) {
+        double clamped = Math.max(1.0, Math.min(4.0, Double.isFinite(density) ? density : 1.0));
+        if (Math.abs(clamped - windowDensity) <= 1e-3) return;
+        windowDensity = clamped;
+        if (darkGlass) refreshWindows();
+    }
+
+    /// Gives a `.vr-window` panel its rounded glass fill: exact `rgba(243,243,245,0.94)` in light mode, and a
+    /// device-pixel-resolution pre-quantization TPDF-dithered `rgba(40,42,49,0.90) -> rgba(26,27,32,0.90)` gradient in
+    /// dark mode so Prism's 8-bit gradient LUT never produces visible horizontal stripes.
+    static void windowGlass(Region r) {
+        WINDOWS.put(r, Boolean.TRUE);
+        r.widthProperty().addListener((o, a, b) -> applyWindowGlass(r));
+        r.heightProperty().addListener((o, a, b) -> applyWindowGlass(r));
+        applyWindowGlass(r);
+    }
+
+    private static void refreshWindows() {
+        for (Region r : new java.util.ArrayList<>(WINDOWS.keySet())) {
+            if (r != null) applyWindowGlass(r);
+        }
+    }
+
+    private static void applyWindowGlass(Region r) {
+        if (!darkGlass) {
+            javafx.scene.layout.Background bg = lightWindowGlass;
+            if (bg == null) {
+                bg = new javafx.scene.layout.Background(new javafx.scene.layout.BackgroundFill(
+                        javafx.scene.paint.Color.rgb(243, 243, 245, 0.94),
+                        new javafx.scene.layout.CornerRadii(6),
+                        javafx.geometry.Insets.EMPTY));
+                lightWindowGlass = bg;
+            }
+            if (r.getBackground() != bg) r.setBackground(bg);
+            return;
+        }
+        double rw = r.getWidth() > 1 ? r.getWidth() : r.getPrefWidth() > 1 ? r.getPrefWidth() : 290;
+        double rh = r.getHeight() > 1 ? r.getHeight() : r.getPrefHeight() > 1 ? r.getPrefHeight() : 430;
+        int iw = Math.max(1, Math.min(4096, (int) Math.round(rw * windowDensity)));
+        int ih = Math.max(1, Math.min(4096, (int) Math.round(rh * windowDensity)));
+        long key = ((long) iw << 16) | (ih & 0xffffL);
+        javafx.scene.layout.Background bg = DARK_GLASS_CACHE.get(key);
+        if (bg == null) {
+            if (DARK_GLASS_CACHE.size() > 24) DARK_GLASS_CACHE.clear();
+            javafx.scene.image.WritableImage img = new javafx.scene.image.WritableImage(iw, ih);
+            img.getPixelWriter().setPixels(0, 0, iw, ih,
+                    javafx.scene.image.PixelFormat.getIntArgbPreInstance(), darkGlassPixels(iw, ih), 0, iw);
+            bg = new javafx.scene.layout.Background(new javafx.scene.layout.BackgroundFill(
+                    new javafx.scene.paint.ImagePattern(img, 0, 0, 1, 1, true),
+                    new javafx.scene.layout.CornerRadii(6),
+                    javafx.geometry.Insets.EMPTY));
+            DARK_GLASS_CACHE.put(key, bg);
+        }
+        if (r.getBackground() != bg) r.setBackground(bg);
+    }
+
+    /// Premultiplied ARGB pixels for `.theme-sao-dark .vr-window` (`rgba(40,42,49,0.90)` to `rgba(26,27,32,0.90)`)
+    /// with zero-mean TPDF spatial dither applied in floating point before 8-bit rounding.
+    static int[] darkGlassPixels(int iw, int ih) {
+        int w = Math.max(1, iw), h = Math.max(1, ih);
+        int[] px = new int[w * h];
+        int a = 230; // Math.round(0.90 * 255)
+        double ka = a / 255.0;
+        int alphaBits = a << 24;
+        double denom = Math.max(1, h - 1);
+        for (int y = 0; y < h; y++) {
+            double t = h <= 1 ? 0.0 : y / denom;
+            double rp = (40.0 + (26.0 - 40.0) * t) * ka;
+            double gp = (42.0 + (27.0 - 42.0) * t) * ka;
+            double bp = (49.0 + (32.0 - 49.0) * t) * ka;
+            int row = y * w;
+            for (int x = 0; x < w; x++) {
+                double mono = (uniform(x, y, 0x9E3779B9) + uniform(x, y, 0x517CC1B7)) * 1.15;
+                int r = clampByte((int) Math.round(rp + mono + uniform(x, y, 0x85EBCA6B)), a);
+                int g = clampByte((int) Math.round(gp + mono + uniform(x, y, 0xC2B2AE35)), a);
+                int b = clampByte((int) Math.round(bp + mono + uniform(x, y, 0x27D4EB2F)), a);
+                px[row + x] = alphaBits | r << 16 | g << 8 | b;
+            }
+        }
+        return px;
+    }
+
+    private static int clampByte(int v, int max) {
+        return v < 0 ? 0 : Math.min(max, v);
+    }
+
+    /// Deterministic symmetric zero-mean hash in `(-0.5, +0.5)` at `(x, y)` for `salt`.
+    static double uniform(int x, int y, int salt) {
+        int h = salt + x * 0x9E3779B9;
+        h ^= Integer.rotateLeft(y * 0x85EBCA6B, 15);
+        h ^= h >>> 16;
+        h *= 0x85EBCA6B;
+        h ^= h >>> 13;
+        h *= 0xC2B2AE35;
+        h ^= h >>> 16;
+        return ((h >>> 8) + 0.5) * (1.0 / (1 << 24)) - 0.5;
+    }
 }

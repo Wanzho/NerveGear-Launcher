@@ -84,6 +84,7 @@ final class SaoRaster {
         int minY = Math.max(0, (int) Math.floor(Math.min(y0, Math.min(y1, y2))));
         int maxY = Math.min(h - 1, (int) Math.ceil(Math.max(y0, Math.max(y1, y2))));
         boolean flat = c0 == c1 && c1 == c2;
+        float invArea = 1.0f / area;
         // Edge k is the one opposite corner k; it is "top-left" when it runs leftward horizontally or upward.
         boolean tl0 = topLeft(x1, y1, x2, y2), tl1 = topLeft(x2, y2, x0, y0), tl2 = topLeft(x0, y0, x1, y1);
         for (int y = minY; y <= maxY; y++) {
@@ -94,8 +95,32 @@ final class SaoRaster {
                 float e1 = (x0 - x2) * (py - y2) - (y0 - y2) * (pxf - x2);
                 float e2 = (x1 - x0) * (py - y0) - (y1 - y0) * (pxf - x0);
                 if (!inside(e0, tl0) || !inside(e1, tl1) || !inside(e2, tl2)) continue;
-                int c = flat ? c0 : lerp3(c0, c1, c2, e0 / area, e1 / area, e2 / area);
-                blend(y * w + x, c);
+                int idx = y * w + x;
+                if (!flat && (px[idx] >>> 24) == 255) {
+                    // Direct floating-point Gouraud composite with zero-mean TPDF dither so the visor glass behind
+                    // translucent dark panels never quantizes into 8-bit contour wedges.
+                    float w0 = e0 * invArea, w1 = e1 * invArea, w2 = e2 * invArea;
+                    float al = ((c0 >>> 24) * w0 + (c1 >>> 24) * w1 + (c2 >>> 24) * w2) * (1.0f / 255.0f);
+                    if (al > 0.0f) {
+                        if (al > 1.0f) al = 1.0f;
+                        float sr = (c0 >> 16 & 255) * w0 + (c1 >> 16 & 255) * w1 + (c2 >> 16 & 255) * w2;
+                        float sg = (c0 >> 8 & 255) * w0 + (c1 >> 8 & 255) * w1 + (c2 >> 8 & 255) * w2;
+                        float sb = (c0 & 255) * w0 + (c1 & 255) * w1 + (c2 & 255) * w2;
+                        int d = px[idx];
+                        float oma = 1.0f - al;
+                        float outR = sr * al + (d >> 16 & 255) * oma;
+                        float outG = sg * al + (d >> 8 & 255) * oma;
+                        float outB = sb * al + (d & 255) * oma;
+                        double mono = SaoUiKit.uniform(x, y, 0x6A09E667) * 0.7;
+                        int rr = clamp((int) Math.round(outR + mono + SaoUiKit.uniform(x, y, 0xBB67AE85)));
+                        int rg = clamp((int) Math.round(outG + mono + SaoUiKit.uniform(x, y, 0x3C6EF372)));
+                        int rb = clamp((int) Math.round(outB + mono + SaoUiKit.uniform(x, y, 0xA54FF53A)));
+                        px[idx] = 0xff000000 | rr << 16 | rg << 8 | rb;
+                    }
+                    continue;
+                }
+                int c = flat ? c0 : lerp3(c0, c1, c2, e0 * invArea, e1 * invArea, e2 * invArea);
+                blend(idx, c);
             }
         }
     }

@@ -364,6 +364,7 @@ final class SaoSkinApp {
         VBox.setVgrow(main, Priority.ALWAYS);
         VBox panel = new VBox(12, head, main);
         panel.getStyleClass().add("vr-window");
+        SaoUiKit.windowGlass(panel);
         panel.setPadding(new Insets(16, 20, 16, 20));
 
         cancel.setOnAction(e -> SaoHelmetPage.uncover());
