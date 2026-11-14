@@ -52,6 +52,24 @@ final class SaoMicrosoftSkin {
         @Nullable URI capeUrl = cape == null ? null : texture(cape.get("url").getAsString());
         return new Skin(normalize(fetch.get(url, null)), variant.equals("SLIM"), capeUrl);
     }
+    /// Fetches every profile skin regardless of state, with the same origin and image validation as the active skin.
+    static java.util.@Unmodifiable List<SaoPremiumSkins.Entry> library(String token, Fetch fetch) throws Exception {
+        byte[] bytes = fetch.get(URI.create("https://api.minecraftservices.com/minecraft/profile"), token);
+        if (bytes.length > LIMIT) throw new IOException("Profile too large");
+        JsonObject profile = JsonParser.parseString(new String(bytes, StandardCharsets.UTF_8)).getAsJsonObject();
+        java.util.List<SaoPremiumSkins.Entry> result = new java.util.ArrayList<>();
+        if (!profile.has("skins")) return java.util.List.of();
+        JsonArray skins = profile.getAsJsonArray("skins");
+        if (skins.size() > SaoPremiumSkins.MAX_ENTRIES) throw new IOException("Too many skins");
+        for (JsonElement element : skins) {
+            JsonObject item = element.getAsJsonObject();
+            String variant = item.get("variant").getAsString();
+            if (!variant.equals("SLIM") && !variant.equals("CLASSIC")) throw new IOException("Invalid model");
+            result.add(new SaoPremiumSkins.Entry("Microsoft " + (result.size() + 1),
+                    normalize(fetch.get(texture(item.get("url").getAsString()), null)), variant.equals("SLIM")));
+        }
+        return java.util.List.copyOf(result);
+    }
     /// Finds the active slot, never assuming the first item is active.
     private static @Nullable JsonObject active(JsonObject profile, String key) {
         if (!profile.has(key)) return null;

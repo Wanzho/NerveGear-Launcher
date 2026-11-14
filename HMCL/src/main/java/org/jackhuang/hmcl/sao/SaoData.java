@@ -443,8 +443,11 @@ public final class SaoData {
     /// @param file  the 64×64 PNG in the launcher's data folder
     /// @param slim  Slim (Alex) arms
     /// @param saved when it was saved, epoch milliseconds
+    /// @param premium whether this entry belongs to a read-only premium source
     @NotNullByDefault
-    public record SavedSkin(String name, Path file, boolean slim, long saved) {
+    public record SavedSkin(String name, Path file, boolean slim, long saved, boolean premium) {
+        /// Creates an ordinary, deletable launcher library entry.
+        public SavedSkin(String name, Path file, boolean slim, long saved) { this(name, file, slim, saved, false); }
     }
 
     /// A folder the screen can open in the file manager.
