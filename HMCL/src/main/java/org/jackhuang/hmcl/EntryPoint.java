@@ -54,6 +54,10 @@ public final class EntryPoint {
 
         if (OperatingSystem.CURRENT_OS == OperatingSystem.MACOS) {
             System.getProperties().putIfAbsent("apple.awt.application.appearance", "system");
+            // 14 Nov crash (NerveGear-Launcher-…160638.ips): an accessibility client asked JavaFX for a node while the
+            // helmet's scene changed after the game closed, and AppKit trapped in objc_opt_isKindOfClass on the main
+            // thread. The launcher has no accessibility support to keep, so JavaFX never builds the accessible tree.
+            System.getProperties().putIfAbsent("glass.accessible.force", "false");
             if (!isInsideMacAppBundle())
                 initIcon();
         }

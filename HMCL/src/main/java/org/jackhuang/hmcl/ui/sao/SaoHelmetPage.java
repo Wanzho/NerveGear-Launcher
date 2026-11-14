@@ -66,6 +66,7 @@ import org.jackhuang.hmcl.ui.skin.animation.SkinAniWavingArms;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -253,7 +254,10 @@ public final class SaoHelmetPage extends StackPane {
             requestFocus();
         });
         // Microsoft first, ARGUS behind it (James, 14 Nov: "可以先直连微软吗"): while ARGUS links, the status line says so.
+        service.microsoftIdentity().addListener((o, was, now) -> Platform.runLater(this::refreshAccount));
         service.oathLinking().addListener((o, was, now) -> Platform.runLater(() -> {
+            if (now.kind() == org.jackhuang.hmcl.sao.SaoOathLinking.Kind.FAILED) startupPending = false;
+            refreshAccount();
             String linking = now.reason().isEmpty() ? "正在连接 ARGUS…" : now.reason();
             if (now.kind() == org.jackhuang.hmcl.sao.SaoOathLinking.Kind.LINKING) problem.setText(linking);
             else if (now.kind() == org.jackhuang.hmcl.sao.SaoOathLinking.Kind.LINKED
@@ -745,6 +749,8 @@ public final class SaoHelmetPage extends StackPane {
         no.setOnAction(e -> confirmOut.setVisible(false));
         yes.setOnAction(e -> {
             confirmOut.setVisible(false);
+            startupPending = false;
+            service.setPreference(SNAPSHOT_KEY, "");
             service.oathLogout();
         });
         // 确定改成…吗？, the same way.
@@ -807,6 +813,12 @@ public final class SaoHelmetPage extends StackPane {
         service.oathAccount().addListener((o, a, b) -> refreshAccount());
         service.playerCard().addListener((o, a, b) -> refreshAccount());
         Accounts.getAccounts().addListener((ListChangeListener<Account>) c -> refreshAccount());
+        // Shown from the last session's snapshot until the background sign-in answers; if nothing is signing in a few
+        // seconds after start (no remembered account), the snapshot goes.
+        startupPending = snapshot() != null;
+        PauseTransition settle = new PauseTransition(Duration.seconds(4));
+        settle.setOnFinished(e -> { if (startupPending && !autoLogging && !microsoftSigningIn() && service.oathAccount().get() == null) { startupPending = false; refreshAccount(); } });
+        settle.play();
         refreshAccount();
         autoLogin();
         // 448 x 410 before; still clear of 公告 and 服务器 (their near edges at x 396 and 884) and centred on the
@@ -1758,6 +1770,7 @@ public final class SaoHelmetPage extends StackPane {
         refreshAccount();
         service.oathLogin(r, null, true).whenComplete((ok, err) -> Platform.runLater(() -> {
             autoLogging = false;
+            if (err != null) startupPending = false;
             refreshAccount();
             if (err != null) problem.setText("! " + SaoSkinApp.message(err) + "，请重新登录");
         }));
@@ -1806,10 +1819,26 @@ public final class SaoHelmetPage extends StackPane {
         if (!editingName && shownNameText != null) SaoMotion.success(shownNameText, 90);
     }
 
+    /// A Microsoft identity is known and ARGUS is still linking it, with no account yet.
+    private boolean microsoftSigningIn() {
+        return service.oathAccount().get() == null && service.microsoftIdentity().get() != null
+                && service.oathLinking().get().kind() == org.jackhuang.hmcl.sao.SaoOathLinking.Kind.LINKING;
+    }
+
     /// Shows the side that fits, signed out or signed in (or logging in), and the skin worn now.
     private void refreshAccount() {
-        SaoData.@Nullable OathAccount a = service.oathAccount().get();
-        boolean waiting = a == null && autoLogging;
+        SaoData.@Nullable OathAccount live = service.oathAccount().get();
+        if (live != null) startupPending = false;
+        // James, 14 Nov: "登录可以慢慢来，但是显示必须先显示好": until the background sign-in answers, the panel is the last
+        // session's, drawn from a snapshot saved at every signed-in refresh.
+        @Nullable Snapshot cached = live == null && startupPending ? snapshot() : null;
+        SaoData.@Nullable OathAccount a = live != null ? live : cached != null ? cached.account() : null;
+        SaoData.@Nullable PlayerCard shownCard = live != null ? service.playerCard().get() : cached != null ? cached.card() : null;
+        // James, 14 Nov: "为什么进launcher要自己手动点一遍登录microsoft". The remembered Microsoft account signs in by
+        // itself at startup (4–6 s); the panel says so instead of showing the sign-in form, which invited a click
+        // that restarted the whole chain.
+        @Nullable String microsoftName = microsoftSigningIn() ? java.util.Objects.requireNonNull(service.microsoftIdentity().get()).name() : null;
+        boolean waiting = a == null && (autoLogging || microsoftName != null);
         boolean in = a != null || waiting;
         signedOut.setVisible(!in);
         signedIn.setVisible(in);
@@ -1818,8 +1847,9 @@ public final class SaoHelmetPage extends StackPane {
             refreshPrompt();
         }
         if (waiting) {
-            @Nullable String r = service.rememberedOathName();
-            signedIn.getChildren().setAll(sao("ARGUS ID", 17, true), sao(r == null ? "" : r, 33, true), dim("正在登录…", 14));
+            @Nullable String r = microsoftName != null ? microsoftName : service.rememberedOathName();
+            signedIn.getChildren().setAll(sao("ARGUS ID", 17, true), sao(r == null ? "" : r, 33, true),
+                    dim(microsoftName != null ? "正在用 Microsoft 登录…" : "正在登录…", 14));
         } else if (a != null) {
             Button out = SaoUiKit.button("退出登录");
             out.setOnAction(e -> confirmOut.setVisible(true));
@@ -1861,7 +1891,7 @@ public final class SaoHelmetPage extends StackPane {
             }
             // Under the name (James, 7 Nov, picked 1 3 4 5): LV, floor and Col; the last time in the game and the
             // play time; friends in the game now; and a red line while the mailbox waits for its code.
-            SaoData.@Nullable PlayerCard card = service.playerCard().get();
+            SaoData.@Nullable PlayerCard card = shownCard;
             if (card != null) {
                 // No floor (James, 7 Nov: "那就不显示floor").
                 HBox tiles = new HBox(12,
@@ -1921,10 +1951,41 @@ public final class SaoHelmetPage extends StackPane {
                 signedIn.getChildren().add(warnRow);
             }
         }
+        // The snapshot's buttons wait for the real account.
+        if (cached != null) for (Node n : signedIn.getChildren()) n.setDisable(true);
         accountMotion(waiting, a);
-        problem.setText("");
+        problem.setText(cached != null ? "正在登录…" : "");
         @Nullable Path worn = service.oathSkin() != null ? service.oathSkin() : service.skin();
-        skin.show(worn, service.skinSlim());
+        boolean slim = service.skinSlim();
+        if (cached != null && cached.skin() != null && Files.isRegularFile(Path.of(cached.skin()))) { worn = Path.of(cached.skin()); slim = cached.slim(); }
+        skin.show(worn, slim);
+        if (live != null) saveSnapshot(live, service.playerCard().get(), service.oathSkin(), service.skinSlim());
+    }
+
+    /// Whether the last session's snapshot is shown until the startup sign-in answers.
+    private boolean startupPending;
+    /// Preference key of the signed-in panel snapshot.
+    private static final String SNAPSHOT_KEY = "account.snapshot";
+
+    /// The signed-in panel as last shown: name, card and skin file. No token, password or email address.
+    private record Snapshot(String name, String profileId, @Nullable String premiumName, int level, long col,
+                            long lastPlayed, long playSeconds, @Nullable String skin, boolean slim) {
+        SaoData.OathAccount account() { return new SaoData.OathAccount(name, profileId, "", true, false, 0, premiumName); }
+        SaoData.PlayerCard card() { return new SaoData.PlayerCard(level, 0, col, lastPlayed, playSeconds, List.of()); }
+    }
+
+    private @Nullable Snapshot snapshot() {
+        String json = service.preference(SNAPSHOT_KEY, "");
+        if (json.isBlank()) return null;
+        try { return new com.google.gson.Gson().fromJson(json, Snapshot.class); }
+        catch (RuntimeException broken) { return null; }
+    }
+
+    private void saveSnapshot(SaoData.OathAccount a, SaoData.@Nullable PlayerCard card, @Nullable Path skinFile, boolean slim) {
+        Snapshot s = new Snapshot(a.name(), a.profileId(), a.premiumName(), card == null ? -1 : card.level(), card == null ? -1 : card.col(),
+                card == null ? 0 : card.lastPlayed(), card == null ? 0 : card.playSeconds(), skinFile == null ? null : skinFile.toString(), slim);
+        String json = new com.google.gson.Gson().toJson(s);
+        if (!json.equals(service.preference(SNAPSHOT_KEY, ""))) service.setPreference(SNAPSHOT_KEY, json);
     }
 
     /// The status line and Link Start from the engine.
@@ -2069,7 +2130,7 @@ public final class SaoHelmetPage extends StackPane {
     private void linkStart() {
         SaoData.@Nullable OathAccount a = service.oathAccount().get();
         if (a == null) {
-            problem.setText(autoLogging ? "! 正在登录，稍等" : "! 先登录 ARGUS ID");
+            problem.setText(autoLogging || microsoftSigningIn() ? "! 正在登录，稍等" : "! 先登录 ARGUS ID");
             return;
         }
         joinAs(a);
