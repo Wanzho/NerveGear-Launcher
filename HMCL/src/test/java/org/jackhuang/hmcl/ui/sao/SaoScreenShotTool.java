@@ -88,6 +88,12 @@ public final class SaoScreenShotTool {
             Platform.exit();
             System.exit(0);
         }
+        // SAO_SHOTS=motion: real-time films of the motion (James, 14 Nov: "可以给所有东西都加动效/动画吗").
+        if ("motion".equals(System.getenv("SAO_SHOTS"))) {
+            shootMotion(base);
+            Platform.exit();
+            System.exit(0);
+        }
         // SAO_SHOTS=maint: only the 服务器 window's maintenance shots (maint1, 10 Nov).
         if ("maint".equals(System.getenv("SAO_SHOTS"))) {
             shootMaint(base);
@@ -862,5 +868,183 @@ public final class SaoScreenShotTool {
                 System.out.println("maint shot: " + tag + st[0]);
             }
         }
+    }
+
+    // ------------------------------------------------------------------ motion films
+
+    /// One step of a film: at a time, do something on the FX thread.
+    private record Cue(double atMs, Runnable act) { }
+
+    /// Films the page in real time: frames as fast as snapshots go, each with its real time, so a video made from
+    /// them plays at real speed (frames.txt is an ffmpeg concat list with each frame's duration).
+    private static void film(Scene scene, Path dir, double totalMs, java.util.List<Cue> cues) throws Exception {
+        if (Files.exists(dir)) try (var walk = Files.walk(dir)) {
+            walk.sorted(java.util.Comparator.reverseOrder()).forEach(f -> f.toFile().delete());
+        }
+        Files.createDirectories(dir);
+        java.util.concurrent.ExecutorService writers = java.util.concurrent.Executors.newFixedThreadPool(6);
+        // At most this many frames wait for their PNG; past that the film waits (memory stays small).
+        java.util.concurrent.Semaphore room = new java.util.concurrent.Semaphore(24);
+        java.util.List<java.util.concurrent.Future<?>> pending = new java.util.ArrayList<>();
+        java.util.List<Double> times = new java.util.ArrayList<>();
+        java.util.ArrayDeque<Cue> left = new java.util.ArrayDeque<>(cues);
+        long t0 = System.nanoTime();
+        WritableImage[] im = new WritableImage[1];
+        int n = 0;
+        while (true) {
+            double now = (System.nanoTime() - t0) / 1e6;
+            if (now > totalMs) break;
+            while (!left.isEmpty() && left.peek().atMs() <= now) fx(left.poll().act());
+            // About 60 frames a second is plenty for a 30 fps video; snapshots alone would go far faster.
+            double next = n * 1000.0 / 60;
+            if (now < next) Thread.sleep((long) Math.ceil(next - now));
+            room.acquire();
+            int[][] px = new int[1][];
+            int[] wh = new int[2];
+            fx(() -> {
+                im[0] = scene.snapshot(im[0]);
+                wh[0] = (int) im[0].getWidth();
+                wh[1] = (int) im[0].getHeight();
+                px[0] = new int[wh[0] * wh[1]];
+                im[0].getPixelReader().getPixels(0, 0, wh[0], wh[1],
+                        javafx.scene.image.WritablePixelFormat.getIntArgbInstance(), px[0], 0, wh[0]);
+            });
+            times.add((System.nanoTime() - t0) / 1e6);
+            Path f = dir.resolve(String.format("f%04d.png", n++));
+            int[] pixels = px[0];
+            pending.add(writers.submit(() -> {
+                try {
+                    BufferedImage bi = new BufferedImage(wh[0], wh[1], BufferedImage.TYPE_INT_ARGB);
+                    bi.getRaster().setDataElements(0, 0, wh[0], wh[1], pixels);
+                    ImageIO.write(bi, "png", f.toFile());
+                } finally {
+                    room.release();
+                }
+                return null;
+            }));
+        }
+        for (var p : pending) p.get();
+        writers.shutdown();
+        StringBuilder list = new StringBuilder();
+        for (int i = 0; i < times.size(); i++) {
+            double d = (i + 1 < times.size() ? times.get(i + 1) - times.get(i) : 33) / 1000;
+            list.append(String.format("file 'f%04d.png'%nduration %.4f%n", i, d));
+        }
+        list.append(String.format("file 'f%04d.png'%n", times.size() - 1));
+        Files.writeString(dir.resolve("frames.txt"), list);
+        System.out.printf("film %s: %d frames in %.1f s (%.1f fps)%n", dir.getFileName(), times.size(), totalMs / 1000,
+                times.size() / (totalMs / 1000));
+    }
+
+    /// Sends a mouse event to the centre of a node through the scene, as a real pointer would (hover, press, click).
+    private static void mouse(Scene scene, javafx.event.EventType<javafx.scene.input.MouseEvent> type, javafx.scene.Node n) {
+        javafx.geometry.Bounds b = n.getLayoutBounds();
+        javafx.geometry.Point2D p = n.localToScene(new javafx.geometry.Point2D(b.getCenterX(), b.getCenterY()), true);
+        boolean button = type != javafx.scene.input.MouseEvent.MOUSE_MOVED;
+        javafx.scene.input.MouseEvent e = new javafx.scene.input.MouseEvent(type, p.getX(), p.getY(), p.getX(), p.getY(),
+                button ? javafx.scene.input.MouseButton.PRIMARY : javafx.scene.input.MouseButton.NONE, button ? 1 : 0,
+                false, false, false, false, type == javafx.scene.input.MouseEvent.MOUSE_PRESSED, false, false,
+                false, false, true, null);
+        try {
+            Class.forName("com.sun.javafx.scene.SceneHelper").getMethod("processMouseEvent", Scene.class,
+                    javafx.scene.input.MouseEvent.class).invoke(null, scene, e);
+        } catch (ReflectiveOperationException failure) {
+            throw new IllegalStateException(failure);
+        }
+    }
+
+    /// Hover, press and release on a node, spread over cues from a time.
+    private static void click(java.util.List<Cue> cues, Scene scene, double at, java.util.function.Supplier<javafx.scene.Node> n) {
+        // Found once: the click may change the node (登录 → 登录中…).
+        javafx.scene.Node[] at0 = new javafx.scene.Node[1];
+        cues.add(new Cue(at, () -> mouse(scene, javafx.scene.input.MouseEvent.MOUSE_MOVED, at0[0] = n.get())));
+        cues.add(new Cue(at + 450, () -> mouse(scene, javafx.scene.input.MouseEvent.MOUSE_PRESSED, at0[0])));
+        cues.add(new Cue(at + 600, () -> {
+            mouse(scene, javafx.scene.input.MouseEvent.MOUSE_RELEASED, at0[0]);
+            mouse(scene, javafx.scene.input.MouseEvent.MOUSE_CLICKED, at0[0]);
+        }));
+    }
+
+    /// The first node under the page matching a test.
+    private static javafx.scene.Node find(javafx.scene.Parent root, java.util.function.Predicate<javafx.scene.Node> test) {
+        java.util.ArrayDeque<javafx.scene.Node> q = new java.util.ArrayDeque<>(java.util.List.of(root));
+        while (!q.isEmpty()) {
+            javafx.scene.Node n = q.poll();
+            if ((n.isVisible() || n.getStyleClass().contains("vr-tip")) && test.test(n)) return n;
+            if (n instanceof javafx.scene.SubScene ss) q.add(ss.getRoot());
+            if (n instanceof javafx.scene.Parent p) q.addAll(p.getChildrenUnmodifiable());
+        }
+        throw new IllegalStateException("no such node");
+    }
+
+    private static javafx.scene.Node button(javafx.scene.Parent root, String text) {
+        return find(root, n -> n instanceof javafx.scene.control.Button b && text.equals(b.getText()));
+    }
+
+    /// The motion films: signing in (a mistake, then success), an app window opening with a switch, the Microsoft
+    /// sign-in window to its end. 1280 x 720, 深色 unless SAO_MOTION_THEME=light.
+    private static void shootMotion(Path base) throws Exception {
+        Path out = base.resolve("motion");
+        System.setProperty("sao.windowButtons", "left");
+        SaoFakeService fake = new SaoFakeService();
+        fake.setPreference("theme", "light");
+        fake.forceInstalled("0.8.1");
+        fake.loginDelayMs = 1600;
+        fake.setPreference("theme", System.getenv().getOrDefault("SAO_MOTION_THEME", "dark"));
+        SaoHelmetPage[] page = new SaoHelmetPage[1];
+        Scene[] scene = new Scene[1];
+        fx(() -> {
+            page[0] = new SaoHelmetPage(fake);
+            scene[0] = new Scene(page[0], 1280, 720);
+        });
+        Thread.sleep(3500);
+        fx(() -> page[0].debugCloseApp());
+        fx(fake::oathLogout);
+        Thread.sleep(1500);
+        Scene sc = scene[0];
+        SaoHelmetPage pg = page[0];
+
+        // 1. Signing in: an empty name (the button gives, the field and the line shake), then a name and a password
+        // (the field glows), 登录 (breathes while it works), signed in (rows come in, the name lands with a glow).
+        java.util.List<Cue> a = new java.util.ArrayList<>();
+        a.add(new Cue(0, () -> {
+            ((javafx.scene.control.TextField) find(pg, n -> n instanceof javafx.scene.control.TextField t
+                    && "用户名／邮箱".equals(t.getPromptText()))).setText("");
+        }));
+        click(a, sc, 700, () -> button(pg, "登录"));
+        a.add(new Cue(2600, () -> {
+            javafx.scene.control.TextField f = (javafx.scene.control.TextField) find(pg, n -> n instanceof javafx.scene.control.TextField t
+                    && "用户名／邮箱".equals(t.getPromptText()));
+            f.requestFocus();
+            f.setText("Kirito_07");
+        }));
+        a.add(new Cue(3400, () -> {
+            javafx.scene.control.PasswordField f = (javafx.scene.control.PasswordField) find(pg, n -> n instanceof javafx.scene.control.PasswordField);
+            f.requestFocus();
+            f.setText("starburst");
+        }));
+        click(a, sc, 4300, () -> button(pg, "登录"));
+        film(sc, out.resolve("01-login"), 10500, a);
+
+        // 2. A window: the 设置 dock button, the window flies in and its content comes in after the glass, a switch
+        // flips twice, the window goes.
+        java.util.List<Cue> b = new java.util.ArrayList<>();
+        java.util.function.Supplier<javafx.scene.Node> dock = () -> {
+            javafx.scene.Node tip = find(pg, n -> n.getStyleClass().contains("vr-tip")
+                    && n instanceof javafx.scene.layout.StackPane s && s.getChildren().get(0) instanceof javafx.scene.text.Text l
+                    && "设置".equals(l.getText()));
+            return ((javafx.scene.layout.StackPane) tip.getParent()).getChildren().get(0);
+        };
+        click(b, sc, 600, dock);
+        java.util.function.Supplier<javafx.scene.Node> toggle = () -> find(pg, n -> n.getStyleClass().contains("vr-switch"));
+        click(b, sc, 2600, toggle);
+        click(b, sc, 3900, toggle);
+        b.add(new Cue(5600, pg::debugCloseApp));
+        film(sc, out.resolve("02-window"), 7600, b);
+
+        // 3. 微软正版登录: opens, browser, signing in, done (the tick glows), closes by itself.
+        java.util.List<Cue> c = new java.util.ArrayList<>();
+        c.add(new Cue(500, () -> pg.openMicrosoft(fake::microsoftSignIn)));
+        film(sc, out.resolve("03-microsoft"), 8200, c);
     }
 }

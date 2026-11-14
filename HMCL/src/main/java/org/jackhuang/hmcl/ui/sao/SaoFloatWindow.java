@@ -223,6 +223,14 @@ final class SaoFloatWindow extends Group {
                 new KeyValue(glass, opacity, Interpolator.EASE_BOTH))).play();
     }
 
+    /// The content comes in after the glass, the title first and then each part under it (James, 14 Nov:
+    /// "可以给所有东西都加动效/动画吗").
+    ///
+    /// @param delayMs after the glass starts to come in
+    void contentIn(double delayMs) {
+        SaoMotion.stagger(body, delayMs);
+    }
+
     /// Flies the window in from behind and below, growing out of the dock's light.
     ///
     /// @param ms duration

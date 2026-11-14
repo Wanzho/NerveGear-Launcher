@@ -206,7 +206,7 @@ final class SaoFriendsApp {
             }
             if (sorted.isEmpty()) rows.add(dim("还没有好友，点右上角的 + 加一个", 12));
         }
-        list.getChildren().setAll(rows);
+        SaoMotion.list(list, rows);
         // The tab chips carry the unread count of their side.
         int dm = 0, gm = 0;
         for (SaoData.Chat c : s.chats()) {
@@ -293,7 +293,7 @@ final class SaoFriendsApp {
 
     private void showNothing() {
         closeChat();
-        right.getChildren().setAll(empty(SVG.CHAT, "选一个好友或群聊"));
+        SaoMotion.swap(right, empty(SVG.CHAT, "选一个好友或群聊"));
     }
 
     private void openFriend(String name) {
@@ -363,7 +363,7 @@ final class SaoFriendsApp {
                 rows.add(bubble(m, chat.group()));
             }
             if (rows.isEmpty()) rows.add(dim("还没有消息，打个招呼吧", 12));
-            col.getChildren().setAll(rows);
+            SaoMotion.list(col, rows);
             Platform.runLater(() -> sp.setVvalue(1));
         };
         ListChangeListener<SaoData.ChatMessage> follow = ch -> {
@@ -397,7 +397,7 @@ final class SaoFriendsApp {
         write.setAlignment(Pos.CENTER_LEFT);
 
         VBox pane = new VBox(8, head, rule(), sp, write);
-        right.getChildren().setAll(pane);
+        SaoMotion.swap(right, pane);
     }
 
     private String statusOf(String name) {
@@ -498,7 +498,7 @@ final class SaoFriendsApp {
         name.setPromptText("给群起个名字");
         VBox form = new VBox(10, title, key("群名"), name, key("成员"), pick, grow(), buttons);
         VBox.setVgrow(form.getChildren().get(5), Priority.ALWAYS);
-        right.getChildren().setAll(form);
+        SaoMotion.swap(right, form);
         fillList();
     }
 

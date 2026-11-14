@@ -473,6 +473,8 @@ public final class SaoHelmetPage extends StackPane {
             v.getStyleClass().add("vr-tile");
             v.setCursor(javafx.scene.Cursor.HAND);
             v.setOnMouseClicked(e -> openNews(n));
+            // Lifts a little under the mouse, like the buttons (SaoMotion).
+            v.hoverProperty().addListener((o, x, on) -> SaoMotion.lift(v, on));
             return v;
         }, empty(SVG.CHAT, "暂无公告"));
         return new SaoFloatWindow("公告", 290, 430, null)
@@ -642,6 +644,8 @@ public final class SaoHelmetPage extends StackPane {
         remember.setSelected(true);
         remember.setGraphic(icon(SVG.CHECK, 14));
         remember.getGraphic().visibleProperty().bind(remember.selectedProperty());
+        SaoMotion.press(remember);
+        remember.selectedProperty().addListener((o, a, on) -> { if (on) SaoMotion.pop(remember.getGraphic()); });
         Text rememberLabel = dim("记住我", 14);
         rememberLabel.setOnMouseClicked(e -> remember.setSelected(!remember.isSelected()));
         HBox rememberRow = new HBox(7, remember, rememberLabel, grow(),
@@ -670,11 +674,17 @@ public final class SaoHelmetPage extends StackPane {
         HBox offlineRow = new HBox(bigLink("不登录，离线游玩", this::askOffline));
         offlineRow.setAlignment(Pos.CENTER);
         signedOut.getChildren().setAll(outHead, bigKey("用户名／邮箱"), name, bigKey("密码"), pw, rememberRow, login, rule(), useMicrosoft, offlineRow);
+        // Every side of the account panel comes in, row after row, when it is shown (James, 14 Nov: "login时，成功等").
+        SaoMotion.reveal(signedOut);
+        SaoMotion.reveal(confirmOut);
+        SaoMotion.reveal(confirmOffline);
+        SaoMotion.reveal(confirmName);
 
         // ---- signed in: filled by refreshAccount; Link Start at its bottom right
         HBox linkRow = buildLinkRow();
 
         problem.getStyleClass().add("vr-warn");
+        SaoMotion.report(problem);
         SaoUiKit.font(problem, 13, false);
         problem.setWrappingWidth(RIGHT_W - 6);
         StackPane sides = new StackPane(signedOut, signedIn, confirmOffline);
@@ -685,6 +695,7 @@ public final class SaoHelmetPage extends StackPane {
         }
         // Signed in, the logo takes the room between the friends and Link Start; elsewhere a plain spring.
         Region spring = grow();
+        SaoMotion.revealOne(logoBox);
         logoBox.visibleProperty().bind(signedIn.visibleProperty());
         logoBox.managedProperty().bind(signedIn.visibleProperty());
         spring.visibleProperty().bind(signedIn.visibleProperty().not());
@@ -698,6 +709,7 @@ public final class SaoHelmetPage extends StackPane {
         javafx.beans.binding.BooleanBinding rowShown = Bindings.createBooleanBinding(
                 () -> signedIn.isVisible() || service.readiness().get().shownSignedOut(),
                 signedIn.visibleProperty(), service.readiness());
+        SaoMotion.revealOne(linkRow);
         linkRow.visibleProperty().bind(rowShown);
         linkRow.managedProperty().bind(rowShown);
         // Shown before login, the row takes the signed-in layout's slot and bottom inset: the form's nine gaps close
@@ -826,7 +838,9 @@ public final class SaoHelmetPage extends StackPane {
     private void premiumLogin() {
         SaoAccountApp.withMicrosoft(() -> {
             problem.setText("正在用 Microsoft 登录…");
+            SaoMotion.busy(useMicrosoft);
             service.oathPremiumLogin().whenComplete((ok, err) -> Platform.runLater(() -> {
+                SaoMotion.idle(useMicrosoft);
                 problem.setText(err == null ? "" : "! " + SaoSkinApp.message(err));
             }));
         });
@@ -844,7 +858,8 @@ public final class SaoHelmetPage extends StackPane {
         fill.setPrefHeight(4);
         fill.setMaxHeight(4);
         fill.setMaxWidth(Region.USE_PREF_SIZE);
-        fill.prefWidthProperty().bind(Bindings.createDoubleBinding(() -> {
+        // The fill glides to each new amount (James, 14 Nov: "可以给所有东西都加动效/动画吗").
+        SaoMotion.follow(fill, Bindings.createDoubleBinding(() -> {
             SaoPackState s = service.state().get();
             return s == SaoPackState.WORKING ? bw * Math.max(0.03, fraction()) : 0.0;
         }, service.state(), service.progress(), service.installProgress()));
@@ -1220,6 +1235,7 @@ public final class SaoHelmetPage extends StackPane {
             // The dock stays turned, so its icons are scaled across by what the turn adds (see DOCK_WIDEN).
             cell.setScaleX(DOCK_WIDEN);
             tip.resizeRelocate(48, 5, 52, 26);
+            SaoMotion.revealOne(tip);
             b.hoverProperty().addListener((o, x, on) -> tip.setVisible(on));
             b.setOnAction(e -> {
                 if (app != null && appButton == b) closeApp();
@@ -1282,6 +1298,7 @@ public final class SaoHelmetPage extends StackPane {
         w.home(660, Math.max(96, (EH - w.height()) / 2 - 10), 0, 0, 0);
         windows.getChildren().add(w);
         w.flyIn(320);
+        w.contentIn(120);
         app = w;
         appButton = b;
         if (b != null) b.getStyleClass().add("vr-dock-on");
@@ -1741,6 +1758,41 @@ public final class SaoHelmetPage extends StackPane {
         pw.setPromptText(r != null && name.getText().strip().equals(r) ? "已记住密码" : "密码");
     }
 
+    /// The signed-in side last shown: null signed out, "" logging in, else the name (and whether it was being renamed).
+    private @Nullable String shownAccount;
+    /// The big name drawn last, for its success glow.
+    private @Nullable Text shownNameText;
+    /// The "正在登录…" line breathing now.
+    private @Nullable Node busyLine;
+
+    /// Moves the signed-in side only when it changes, never on a plain refresh (James, 14 Nov: "login时，成功等"):
+    /// logging in comes in and breathes; signed in (from out, logging in, or another name) comes in row after row and
+    /// the name lands with a glow; a rename shows its editor coming in.
+    private void accountMotion(boolean waiting, SaoData.@Nullable OathAccount a) {
+        @Nullable String now = a != null ? a.name() + (editingName ? "\u0000" : "") : waiting ? "" : null;
+        @Nullable String was = shownAccount;
+        shownAccount = now;
+        if (now == null || now.equals(was)) return;
+        if (busyLine != null) {
+            SaoMotion.idle(busyLine);
+            busyLine = null;
+        }
+        if (now.isEmpty()) {
+            SaoMotion.stagger(signedIn, 0);
+            busyLine = signedIn.getChildren().get(signedIn.getChildren().size() - 1);
+            SaoMotion.busy(busyLine);
+            return;
+        }
+        boolean renaming = was != null && !was.isEmpty() && a != null
+                && was.replace("\u0000", "").equals(a.name());
+        if (renaming) {
+            if (signedIn.getChildren().size() > 1) SaoMotion.enter(signedIn.getChildren().get(1));
+            return;
+        }
+        SaoMotion.stagger(signedIn, 0);
+        if (!editingName && shownNameText != null) SaoMotion.success(shownNameText, 90);
+    }
+
     /// Shows the side that fits, signed out or signed in (or logging in), and the skin worn now.
     private void refreshAccount() {
         SaoData.@Nullable OathAccount a = service.oathAccount().get();
@@ -1766,6 +1818,7 @@ public final class SaoHelmetPage extends StackPane {
             head.setAlignment(Pos.CENTER_LEFT);
             // James, 7 Nov: "让名字大一点", then "a bit too big now"; a long name shrinks to stay in the column.
             Text n = sao(a.name(), 42, true);
+            shownNameText = n;
             double nw = n.getLayoutBounds().getWidth(), room = RIGHT_W - 38;
             if (nw > room) SaoUiKit.font(n, 42 * room / nw, true);
             n.getStyleClass().add("vr-link-text");
@@ -1844,6 +1897,7 @@ public final class SaoHelmetPage extends StackPane {
                 signedIn.getChildren().add(warnRow);
             }
         }
+        accountMotion(waiting, a);
         problem.setText("");
         @Nullable Path worn = service.oathSkin() != null ? service.oathSkin() : service.skin();
         skin.show(worn, service.skinSlim());
@@ -1929,21 +1983,30 @@ public final class SaoHelmetPage extends StackPane {
         boolean mail = n.indexOf('@') > 0 && n.length() <= 254;
         if (!mail && !SaoAccountApp.NAME.matcher(n).matches()) {
             problem.setText("! 填用户名或邮箱");
+            SaoMotion.shake(name);
             return;
         }
         @Nullable String remembered = service.rememberedOathName();
         char @Nullable [] p = pw.getText().isEmpty() && n.equals(remembered) ? null : pw.getText().toCharArray();
         if (p != null && p.length == 0) {
             problem.setText("! 请输入密码");
+            SaoMotion.shake(pw);
             return;
         }
         pw.clear();
         login.setDisable(true);
+        login.setText("登录中…");
+        SaoMotion.busy(login);
         problem.setText("");
         service.oathLogin(n, p, remember.isSelected()).whenComplete((ok, err) -> Platform.runLater(() -> {
             if (p != null) java.util.Arrays.fill(p, '\0');
+            SaoMotion.idle(login);
+            login.setText("登录");
             login.setDisable(false);
-            if (err != null) problem.setText("! " + SaoSkinApp.message(err));
+            if (err != null) {
+                problem.setText("! " + SaoSkinApp.message(err));
+                SaoMotion.shake(signedOut);
+            }
         }));
     }
 

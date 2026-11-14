@@ -143,7 +143,7 @@ final class SaoUiKit {
         b.setPrefSize(size, size);
         b.setMaxSize(size, size);
         b.setFocusTraversable(false);
-        return b;
+        return SaoMotion.press(b);
     }
 
     /// A glass button with a label.
@@ -156,7 +156,7 @@ final class SaoUiKit {
         font(b, 13, false);
         b.setFocusTraversable(false);
         b.setMinWidth(Region.USE_PREF_SIZE);
-        return b;
+        return SaoMotion.press(b);
     }
 
     /// The lit button for the main action of a window.
@@ -181,7 +181,7 @@ final class SaoUiKit {
         b.setFocusTraversable(false);
         b.setMinWidth(Region.USE_PREF_SIZE);
         if (group != null) b.setToggleGroup(group);
-        return b;
+        return SaoMotion.press(b);
     }
 
     /// Keeps one chip of a group always selected.
@@ -208,9 +208,11 @@ final class SaoUiKit {
         track.setMouseTransparent(true);
         t.setGraphic(track);
         t.setSelected(on);
-        knob.translateXProperty().bind(javafx.beans.binding.Bindings.when(t.selectedProperty()).then(16.0).otherwise(0.0));
+        // The knob slides across (James, 14 Nov: "可以给所有东西都加动效/动画吗").
+        knob.setTranslateX(on ? 16 : 0);
+        t.selectedProperty().addListener((o, a, b) -> SaoMotion.slide(knob, b ? 16 : 0));
         t.setFocusTraversable(false);
-        return t;
+        return SaoMotion.press(t);
     }
 
     /// A text field in the glass look.
@@ -222,7 +224,7 @@ final class SaoUiKit {
         f.getStyleClass().add("vr-field");
         font(f, 14, false);
         f.setPromptText(prompt);
-        return f;
+        return SaoMotion.focusGlow(f);
     }
 
     /// Body text.
@@ -368,7 +370,7 @@ final class SaoUiKit {
         r.getStyleClass().add(on ? "vr-light-on" : "vr-light-off");
         r.setMinSize(9, 9);
         r.setMaxSize(9, 9);
-        return r;
+        return on ? SaoMotion.pulse(r) : r;
     }
 
     /// A thin progress bar.

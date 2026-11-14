@@ -106,9 +106,14 @@ final class SaoApps {
         VBox col = new VBox(6);
         Runnable fill = () -> {
             List<Node> rows = new ArrayList<>();
-            for (T t : list) rows.add(row.apply(t));
+            for (T t : list) {
+                Node r = row.apply(t);
+                // Keyed by its item: only rows that are new come in when the list changes (SaoMotion.list).
+                if (r.getUserData() == null) r.setUserData(t);
+                rows.add(r);
+            }
             if (rows.isEmpty()) rows.add(empty);
-            col.getChildren().setAll(rows);
+            SaoMotion.list(col, rows);
         };
         list.addListener((ListChangeListener<T>) c -> fill.run());
         fill.run();
@@ -331,7 +336,8 @@ final class SaoApps {
                 grow(),
                 where);
         HBox main = columns(left, right);
-        VBox confirm = uninstallConfirm(s);
+        VBox confirm = SaoMotion.reveal(uninstallConfirm(s));
+        SaoMotion.reveal(main);
         confirm.setVisible(false);
         StackPane body = new StackPane(main, confirm);
         VBox.setVgrow(body, Priority.ALWAYS);
@@ -409,6 +415,7 @@ final class SaoApps {
             busyCheck.run();
             running.setText(err);
             running.setVisible(true);
+            SaoMotion.shake(running);
         });
         return box;
     }
@@ -549,7 +556,7 @@ final class SaoApps {
             none.setSelected(!any);
             if (!any) none.setText("使用中");
             rows.add(0, tile(thumb(null, SVG.VISIBILITY_OFF, 36), lines("关闭光影", "帧数最高"), grow(), none));
-            shaderList.getChildren().setAll(rows);
+            SaoMotion.list(shaderList, rows);
         };
         refill[0] = fillShaders;
         s.shaderPacks().addListener((ListChangeListener<SaoData.Pack>) c -> fillShaders.run());
@@ -710,7 +717,7 @@ final class SaoApps {
                 rows.add(tile(icon(SVG.LOCAL_CAFE, 24), lines("Java " + j.version() + (j.managed() ? " · 启动器下载" : ""),
                         (j.vendor().isEmpty() ? "" : j.vendor() + " · ") + j.executable()), grow(), use));
             }
-            list.getChildren().setAll(rows);
+            SaoMotion.list(list, rows);
         };
         refill[0] = fill;
         s.javas().addListener((ListChangeListener<SaoData.JavaRuntime>) c -> fill.run());

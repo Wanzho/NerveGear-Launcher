@@ -502,6 +502,9 @@ public final class SaoFakeService implements SaoLauncherService {
     /// Signs the pretend account in, verified or waiting for its code (screenshots).
     ///
     /// @param verified whether the mailbox is verified
+    /// How long a pretend sign-in takes (motion films); 0 for at once.
+    long loginDelayMs;
+
     void forceOath(boolean verified) {
         card.set(new SaoData.PlayerCard(24, 1, 12_400, System.currentTimeMillis() - 20 * 3600_000L, 12 * 3600 + 40 * 60,
                 List.of("Asuna", "Klein")));
@@ -666,6 +669,19 @@ public final class SaoFakeService implements SaoLauncherService {
     public CompletableFuture<Void> oathLogin(String name, char @Nullable [] password, boolean remember) {
         if (password != null && password.length == 0) return fail("请输入密码");
         remembered = remember ? name : null;
+        if (loginDelayMs > 0) {
+            // Filming the motion: the sign-in takes a moment, as a real one does, and lands with a player card.
+            CompletableFuture<Void> f = new CompletableFuture<>();
+            javafx.animation.PauseTransition p = new javafx.animation.PauseTransition(javafx.util.Duration.millis(loginDelayMs));
+            p.setOnFinished(e -> {
+                card.set(new SaoData.PlayerCard(24, 1, 12_400, System.currentTimeMillis() - 20 * 3600_000L, 12 * 3600 + 40 * 60,
+                        List.of("Asuna", "Klein")));
+                oath.set(new SaoData.OathAccount(name, "0f3b6a1c2d4e4f50a1b2c3d4e5f60718", "ja***@163.com", true, false, 0, null));
+                f.complete(null);
+            });
+            p.play();
+            return f;
+        }
         oath.set(new SaoData.OathAccount(name, "0f3b6a1c2d4e4f50a1b2c3d4e5f60718", "ja***@163.com", true, false, 0, null));
         return CompletableFuture.completedFuture(null);
     }

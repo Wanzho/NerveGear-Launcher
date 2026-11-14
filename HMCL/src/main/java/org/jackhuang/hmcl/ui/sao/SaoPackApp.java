@@ -130,7 +130,7 @@ final class SaoPackApp {
         SaoFloatWindow win = new SaoFloatWindow(pack ? (notInstalled(s) ? "安装整合包" : "整合包更新") : "启动器更新",
                 SaoApps.W, SaoApps.H, close);
 
-        Text message = ink("", 17);
+        Text message = SaoMotion.report(ink("", 17));
         message.setWrappingWidth(SaoApps.W - 40);
         Text sub = dim("", 12.5);
         HBox chips = new HBox(8);
@@ -150,16 +150,18 @@ final class SaoPackApp {
         // A Downloads find, offered with its own button.
         Text candName = ink("", 13.5);
         Button candInstall = accent("安装");
-        HBox candidate = tile(icon(SVG.DOWNLOAD, 22), new VBox(3, key("下载中找到"), candName), grow(), candInstall);
+        HBox candidate = SaoMotion.revealOne(tile(icon(SVG.DOWNLOAD, 22), new VBox(3, key("下载中找到"), candName), grow(), candInstall));
         candidate.setAlignment(Pos.CENTER_LEFT);
 
         // Checking, failure, done.
-        Text status = ink("", 13.5);
+        Text status = SaoMotion.report(ink("", 13.5));
+        // Done (已安装, 已就绪) lands with a glow, once per change (James, 14 Nov: "成功等").
+        boolean[] wasOk = {false};
         status.setWrappingWidth(SaoApps.W - 70);
         StackPane statusBar = bar(SaoApps.W - 40, 0);
-        VBox statusBox = new VBox(6, status, statusBar);
+        VBox statusBox = SaoMotion.revealOne(new VBox(6, status, statusBar));
 
-        VBox checks = new VBox(6);
+        VBox checks = SaoMotion.reveal(new VBox(6));
 
         Button quark = button("打开夸克");
         quark.setGraphic(icon(SVG.DOWNLOAD, 15));
@@ -262,6 +264,8 @@ final class SaoPackApp {
             status.setText(st);
             status.getStyleClass().removeAll("vr-warn", "vr-good", "vr-ink");
             status.getStyleClass().add(bad ? "vr-warn" : ok ? "vr-good" : "vr-ink");
+            if (ok && !wasOk[0]) SaoMotion.success(status, 0);
+            wasOk[0] = ok;
             statusBar.setVisible(busy);
             statusBar.setManaged(busy);
             if (busy) setBar(statusBar, amount);
@@ -304,8 +308,14 @@ final class SaoPackApp {
             if (e.getDragboard().hasFiles() && !drop.isDisabled()) e.acceptTransferModes(TransferMode.COPY);
             e.consume();
         });
-        drop.setOnDragEntered(e -> drop.getStyleClass().add("vr-drop-on"));
-        drop.setOnDragExited(e -> drop.getStyleClass().remove("vr-drop-on"));
+        drop.setOnDragEntered(e -> {
+            drop.getStyleClass().add("vr-drop-on");
+            SaoMotion.lift(drop, true);
+        });
+        drop.setOnDragExited(e -> {
+            drop.getStyleClass().remove("vr-drop-on");
+            SaoMotion.lift(drop, false);
+        });
         drop.setOnDragDropped(e -> {
             List<Path> f = files(e);
             accept(s, f);
@@ -346,7 +356,7 @@ final class SaoPackApp {
         if (bar.getChildren().size() < 2) return;
         Node fill = bar.getChildren().get(1);
         if (fill instanceof javafx.scene.layout.Region r) {
-            r.setPrefWidth(bar.getMaxWidth() * (amount < 0 ? 0.08 : Math.max(0.02, Math.min(1, amount))));
+            SaoMotion.width(r, bar.getMaxWidth() * (amount < 0 ? 0.08 : Math.max(0.02, Math.min(1, amount))));
         }
     }
 }

@@ -72,6 +72,8 @@ final class SaoMicrosoftApp {
         private final StackPane body;
         private final Runnable close;
         private @Nullable SaoMicrosoftFlow flow;
+        /// The state kind shown last, so only a new kind comes in.
+        private @Nullable Kind shownKind;
         private final ChangeListener<State> follow = (o, a, b) -> show(b);
 
         View(Supplier<SaoMicrosoftFlow> start, StackPane body, Runnable close) {
@@ -115,7 +117,9 @@ final class SaoMicrosoftApp {
             why.setWrappingWidth(230);
             Node page = SaoAccountApp.page(SVG.PERSON, "微软正版登录", "用买了 Minecraft 的微软账号直接登录", right, why);
             body.getChildren().setAll(page);
-            fadeIn(page);
+            // A new state comes in on the right; a new step of the same state (正在验证 → 正在保存) just changes.
+            if (s.kind() != shownKind) SaoMotion.enter(right);
+            shownKind = s.kind();
             if (s.kind() == Kind.DONE || s.kind() == Kind.CANCELLED) {
                 PauseTransition p = new PauseTransition(Duration.millis(s.kind() == Kind.DONE ? 1400 : 300));
                 p.setOnFinished(e -> close.run());
@@ -208,6 +212,8 @@ final class SaoMicrosoftApp {
 
         private Node done(State s) {
             Node ok = icon(SVG.CHECK_CIRCLE, 22);
+            // Success lands with a glow (James, 14 Nov: "login时，成功等").
+            SaoMotion.success(ok, 140);
             Text t = ink(s.name().isEmpty() ? "已登录" : "已登录：" + s.name(), 16);
             SaoUiKit.font(t, 16, true);
             HBox h = new HBox(10, ok, t);
@@ -289,10 +295,4 @@ final class SaoMicrosoftApp {
         return c.length() == 8 ? c.substring(0, 4) + " " + c.substring(4) : c;
     }
 
-    private static void fadeIn(Node n) {
-        n.setOpacity(0);
-        FadeTransition f = new FadeTransition(Duration.millis(180), n);
-        f.setToValue(1);
-        f.play();
-    }
 }

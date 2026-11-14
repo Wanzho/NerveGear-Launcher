@@ -87,7 +87,7 @@ final class SaoAccountApp {
                 case FORGOT -> forgot();
                 case MANAGE -> manage();
             };
-            pages.getChildren().setAll(n);
+            SaoMotion.swap(pages, n);
         }
 
         // -------------------------------------------------------------- register
@@ -463,7 +463,7 @@ final class SaoAccountApp {
         f.getStyleClass().add("vr-field");
         SaoUiKit.font(f, 14, false);
         f.setPromptText(prompt);
-        return f;
+        return SaoMotion.focusGlow(f);
     }
 
     /// A password field's look with smaller dots (James, 8 Nov: "密码的那个点可以小一点"). The SAO UI face has no
@@ -505,7 +505,7 @@ final class SaoAccountApp {
         t.getStyleClass().add("vr-warn");
         SaoUiKit.font(t, 12, false);
         t.setWrappingWidth(310);
-        return t;
+        return SaoMotion.report(t);
     }
 
     /// A warning line with text.
