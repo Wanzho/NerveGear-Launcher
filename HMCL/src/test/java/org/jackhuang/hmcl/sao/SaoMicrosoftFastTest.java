@@ -224,6 +224,7 @@ class SaoMicrosoftFastTest {
     private void manualSuccess(boolean premiumSlot, long cooldown) throws Exception {
         try (Fixture fixture = new Fixture(); SaoOathAccounts accounts = accounts(fixture)) {
             accounts.premiumLogin().get(5, TimeUnit.SECONDS);
+            assertEquals("Signed in", accounts.savedSkins().get(0).name());
             fixture.premiumSlot = premiumSlot; fixture.cooldown = cooldown;
             fixture.manual = true; fixture.skin = sampleSkin();
             fixture.previewCheck = () -> {
@@ -237,6 +238,7 @@ class SaoMicrosoftFastTest {
             assertEquals(premiumSlot ? "premium" : "own", fixture.choice);
             assertEquals(cooldown == 0 ? 1 : 0, fixture.refreshes.get());
             assertTrue(fixture.previewObserved.get());
+            assertEquals("Refreshed", accounts.savedSkins().get(0).name());
         }
     }
 
@@ -268,6 +270,7 @@ class SaoMicrosoftFastTest {
             accounts.logout(); fixture.skinRelease.countDown();
             assertThrows(ExecutionException.class, () -> sync.get(5, TimeUnit.SECONDS));
             assertNull(accounts.skin()); assertNull(accounts.microsoftIdentity().get());
+            assertTrue(accounts.savedSkins().isEmpty());
             assertEquals(0, fixture.uploads.get()); assertEquals(0, fixture.refreshes.get());
         }
     }
@@ -324,6 +327,10 @@ class SaoMicrosoftFastTest {
                         }
                         if (fixture.skinOffline) throw new java.io.IOException("Fixture offline");
                         return fixture.skin;
+                    }
+                    /// Supplies premium library pixels without filesystem or network source reads.
+                    public @Unmodifiable List<SaoPremiumSkins.Entry> library(@Nullable String name) throws Exception {
+                        return List.of(new SaoPremiumSkins.Entry(fixture.manual ? "Refreshed" : "Signed in", sampleSkin().png(), true));
                     }
                     /// Manual actions use only this stored fixture session, never session().
                     public @Nullable AuthInfo stored(@Nullable String name) { return fixture.stored ? fixture.auth : null; }

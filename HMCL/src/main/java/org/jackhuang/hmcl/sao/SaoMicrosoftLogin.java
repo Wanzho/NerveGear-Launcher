@@ -24,6 +24,14 @@ final class SaoMicrosoftLogin {
             public AuthInfo session() throws Exception { return SaoMicrosoftLogin.session(); }
             /// Reads an existing profile without network access or a login window.
             public @Nullable AuthInfo known() throws Exception { return SaoMicrosoftLogin.known(); }
+            /// Reads optional premium sources; missing or expired sessions still allow the local library.
+            public java.util.@org.jetbrains.annotations.Unmodifiable List<SaoPremiumSkins.Entry> library(@Nullable String name) {
+                @Nullable AuthInfo auth = null;
+                try { auth = stored(name); } catch (Exception ignored) { }
+                return SaoPremiumSkins.load(auth == null ? null : auth.getAccessToken(),
+                        SaoPremiumSkins.officialFile(System.getProperty("os.name"), java.nio.file.Path.of(System.getProperty("user.home")), System.getenv("APPDATA")),
+                        SaoMicrosoftSkin::download);
+            }
             /// Uses only the linked stored account, without renewal or interactive fallback.
             public @Nullable AuthInfo stored(@Nullable String name) throws Exception {
                 return name == null ? SaoMicrosoftLogin.known() : SaoMicrosoftLogin.available(name);

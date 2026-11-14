@@ -45,6 +45,8 @@ final class SaoOathAccounts implements AutoCloseable {
             @Nullable AuthInfo auth = known();
             return auth != null && (name == null || name.equalsIgnoreCase(auth.getUsername())) ? auth : null;
         }
+        /// Supplies premium library fixtures; production overrides this without interactive authentication.
+        default @org.jetbrains.annotations.Unmodifiable List<SaoPremiumSkins.Entry> library(@Nullable String name) throws Exception { return List.of(); }
         /// Fetches public cosmetics through the bounded Microsoft provider; fixtures never use public endpoints.
         default SaoMicrosoftSkin.@Nullable Skin skin(AuthInfo auth) throws Exception {
             return SaoMicrosoftSkin.fetch(auth.getAccessToken(), SaoMicrosoftSkin::download);
@@ -136,6 +138,10 @@ final class SaoOathAccounts implements AutoCloseable {
     private record GameRun(URI api, String id, SaoOathPlayTime.Run time) { }
     /// Latest immutable library snapshot, populated outside JavaFX callbacks.
     private volatile @org.jetbrains.annotations.Unmodifiable List<SaoData.SavedSkin> libraryEntries = List.of();
+    /// Premium cache association is memory-only and cleared on logout.
+    private volatile @org.jetbrains.annotations.Unmodifiable List<SaoData.SavedSkin> premiumEntries = List.of();
+    /// Deduplicated snapshot prepared on the worker before JavaFX publication.
+    private volatile @org.jetbrains.annotations.Unmodifiable List<SaoData.SavedSkin> visibleEntries = List.of();
     /// Mutable skin library backing the stable read-only view.
     private final ObservableList<SaoData.SavedSkin> saved = FXCollections.observableArrayList();
     /// Screen-facing stable read-only library.
@@ -201,7 +207,7 @@ final class SaoOathAccounts implements AutoCloseable {
         this.injector = new SaoOathInjector(root);
         this.playTime = new SaoOathPlayTime(root);
         this.library = new SaoOathSkins(root);
-        try { libraryEntries = library.list(); } catch (IOException ignored) { }
+        try { libraryEntries = library.list(); visibleEntries = libraryEntries; } catch (IOException ignored) { }
         publish(this::publishState);
         try {
             SaoOathCredentials.@Nullable Credential credential = credentials.read();
@@ -314,7 +320,7 @@ final class SaoOathAccounts implements AutoCloseable {
             if (failure.code().equals("textureSyncBusy"))
                 throw new SaoAccountException("皮肤正在同步，请稍后重试", failure.code());
             throw failure;
-        }
+        } finally { refreshPremiumLibrary(expected); }
     }); }
 
     /// Returns the protected remembered name from memory, or null.
@@ -693,6 +699,7 @@ final class SaoOathAccounts implements AutoCloseable {
 
     /// Removes only an owned per-user library entry and publishes the resulting list.
     void deleteSavedSkin(SaoData.SavedSkin skin) {
+        if (skin.premium()) return;
         synchronized (gate) {
         try { if (frozen) throw new IOException("启动器正在卸载"); SaoOathSkins storage = requireLibrary(); storage.delete(skin); publishLibrary(storage); }
         catch (IOException | SaoAccountException failure) { errors.accept("删除皮肤失败"); }
@@ -770,6 +777,7 @@ final class SaoOathAccounts implements AutoCloseable {
             current = new SaoData.OathAccount(name, id, optional(state, "maskedEmail") == null ? "" : Objects.requireNonNull(optional(state, "maskedEmail")),
                     state.get("emailVerified").getAsBoolean(), accountState.equals("lockedVerify"), Math.max(0, state.get("graceSeconds").getAsLong()), premiumName,
                     state.has("mustRename") && state.get("mustRename").getAsBoolean());
+            if (!knownLinked || premiumName == null) refreshPremiumLibrary(expected);
             premiumOnly = state.has("premiumOnly") && state.get("premiumOnly").getAsBoolean();
             profileCache = new SaoOathSkins(root, namespace(active.root()), active.id());
             boolean synchronize = premiumName != null && microsoftSkin != null && microsoftSkinPending;
@@ -887,6 +895,23 @@ final class SaoOathAccounts implements AutoCloseable {
         catch (SaoAccountException failure) { if (!failure.code().equals("invalidCredentials")) throw failure; }
     }
 
+    /// Refreshes optional sources only for a linked ARGUS session, fencing cache publication against logout.
+    private void refreshPremiumLibrary(long expected) {
+        SaoData.@Nullable OathAccount owner = current;
+        if (owner == null || owner.premiumName() == null) {
+            premiumEntries = List.of(); visibleEntries = libraryEntries; return;
+        }
+        try {
+            @org.jetbrains.annotations.Unmodifiable List<SaoPremiumSkins.Entry> entries = premium.library(owner.premiumName());
+            synchronized (gate) {
+                checkGeneration(expected);
+                if (current != owner) return;
+                premiumEntries = SaoPremiumSkins.cache(root, entries);
+                visibleEntries = SaoPremiumSkins.merge(libraryEntries, premiumEntries);
+            }
+        } catch (Exception ignored) { /* Optional library failure never reaches the account error channel. */ }
+    }
+
     /// Downloads and exposes Microsoft's preview before any ARGUS texture synchronization round trip.
     private void readMicrosoftSkin(AuthInfo microsoft) { readMicrosoftSkin(microsoft, generation.get()); }
 
@@ -981,7 +1006,7 @@ final class SaoOathAccounts implements AutoCloseable {
     /// Clears invalid credentials from protected storage, as required by an explicit forget or password change.
     private void forget() throws IOException { synchronized (gate) { credentials.delete(); remembered = null; } }
     /// Drops all ephemeral account/texture state without deleting an explicitly remembered password.
-    private void clear() { currentIdentity = null; currentLinking = SaoOathLinking.idle(); microsoftSkinPending = false; microsoftSkin = null; currentInherited = SaoTextureState.empty(); friends.session(null); session = null; current = null; currentCard = null; skin = null; slim = false; premiumOnly = false; profileCache = null; }
+    private void clear() { premiumEntries = List.of(); visibleEntries = libraryEntries; currentIdentity = null; currentLinking = SaoOathLinking.idle(); microsoftSkinPending = false; microsoftSkin = null; currentInherited = SaoTextureState.empty(); friends.session(null); session = null; current = null; currentCard = null; skin = null; slim = false; premiumOnly = false; profileCache = null; }
     /// Invalidates state from a launch-token check and publishes the signout.
     private void invalidSession() { clear(); publish(this::publishState); }
 
@@ -1056,14 +1081,15 @@ final class SaoOathAccounts implements AutoCloseable {
         account.set(current);
         inherited.set(currentInherited);
         card.set(currentCard);
-        saved.setAll(libraryEntries);
+        saved.setAll(visibleEntries);
     }
 
     /// Refreshes the per-user library view after a completed local file mutation.
     private void publishLibrary(SaoOathSkins storage) throws IOException {
         @org.jetbrains.annotations.Unmodifiable List<SaoData.SavedSkin> entries = storage.list();
         libraryEntries = entries;
-        publish(() -> { if (library == storage && !closed.get()) saved.setAll(entries); });
+        visibleEntries = SaoPremiumSkins.merge(entries, premiumEntries);
+        publish(() -> { if (library == storage && !closed.get()) saved.setAll(visibleEntries); });
     }
 
     /// Delivers callbacks on JavaFX, with an explicit headless-toolkit fallback.

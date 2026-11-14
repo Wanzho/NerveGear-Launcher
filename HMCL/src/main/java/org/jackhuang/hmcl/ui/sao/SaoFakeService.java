@@ -63,6 +63,7 @@ public final class SaoFakeService implements SaoLauncherService {
         // Nothing installed: 下载; a pretend pack: ready (forceReadiness shows the other states).
         installed.addListener((o, a, b) -> readiness.set(b == null ? NOT_DOWNLOADED : org.jackhuang.hmcl.sao.SaoReadiness.READY));
         oath.addListener((observable, previous, current) -> {
+            refreshPremiumLibrary();
             if (current == null || current.premiumName() == null) inherited.set(SaoTextureState.empty());
             else if (previous == null || previous.premiumName() == null) inherited.set(new SaoTextureState(true, "premium", "mojang", "premium", "mojang", appearanceSamples, System.currentTimeMillis(), 0, "synced"));
         });
@@ -797,8 +798,21 @@ public final class SaoFakeService implements SaoLauncherService {
         return CompletableFuture.completedFuture(null);
     }
 
+    /// Replaces two protected samples on account changes without touching the screen layout.
+    private void refreshPremiumLibrary() {
+        library.removeIf(SaoData.SavedSkin::premium);
+        SaoData.@Nullable OathAccount owner = oath.get();
+        if (owner == null || owner.premiumName() == null) return;
+        for (String key : List.of("premiumSkin", "ownSkin")) {
+            SaoTextureState.@Nullable Image sample = appearanceSamples.get(key);
+            if (sample != null) library.add(new SaoData.SavedSkin("正版 " + (key.equals("premiumSkin") ? "Slim" : "Classic"),
+                    Path.of(sample.url()), key.equals("premiumSkin"), 0, true));
+        }
+    }
+
     /// Models the manual action with a short delay and no account or network access for screenshots.
     @Override public CompletableFuture<Void> syncMicrosoftSkin() {
+        refreshPremiumLibrary();
         return CompletableFuture.runAsync(() -> { }, CompletableFuture.delayedExecutor(250, TimeUnit.MILLISECONDS));
     }
 
@@ -838,8 +852,10 @@ public final class SaoFakeService implements SaoLauncherService {
         }
     }
 
+    /// Keeps premium samples protected just like the production library.
     @Override
     public void deleteSavedSkin(SaoData.SavedSkin skin) {
+        if (skin.premium()) return;
         library.remove(skin);
     }
 
