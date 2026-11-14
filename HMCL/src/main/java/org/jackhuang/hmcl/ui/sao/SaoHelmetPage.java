@@ -25,6 +25,7 @@ import javafx.scene.SubScene;
 import javafx.application.Platform;
 import org.jackhuang.hmcl.ui.FXUtils;
 import javafx.scene.control.Button;
+import javafx.scene.control.Label;
 import javafx.scene.control.PasswordField;
 import javafx.scene.control.TextField;
 import javafx.scene.control.ToggleButton;
@@ -1831,16 +1832,27 @@ public final class SaoHelmetPage extends StackPane {
                 }
                 signedIn.getChildren().addAll(tiles, new VBox(2, last, total), friends);
             }
-            if (!a.emailVerified()) {
-                Text w = new Text(a.maskedEmail().isEmpty() ? "还没有邮箱，绑定后才能找回密码"
+            // A Microsoft-linked (正版) account signs in with Microsoft and has no password to recover: no mailbox nag
+            // (James, 14 Nov: "正版玩家不用提醒这个东西").
+            boolean premiumNoMail = a.premiumName() != null && a.maskedEmail().isEmpty();
+            if (!a.emailVerified() && !premiumNoMail) {
+                Label w = new Label(a.maskedEmail().isEmpty() ? "还没有邮箱，绑定后才能找回密码"
                         : a.locked() ? "邮箱没验证，验证后才能进游戏"
                         : "邮箱待验证 · 还剩 " + SaoAccountApp.hours(a.graceSeconds()));
-                w.getStyleClass().add("vr-warn");
+                w.getStyleClass().add("vr-warn-label");
                 SaoUiKit.font(w, 13, false);
+                // The text wraps and the link keeps its full width inside the panel (James, 14 Nov: "这东西怎么在外面").
+                w.setWrapText(true);
+                w.setMinWidth(0);
+                w.setMaxWidth(Double.MAX_VALUE);
+                HBox.setHgrow(w, Priority.ALWAYS);
                 Button go = bigLink(a.maskedEmail().isEmpty() ? "去设置" : "去验证",
                         () -> openAccount(a.maskedEmail().isEmpty() ? SaoAccountApp.Page.MANAGE : SaoAccountApp.Page.VERIFY));
-                HBox warnRow = new HBox(6, w, grow(), go);
+                go.setMinWidth(Region.USE_PREF_SIZE);
+                HBox warnRow = new HBox(6, w, go);
                 warnRow.setAlignment(Pos.CENTER_LEFT);
+                warnRow.setMinWidth(0);
+                warnRow.setMaxWidth(Double.MAX_VALUE);
                 signedIn.getChildren().add(warnRow);
             }
         }
