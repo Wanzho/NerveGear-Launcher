@@ -47,7 +47,7 @@ final class SaoFriends implements AutoCloseable {
     /// Reconnection loop owns a single stream; it cannot block mutations or JavaFX.
     private final ExecutorService live=Executors.newSingleThreadExecutor(r->{var t=new Thread(r,"argus-social-live");t.setDaemon(true);return t;});
     /// Live transport refuses all redirects, including same-origin redirects.
-    private final HttpClient http=HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).followRedirects(HttpClient.Redirect.NEVER).build();
+    private final HttpClient http = SaoAccountClient.sharedHttp();
     /// Count of successfully opened SSE connections, containing no player or message data.
     final AtomicLong liveConnections=new AtomicLong();
     /// Current subscription body, closed immediately on signout, endpoint switch or process shutdown.

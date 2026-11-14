@@ -24,6 +24,9 @@ class SaoOathUninstallTest {
     /// Only synthetic launcher roots are removed; no application package or native helper is executed.
     @TempDir Path temporary;
 
+    /// Resolves platform temp aliases before exercising production path hardening.
+    @org.junit.jupiter.api.BeforeEach void canonicalStorageRoot() throws Exception { temporary = temporary.toRealPath(); }
+
     /// Both native-preferred and fallback stores are forgotten before removal; late writes cannot recreate deleted roots.
     @Test void uninstallRemovesCredentialAndLibraryWithTerminalWriteFence() throws Exception {
         for (boolean nativeStore : new boolean[]{false, true}) {
