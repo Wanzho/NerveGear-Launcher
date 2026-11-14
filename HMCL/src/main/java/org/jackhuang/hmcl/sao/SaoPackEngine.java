@@ -342,11 +342,12 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
             oath = new SaoOathAccounts(accountRoot, root,
                     accountHooks == null ? this::accountEndpoint : accountHooks.endpoint(),
                     () -> production ? org.jackhuang.hmcl.util.i18n.I18n.getLocale().getLocale().toLanguageTag() : Locale.getDefault().toLanguageTag(), credentialStore,
-                    accountHooks == null ? SaoMicrosoftLogin::session : accountHooks.premium(),
+                    accountHooks == null ? SaoMicrosoftLogin.provider() : accountHooks.premium(),
                     accountHooks == null ? SaoAccountClient.originalMojangJoin() : accountHooks.mojangJoin(),
                     account -> linkStart(account, null), message -> publish(() -> error.set(message)));
         } catch (IOException failure) { throw new java.io.UncheckedIOException("Cannot initialize protected account storage", failure); }
         applyAccountPolicy(versionMetadata);
+        if (production && accountHooks == null && oath.rememberedName() == null) oath.restoreMicrosoft();
         remoteNews = online.cached();
         installer = new SaoPackInstaller(game.instanceDir(), new SaoPackInstaller.Downloader() {
             /// Downloads one dependency through the production mirror/hash path.
@@ -650,6 +651,14 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     @Override public CompletableFuture<Void> oathChangePassword(char[] password, char[] newPassword) { return oath.changePassword(password, newPassword); }
     /// {@inheritDoc}
     @Override public CompletableFuture<Void> oathLinkPremium() { return oath.linkPremium(); }
+    /// Displays Microsoft independently of ARGUS admission.
+    @Override public ReadOnlyObjectProperty<@Nullable SaoMicrosoftIdentity> microsoftIdentity() { return oath.microsoftIdentity(); }
+    /// Exposes background admission progress without changing the screen.
+    @Override public ReadOnlyObjectProperty<SaoOathLinking> oathLinking() { return oath.oathLinking(); }
+    /// Exposes the existing sign-in wait without changing screen components.
+    @Override public javafx.beans.property.ReadOnlyBooleanProperty oathLinkWaiting() { return oath.oathLinkWaiting(); }
+    /// Fences a cancelled background admission before late results arrive.
+    @Override public void cancelOathLinking() { oath.cancelMicrosoftLink(); }
     /// {@inheritDoc}
     @Override public CompletableFuture<Void> oathPremiumLogin() { return oath.premiumLogin(); }
     /// {@inheritDoc}

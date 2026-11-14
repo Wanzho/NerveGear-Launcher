@@ -686,6 +686,21 @@ public interface SaoLauncherService {
         return unsupported();
     }
 
+    /// Display-only Microsoft identity, available before ARGUS admission; null after cancellation/logout.
+    default ReadOnlyObjectProperty<@Nullable SaoMicrosoftIdentity> microsoftIdentity() {
+        return new javafx.beans.property.ReadOnlyObjectWrapper<@Nullable SaoMicrosoftIdentity>().getReadOnlyProperty();
+    }
+    /// ARGUS admission state; the screen may show the reason while displaying Microsoft's identity.
+    default ReadOnlyObjectProperty<SaoOathLinking> oathLinking() {
+        return new javafx.beans.property.ReadOnlyObjectWrapper<>(SaoOathLinking.idle()).getReadOnlyProperty();
+    }
+    /// True while Link Start is waiting for ARGUS; use the existing sign-in waiting presentation.
+    default javafx.beans.property.ReadOnlyBooleanProperty oathLinkWaiting() {
+        return new javafx.beans.property.ReadOnlyBooleanWrapper().getReadOnlyProperty();
+    }
+    /// Cancels background Microsoft-to-ARGUS admission and clears its display identity.
+    default void cancelOathLinking() { }
+
     /// Logs in to ARGUS ID with the signed-in Microsoft (正版) account, so signing in with Microsoft is signing in to
     /// ARGUS ID (James, 7 Nov: "这样直接登录微软也可以等于登录sao"): the ARGUS ID linked to it, or, the first time, a new
     /// ARGUS ID with the Microsoft name, linked to it. Fails with a message when that name belongs to another ARGUS ID

@@ -90,6 +90,12 @@ public final class MicrosoftAccount extends OAuthAccount {
         return session.profile().id();
     }
 
+    /// Returns the existing Minecraft session only while its provider expiry is still in the future.
+    /// This does not validate, refresh, open a browser, or change persisted account data.
+    public @org.jetbrains.annotations.Nullable AuthInfo validSession() {
+        return session.hasProfileName() && System.currentTimeMillis() < session.notAfter() ? session.toAuthInfo() : null;
+    }
+
     @Override
     public AuthInfo logIn() throws AuthenticationException {
         if (!authenticated || !session.hasProfileName() || System.currentTimeMillis() > session.notAfter()) {
