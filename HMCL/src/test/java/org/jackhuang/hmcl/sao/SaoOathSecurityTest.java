@@ -28,6 +28,9 @@ class SaoOathSecurityTest {
     /// Synthetic paths only; no real account, launcher root or external keychain item is selected.
     @TempDir Path temporary;
 
+    /// Resolves platform temp aliases before exercising production path hardening.
+    @org.junit.jupiter.api.BeforeEach void canonicalStorageRoot() throws Exception { temporary = temporary.toRealPath(); }
+
     /// Both remembered fields survive a store restart only as ciphertext; tampering and forgetting fail closed.
     @Test void encryptedFallbackRoundTripTamperAndForget() throws Exception {
         Path root = temporary.resolve("client");

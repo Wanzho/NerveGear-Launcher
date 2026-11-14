@@ -139,11 +139,36 @@ final class SaoSkinApp {
             }
         });
         HBox actions = new HBox(8, edit, apply);
+        // 同步正版皮肤 (James, 14 Nov: "add button to fetch skin aswell"): only for a Microsoft-linked account; takes the
+        // active skin from Microsoft again, puts it on ARGUS and shows it here.
+        Button syncPremium = button("同步正版皮肤");
+        syncPremium.setMaxWidth(Double.MAX_VALUE);
+        boolean linked = s.microsoftLinked();
+        syncPremium.setVisible(linked);
+        syncPremium.setManaged(linked);
+        syncPremium.setOnAction(e -> {
+            syncPremium.setDisable(true);
+            status.setText("正在从 Microsoft 同步…");
+            s.syncMicrosoftSkin().whenComplete((ok, err) -> javafx.application.Platform.runLater(() -> {
+                syncPremium.setDisable(false);
+                if (err != null) {
+                    status.setText("! " + message(err));
+                    return;
+                }
+                @org.jetbrains.annotations.Nullable Path worn = s.oathSkin() != null ? s.oathSkin() : s.skin();
+                if (worn != null) {
+                    view.snapshot();
+                    view.load(new javafx.scene.image.Image(worn.toUri().toString()), s.skinSlim());
+                    arms.selectToggle(s.skinSlim() ? slim : classic);
+                }
+                status.setText("已同步正版皮肤");
+            }));
+        });
         // The status line sits on the view's bottom edge, so the column fits the window (James, 8 Nov: "所有按键位置都是乱的").
         StackPane viewBox = new StackPane(view, status);
         StackPane.setAlignment(status, Pos.BOTTOM_LEFT);
         StackPane.setMargin(status, new Insets(0, 0, 8, 10));
-        VBox left = new VBox(8, viewBox, viewBar, actions);
+        VBox left = new VBox(8, viewBox, viewBar, actions, syncPremium);
         left.setMinWidth(Editor.wOf(view));
         left.setMaxWidth(Editor.wOf(view));
 

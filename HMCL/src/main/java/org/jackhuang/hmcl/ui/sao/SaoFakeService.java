@@ -39,6 +39,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import org.jackhuang.hmcl.sao.SaoAccountException;
 
 /// A stand-in engine for screen work before the real one is installed: Link Start plays a pretend install
@@ -794,6 +795,11 @@ public final class SaoFakeService implements SaoLauncherService {
         try { inherited.set(new SaoTextureState(true, selectedSkin, selectedCape, selectedSkin, selectedCape, appearanceSamples, old.lastRefresh(), old.refreshAfter(), old.status())); }
         catch (IllegalArgumentException invalid) { return CompletableFuture.failedFuture(new SaoAccountException("同步失败", "textureChoice")); }
         return CompletableFuture.completedFuture(null);
+    }
+
+    /// Models the manual action with a short delay and no account or network access for screenshots.
+    @Override public CompletableFuture<Void> syncMicrosoftSkin() {
+        return CompletableFuture.runAsync(() -> { }, CompletableFuture.delayedExecutor(250, TimeUnit.MILLISECONDS));
     }
 
     /// Completes a local refresh immediately and mirrors the server's five-minute manual cooldown.

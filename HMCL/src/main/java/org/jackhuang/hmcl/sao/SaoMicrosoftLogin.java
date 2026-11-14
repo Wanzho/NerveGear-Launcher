@@ -17,6 +17,58 @@ final class SaoMicrosoftLogin {
     /// Utility class.
     private SaoMicrosoftLogin() { }
 
+    /// Production provider exposes remembered identity before any credential refresh.
+    static SaoOathAccounts.PremiumProof provider() {
+        return new SaoOathAccounts.PremiumProof() {
+            /// Acquires a valid session without repeating a fresh login.
+            public AuthInfo session() throws Exception { return SaoMicrosoftLogin.session(); }
+            /// Reads an existing profile without network access or a login window.
+            public @Nullable AuthInfo known() throws Exception { return SaoMicrosoftLogin.known(); }
+            /// Uses only the linked stored account, without renewal or interactive fallback.
+            public @Nullable AuthInfo stored(@Nullable String name) throws Exception {
+                return name == null ? SaoMicrosoftLogin.known() : SaoMicrosoftLogin.available(name);
+            }
+        };
+    }
+
+    /// Finds the preferred stored Microsoft identity on JavaFX without authenticating it.
+    static @Nullable AuthInfo known() throws Exception {
+        CompletableFuture<@Nullable AuthInfo> result = new CompletableFuture<>();
+        try { Platform.runLater(() -> {
+            try {
+                if (Accounts.getSelectedAccount() instanceof MicrosoftAccount selected) result.complete(selected.playOffline());
+                else {
+                    for (Account account : Accounts.getAccounts()) if (account instanceof MicrosoftAccount microsoft) {
+                        result.complete(microsoft.playOffline()); return;
+                    }
+                    result.complete(null);
+                }
+            } catch (Exception failure) { result.completeExceptionally(failure); }
+        }); } catch (IllegalStateException noToolkit) { return null; }
+        return result.get();
+    }
+
+    /// Reuses an unexpired provider session, including one just installed by the DONE flow.
+    static AuthInfo reuse(MicrosoftAccount account) throws Exception {
+        @Nullable AuthInfo fresh = account.validSession();
+        return fresh != null ? fresh : account.logIn();
+    }
+
+    /// Reads only an already stored matching session; never opens login UI or refreshes credentials.
+    static @Nullable AuthInfo available(String name) throws Exception {
+        CompletableFuture<@Nullable AuthInfo> result = new CompletableFuture<>();
+        try { Platform.runLater(() -> {
+            try {
+                for (Account account : Accounts.getAccounts())
+                    if (account instanceof MicrosoftAccount microsoft && microsoft.getProfileName().equalsIgnoreCase(name)) {
+                        result.complete(microsoft.playOffline()); return;
+                    }
+                result.complete(null);
+            } catch (Exception failure) { result.completeExceptionally(failure); }
+        }); } catch (IllegalStateException noToolkit) { return null; }
+        return result.get();
+    }
+
     /// Runs on the account worker; selected or existing Microsoft accounts are preferred over a new sign-in.
     static AuthInfo session() throws Exception {
         CompletableFuture<AuthInfo> result = new CompletableFuture<>();
@@ -26,7 +78,7 @@ final class SaoMicrosoftLogin {
             if (microsoft != null) {
                 MicrosoftAccount existing = microsoft;
                 CompletableFuture.runAsync(() -> {
-                    try { result.complete(existing.logIn()); }
+                    try { result.complete(reuse(existing)); }
                     catch (Exception failure) { Platform.runLater(() -> showLogin(existing, result)); }
                 });
             } else showLogin(null, result);
@@ -47,7 +99,7 @@ final class SaoMicrosoftLogin {
                 return;
             }
             CompletableFuture.runAsync(() -> {
-                try { result.complete(account.logIn()); }
+                try { result.complete(reuse(account)); }
                 catch (Exception failure) { result.completeExceptionally(failure); }
             });
         }, message -> result.completeExceptionally(new SaoAccountException(message, "microsoftLoginFailed")));

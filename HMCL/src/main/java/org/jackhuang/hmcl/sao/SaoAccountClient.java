@@ -29,9 +29,11 @@ final class SaoAccountClient {
     static final String DEFAULT_API = "https://auth.saooath.com:61784/";
     /// Largest accepted JSON or texture response.
     private static final int MAX_RESPONSE = 1024 * 1024;
-    /// Client does not share HMCL's logged request helpers or follow redirects.
-    private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10))
+    /// Process-shared keep-alive client for ARGUS JSON, images and social streams; never follows redirects.
+    private static final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10))
             .followRedirects(HttpClient.Redirect.NEVER).build();
+    /// Shares the same pool with the long-lived social stream without installing global authorization headers.
+    static HttpClient sharedHttp() { return http; }
     /// The current configured endpoint is resolved when an operation begins.
     private final Supplier<URI> endpoint;
     /// The launcher's current locale, normalized for the server.
@@ -212,6 +214,7 @@ final class SaoAccountClient {
 
     /// Executes one request with fixed timeouts and a streaming cap, exposing only curated public failures.
     private byte[] request(URI target, String method, @Nullable byte[] body, String contentType, @Nullable String bearer) throws SaoAccountException {
+        long started = System.nanoTime();
         try {
             HttpRequest.Builder builder = HttpRequest.newBuilder(target).timeout(Duration.ofSeconds(20))
                     .header("Accept-Language", language()).header("Accept", "application/json,image/png");
@@ -232,6 +235,21 @@ final class SaoAccountClient {
         } catch (SaoAccountException failure) { throw failure; }
         catch (InterruptedException failure) { Thread.currentThread().interrupt(); throw new SaoAccountException("账号操作已取消", "cancelled"); }
         catch (IOException | RuntimeException failure) { throw new SaoAccountException("连接账号服务器失败", "network"); }
+        finally { SaoLoginSteps.elapsed(timingStep(target.getPath()), started); }
+    }
+
+    /// Uses only a fixed route label; paths can otherwise contain player identifiers or names.
+    private static String timingStep(String path) {
+        if (path.contains("/session/minecraft/join")) return "mojang-join";
+        if (path.contains("/session/minecraft/profile/")) return "skin-profile";
+        if (path.contains("/textures/")) return "texture-image";
+        for (String route : java.util.List.of("challenge", "complete", "login"))
+            if (path.endsWith("/sao/premium/" + route)) return "premium-" + route;
+        if (path.endsWith("/sao/account")) return "account-state";
+        if (path.endsWith("/sao/card")) return "player-card";
+        if (path.endsWith("/sao/textures")) return "textures";
+        if (path.contains("/sao/social/")) return "social";
+        return "account-http";
     }
 
     /// Translates only known messages; arbitrary server/provider text and submitted fields never reach the screen.

@@ -252,6 +252,13 @@ public final class SaoHelmetPage extends StackPane {
                 if (n == owner) return;
             requestFocus();
         });
+        // Microsoft first, ARGUS behind it (James, 14 Nov: "可以先直连微软吗"): while ARGUS links, the status line says so.
+        service.oathLinking().addListener((o, was, now) -> Platform.runLater(() -> {
+            String linking = now.reason().isEmpty() ? "正在连接 ARGUS…" : now.reason();
+            if (now.kind() == org.jackhuang.hmcl.sao.SaoOathLinking.Kind.LINKING) problem.setText(linking);
+            else if (now.kind() == org.jackhuang.hmcl.sao.SaoOathLinking.Kind.LINKED
+                    && (problem.getText().startsWith("正在连接") || problem.getText().startsWith("正在用 Microsoft"))) problem.setText("");
+        }));
         org.jackhuang.hmcl.sao.SaoMicrosoftFlow.setPresenter(flow -> {
             boolean[] first = {true};
             openMicrosoft(() -> {
