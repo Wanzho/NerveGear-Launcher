@@ -157,9 +157,13 @@ final class SaoPackApp {
         Text status = SaoMotion.report(ink("", 13.5));
         // Done (已安装, 已就绪) lands with a glow, once per change (James, 14 Nov: "成功等").
         boolean[] wasOk = {false};
-        status.setWrappingWidth(SaoApps.W - 70);
+        status.setWrappingWidth(SaoApps.W - 110);
         StackPane statusBar = bar(SaoApps.W - 40, 0);
-        VBox statusBox = SaoMotion.revealOne(new VBox(6, status, statusBar));
+        // The share done, at the row's right end (James, 14 Nov: "至少进度条带个%吧").
+        Text percent = sao("", 13.5, false);
+        HBox statusRow = new HBox(8, status, grow(), percent);
+        statusRow.setAlignment(Pos.BASELINE_LEFT);
+        VBox statusBox = SaoMotion.revealOne(new VBox(6, statusRow, statusBar));
 
         VBox checks = SaoMotion.reveal(new VBox(6));
 
@@ -269,6 +273,7 @@ final class SaoPackApp {
             statusBar.setVisible(busy);
             statusBar.setManaged(busy);
             if (busy) setBar(statusBar, amount);
+            percent.setText(busy && amount >= 0 ? Math.round(Math.min(1, amount) * 100) + "%" : "");
             statusBox.setVisible(!st.isEmpty());
             statusBox.setManaged(statusBox.isVisible());
 
