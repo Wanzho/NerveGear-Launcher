@@ -132,7 +132,10 @@ public final class SaoHelmetPage extends StackPane {
     /// Switches for measuring what each moving part costs (-Dsao.glint=over|add|off, -Dsao.breathe=false,
     /// -Dsao.sway=false); the defaults are the look James approved.
     private static final String GLINT_MODE = System.getProperty("sao.glint", "over");
-    private static final boolean BREATHE = !"false".equals(System.getProperty("sao.breathe"));
+    /// Off since 14 Nov (James: "呼吸很奇怪，还是最好跟着鼠标来吧"); -Dsao.breathe=true brings it back.
+    private static final boolean BREATHE = "true".equals(System.getProperty("sao.breathe"));
+    /// How fast the view follows the mouse: the gap closes by 1 - e^(-dt / FOLLOW_S), a spring with no overshoot.
+    private static final double FOLLOW_S = 0.16;
     static final boolean SWAY = !"false".equals(System.getProperty("sao.sway"));
     /// The reflection texture under `/assets/sao-launcher/glint/` (-Dsao.glintTex=double|corner|arc): soft sheens on
     /// the glass and a faint rim along its edge, outshone over the lit plates so their text reads as before.
@@ -192,6 +195,8 @@ public final class SaoHelmetPage extends StackPane {
 
     /// Mouse position in parts of the window, -0.5 to 0.5, and its smoothed follow.
     private double headX, headY, lookX, lookY;
+    /// The time of the last frame, for the follow spring.
+    private double lastFrameT = -1;
     /// Whether the display is on.
     private boolean poweredOn;
 
@@ -270,6 +275,14 @@ public final class SaoHelmetPage extends StackPane {
                 return service.microsoftSignIn();
             });
         });
+        // The head follows the mouse (James, 14 Nov), measured from the page centre, -0.5..0.5 on each axis; drags
+        // (window, character) count too, so the view never jumps when a drag ends.
+        javafx.event.EventHandler<MouseEvent> look = e -> {
+            headX = Math.max(-0.5, Math.min(0.5, e.getX() / Math.max(1, getWidth()) - 0.5));
+            headY = Math.max(-0.5, Math.min(0.5, e.getY() / Math.max(1, getHeight()) - 0.5));
+        };
+        addEventFilter(MouseEvent.MOUSE_MOVED, look);
+        addEventFilter(MouseEvent.MOUSE_DRAGGED, look);
         String css = Objects.requireNonNull(SaoHelmetPage.class.getResource("/assets/css/sao.css")).toExternalForm();
         getStylesheets().add(css);
         // A SubScene does not inherit the page's stylesheets: the space carries its own.
@@ -1447,8 +1460,16 @@ public final class SaoHelmetPage extends StackPane {
 
         // The head turns about the eye: the space moves the other way, near windows more than far ones.
         double eye = -(h / 2.0) / Math.tan(HALF_FOV) / s;
-        // James, 8 Nov: "为什么要乱晃" / "模拟呼吸不是这么模拟的". The view no longer follows the mouse or drifts
-        // on two axes. It only breathes: a slow vertical rise and fall, inhale quicker than exhale, then a short rest.
+        // James, 14 Nov: "呼吸很奇怪，还是最好跟着鼠标来吧": the head follows the mouse again, with the 8 Nov rule kept
+        // ("为什么要乱晃"): it moves only when the mouse moves, eases there like a spring and stops dead when the mouse
+        // stops. No drift of its own.
+        double dt = lastFrameT < 0 ? 0 : Math.max(0, Math.min(0.1, t - lastFrameT));
+        lastFrameT = t;
+        double follow = 1 - Math.exp(-dt / FOLLOW_S);
+        lookX += (headX - lookX) * follow;
+        lookY += (headY - lookY) * follow;
+        if (Math.abs(headX - lookX) < 1e-4) lookX = headX;
+        if (Math.abs(headY - lookY) < 1e-4) lookY = headY;
         // Only the finished picture moves (James, 8 Nov: "请优化"): the space stays still, so JavaFX keeps its 3D
         // render and only shifts it, in whole screen pixels so the text stays sharp.
         world.setTranslateY(BREATHE ? Math.round(s * BREATH_PX * breath(t) * k) / k : 0);
