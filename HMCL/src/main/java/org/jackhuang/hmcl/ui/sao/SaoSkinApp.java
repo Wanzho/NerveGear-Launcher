@@ -143,9 +143,16 @@ final class SaoSkinApp {
         // active skin from Microsoft again, puts it on ARGUS and shows it here.
         Button syncPremium = button("同步正版皮肤");
         syncPremium.setMaxWidth(Double.MAX_VALUE);
-        boolean linked = s.microsoftLinked();
-        syncPremium.setVisible(linked);
-        syncPremium.setManaged(linked);
+        // Only a signed-in ARGUS account that is linked to Microsoft (正版); never offline or non-premium players
+        // (James, 14 Nov: "这个按钮别给离线玩家/非正版玩家显示"). Follows sign-in and sign-out while the window is open.
+        Runnable premiumOnly = () -> {
+            SaoData.@Nullable OathAccount a = s.oathAccount().get();
+            boolean premium = a != null && a.premiumName() != null;
+            syncPremium.setVisible(premium);
+            syncPremium.setManaged(premium);
+        };
+        premiumOnly.run();
+        s.oathAccount().addListener((o, was, now) -> premiumOnly.run());
         syncPremium.setOnAction(e -> {
             syncPremium.setDisable(true);
             status.setText("正在从 Microsoft 同步…");
