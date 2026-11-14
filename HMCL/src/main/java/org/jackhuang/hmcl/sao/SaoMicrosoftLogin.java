@@ -17,6 +17,21 @@ final class SaoMicrosoftLogin {
     /// Utility class.
     private SaoMicrosoftLogin() { }
 
+    /// Reads only an already stored matching session; never opens login UI or refreshes credentials.
+    static @Nullable AuthInfo available(String name) throws Exception {
+        CompletableFuture<@Nullable AuthInfo> result = new CompletableFuture<>();
+        try { Platform.runLater(() -> {
+            try {
+                for (Account account : Accounts.getAccounts())
+                    if (account instanceof MicrosoftAccount microsoft && microsoft.getProfileName().equalsIgnoreCase(name)) {
+                        result.complete(microsoft.playOffline()); return;
+                    }
+                result.complete(null);
+            } catch (Exception failure) { result.completeExceptionally(failure); }
+        }); } catch (IllegalStateException noToolkit) { return null; }
+        return result.get();
+    }
+
     /// Runs on the account worker; selected or existing Microsoft accounts are preferred over a new sign-in.
     static AuthInfo session() throws Exception {
         CompletableFuture<AuthInfo> result = new CompletableFuture<>();

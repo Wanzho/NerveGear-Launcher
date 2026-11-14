@@ -36,7 +36,7 @@ final class SaoOathAccounts implements AutoCloseable {
     @FunctionalInterface
     @NotNullByDefault
     interface PremiumProof {
-        /// Returns the original Microsoft session; its access token is sent only to the original Mojang join endpoint.
+        /// Returns the original Microsoft session; its access token is used only for Mojang proof and the Microsoft profile API.
         AuthInfo session() throws Exception;
     }
 
@@ -120,6 +120,10 @@ final class SaoOathAccounts implements AutoCloseable {
     private volatile @Nullable String remembered;
     /// Current server-profile skin; cleared immediately when the account changes or signs out.
     private volatile @Nullable Path skin;
+    /// Last Microsoft preview for this login; contains public image data only.
+    private volatile SaoMicrosoftSkin.@Nullable Skin microsoftSkin;
+    /// Allows server synchronization only after a successful fetch in this operation.
+    private boolean microsoftSkinPending;
     /// Arm model read from the current server profile texture metadata.
     private volatile boolean slim;
     /// Whether the signed-in account is passwordless (created by Microsoft sign-in); it proves Microsoft ownership
@@ -368,7 +372,9 @@ final class SaoOathAccounts implements AutoCloseable {
     CompletableFuture<Void> premiumLogin() {
         return submit(() -> {
             clear();
-            JsonObject proof = premiumProof(premium.session());
+            AuthInfo microsoft = premium.session();
+            JsonObject proof = premiumProof(microsoft);
+            readMicrosoftSkin(microsoft);
             JsonObject body = object("premiumToken", required(proof, "premiumToken"), "clientToken", UUID.randomUUID().toString());
             try { accept(client.json("POST", "sao/premium/login", body, null)); }
             finally { body.remove("premiumToken"); }
@@ -376,7 +382,7 @@ final class SaoOathAccounts implements AutoCloseable {
         });
     }
 
-    /// Keeps Microsoft session credentials exclusively on the original Mojang join exchange.
+    /// Sends ownership credentials only to the original Mojang join exchange.
     private JsonObject premiumProof(AuthInfo microsoft) throws SaoAccountException {
         JsonObject challenge = client.json("POST", "sao/premium/challenge", object("username", microsoft.getUsername()), null);
         JsonObject join = object("accessToken", microsoft.getAccessToken(), "selectedProfile", microsoft.getUUID().toString().replace("-", ""),
@@ -574,17 +580,34 @@ final class SaoOathAccounts implements AutoCloseable {
     private void refresh() throws Exception {
         try {
             Session active = requireSession();
+            boolean knownLinked = current != null && current.premiumName() != null;
+            if (knownLinked) {
+                microsoftSkinPending = false;
+                try {
+                    @Nullable AuthInfo microsoft = SaoMicrosoftLogin.available(Objects.requireNonNull(Objects.requireNonNull(current).premiumName()));
+                    if (microsoft != null) readMicrosoftSkin(microsoft);
+                } catch (Exception unavailable) { SaoMicrosoftSkin.failed(); }
+            }
             JsonObject state = client.json("GET", "sao/account", null, active.access());
             String id = required(state, "id"); String name = required(state, "name");
             if (!id.equalsIgnoreCase(active.id()) || !name.equals(active.name())) throw new SaoAccountException("账号状态已改变，请重新登录", "invalidSession");
             String accountState = required(state, "state");
             if (!accountState.equals("ready") && !accountState.equals("lockedVerify")) throw new SaoAccountException("账号状态无效", "invalidResponse");
             @Nullable String premiumName = optional(state, "premiumName");
+            if (premiumName == null) { microsoftSkin = null; microsoftSkinPending = false; }
+            if (!knownLinked && premiumName != null && microsoftSkin == null) {
+                try {
+                    @Nullable AuthInfo microsoft = SaoMicrosoftLogin.available(premiumName);
+                    if (microsoft != null) readMicrosoftSkin(microsoft);
+                } catch (Exception unavailable) { SaoMicrosoftSkin.failed(); }
+            }
             current = new SaoData.OathAccount(name, id, optional(state, "maskedEmail") == null ? "" : Objects.requireNonNull(optional(state, "maskedEmail")),
                     state.get("emailVerified").getAsBoolean(), accountState.equals("lockedVerify"), Math.max(0, state.get("graceSeconds").getAsLong()), premiumName,
                     state.has("mustRename") && state.get("mustRename").getAsBoolean());
             premiumOnly = state.has("premiumOnly") && state.get("premiumOnly").getAsBoolean();
             profileCache = new SaoOathSkins(root, namespace(active.root()), active.id());
+            if (premiumName != null && microsoftSkin != null && microsoftSkinPending) syncMicrosoftSkin(active, microsoftSkin);
+            microsoftSkinPending = false;
             refreshSkin(active);
             refreshInheritedState(active);
             refreshCardNow();
@@ -679,6 +702,35 @@ final class SaoOathAccounts implements AutoCloseable {
         catch (SaoAccountException failure) { if (!failure.code().equals("invalidCredentials")) throw failure; }
     }
 
+    /// Downloads and exposes Microsoft's preview before any ARGUS texture synchronization round trip.
+    private void readMicrosoftSkin(AuthInfo microsoft) {
+        try {
+            SaoMicrosoftSkin.@Nullable Skin fetched = SaoMicrosoftSkin.fetch(microsoft.getAccessToken(), SaoMicrosoftSkin::download);
+            if (fetched == null) { SaoMicrosoftSkin.failed(); return; }
+            SaoOathSkins cache = new SaoOathSkins(root, namespace(URI.create("https://api.minecraftservices.com/")),
+                    microsoft.getUUID().toString().replace("-", ""));
+            cache.current(fetched.png());
+            microsoftSkinPending = true;
+            microsoftSkin = fetched; slim = fetched.slim(); skin = cache.current();
+        } catch (Exception unavailable) { SaoMicrosoftSkin.failed(); }
+    }
+
+    /// Preserves own slots and treats unsupported/failed state reads as unknown, never as empty.
+    private void syncMicrosoftSkin(Session active, SaoMicrosoftSkin.Skin fetched) {
+        try {
+            SaoMicrosoftSkin.sync(fetched, () -> { }, new SaoMicrosoftSkin.Target() {
+                /// Reads fresh slots from the authenticated account.
+                public SaoTextureState state() throws Exception { return client.inheritedTextures(active.root(), active.access()); }
+                /// Selects the server's inherited premium slot.
+                public void premium() throws Exception { currentInherited = client.textureChoices(active.root(), "premium", null, active.access()); }
+                /// Reuses the existing upload transport and model semantics.
+                public void upload(byte[] png, boolean model) throws Exception { client.skin(active.id(), png, model, active.access()); }
+                /// Lets the server fetch all cape providers asynchronously.
+                public void refresh() throws Exception { currentInherited = client.refreshInheritedTextures(active.root(), active.access()); }
+            });
+        } catch (Exception unavailable) { SaoMicrosoftSkin.failed(); }
+    }
+
     /// Downloads only an API-origin texture declared by the current profile; association removal clears the cache.
     private void refreshSkin(Session active) throws Exception {
         JsonObject profile = client.jsonAt(active.root(), "GET", "sessionserver/session/minecraft/profile/" + active.id() + "?unsigned=false", null, null);
@@ -699,6 +751,7 @@ final class SaoOathAccounts implements AutoCloseable {
             }
         }
         SaoOathSkins storage = Objects.requireNonNull(profileCache);
+        if (texture == null && microsoftSkin != null) return;
         storage.current(texture == null ? null : client.textureAt(active.root(), texture));
         skin = storage.current(); slim = texture != null && modelSlim;
     }
@@ -721,7 +774,7 @@ final class SaoOathAccounts implements AutoCloseable {
     /// Clears invalid credentials from protected storage, as required by an explicit forget or password change.
     private void forget() throws IOException { synchronized (gate) { credentials.delete(); remembered = null; } }
     /// Drops all ephemeral account/texture state without deleting an explicitly remembered password.
-    private void clear() { currentInherited = SaoTextureState.empty(); friends.session(null); session = null; current = null; currentCard = null; skin = null; slim = false; premiumOnly = false; profileCache = null; }
+    private void clear() { microsoftSkinPending = false; microsoftSkin = null; currentInherited = SaoTextureState.empty(); friends.session(null); session = null; current = null; currentCard = null; skin = null; slim = false; premiumOnly = false; profileCache = null; }
     /// Invalidates state from a launch-token check and publishes the signout.
     private void invalidSession() { clear(); publish(this::publishState); }
 
