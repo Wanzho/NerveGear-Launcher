@@ -1024,7 +1024,8 @@ public final class SaoScreenShotTool {
             f.setText("starburst");
         }));
         click(a, sc, 4300, () -> button(pg, "登录"));
-        film(sc, out.resolve("01-login"), 10500, a);
+        if (!"skin".equals(System.getenv("SAO_MOTION_ONLY"))) film(sc, out.resolve("01-login"), 10500, a);
+        else { fx(() -> { fake.loginDelayMs = 0; fake.oathLogin("Kirito_07", "starburst".toCharArray(), true); }); Thread.sleep(2500); }
 
         // 2. A window: the 设置 dock button, the window flies in and its content comes in after the glass, a switch
         // flips twice, the window goes.
@@ -1040,11 +1041,22 @@ public final class SaoScreenShotTool {
         click(b, sc, 2600, toggle);
         click(b, sc, 3900, toggle);
         b.add(new Cue(5600, pg::debugCloseApp));
-        film(sc, out.resolve("02-window"), 7600, b);
+        if (!"skin".equals(System.getenv("SAO_MOTION_ONLY"))) film(sc, out.resolve("02-window"), 7600, b);
 
         // 3. 微软正版登录: opens, browser, signing in, done (the tick glows), closes by itself.
         java.util.List<Cue> c = new java.util.ArrayList<>();
         c.add(new Cue(500, () -> pg.openMicrosoft(fake::microsoftSignIn)));
-        film(sc, out.resolve("03-microsoft"), 8200, c);
+        if (!"skin".equals(System.getenv("SAO_MOTION_ONLY"))) film(sc, out.resolve("03-microsoft"), 8200, c);
+
+        // 4. The skin changes twice (the band of light runs down the figure), then the same skin comes back on a refresh
+        // (nothing plays).
+        Path kai = Files.createTempFile("sao-motion-kai-", ".png"), noor = Files.createTempFile("sao-motion-noor-", ".png");
+        try (var in = SaoScreenShotTool.class.getResourceAsStream("/assets/img/skin/wide/kai.png")) { Files.copy(in, kai, java.nio.file.StandardCopyOption.REPLACE_EXISTING); }
+        try (var in = SaoScreenShotTool.class.getResourceAsStream("/assets/img/skin/slim/noor.png")) { Files.copy(in, noor, java.nio.file.StandardCopyOption.REPLACE_EXISTING); }
+        java.util.List<Cue> d = new java.util.ArrayList<>();
+        d.add(new Cue(600, () -> { fake.setSkin(kai, false); pg.debugRefreshAccount(); }));
+        d.add(new Cue(2400, () -> { fake.setSkin(noor, true); pg.debugRefreshAccount(); }));
+        d.add(new Cue(4200, pg::debugRefreshAccount));
+        film(sc, out.resolve("04-skin"), 5600, d);
     }
 }

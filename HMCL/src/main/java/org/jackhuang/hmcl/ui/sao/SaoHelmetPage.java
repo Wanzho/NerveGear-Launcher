@@ -1697,6 +1697,11 @@ public final class SaoHelmetPage extends StackPane {
     }
 
     /// The screenshot tool: closes the app in front.
+    /// For the screenshot tool: the account panel again, as after a service event.
+    void debugRefreshAccount() {
+        refreshAccount();
+    }
+
     void debugCloseApp() {
         closeApp();
     }
@@ -2432,6 +2437,7 @@ public final class SaoHelmetPage extends StackPane {
 
         /// Stops the sway while nobody can see it.
         void pause() {
+            if (band != null) band.finish();
             canvas.getAnimationPlayer().stop();
         }
 
@@ -2445,9 +2451,154 @@ public final class SaoHelmetPage extends StackPane {
         /// @param png    the skin file, or null
         /// @param isSlim Slim arms
         void show(@Nullable Path png, boolean isSlim) {
+            String key = skinKey(png, isSlim);
+            if (key.equals(shownKey)) return;
+            boolean first = shownKey == null;
+            shownKey = key;
             Image img = png == null ? TexturesLoader.getDefaultSkinImage() : new Image(png.toUri().toString());
             if (img.isError()) img = TexturesLoader.getDefaultSkinImage();
-            canvas.updateSkin(img, isSlim, null);
+            Image skinImage = img;
+            if (first || !SaoMotion.on() || getScene() == null || !isVisible() || getWidth() <= 0) {
+                if (band != null) band.finish();
+                canvas.updateSkin(skinImage, isSlim, null);
+                return;
+            }
+            if (band != null) band.finish();
+            band = new SkinBand(skinImage, isSlim);
+        }
+
+        /// What the preview shows: the file's bytes (not its name or date) and the arm model; a refresh that brings the same
+        /// skin back changes nothing and plays nothing.
+        @Nullable private String shownKey;
+
+        private static String skinKey(@Nullable Path png, boolean isSlim) {
+            String what = "default";
+            if (png != null) {
+                try {
+                    java.util.zip.CRC32 crc = new java.util.zip.CRC32();
+                    crc.update(java.nio.file.Files.readAllBytes(png));
+                    what = Long.toHexString(crc.getValue());
+                } catch (java.io.IOException e) {
+                    what = png.toString();
+                }
+            }
+            return what + (isSlim ? "/slim" : "/wide");
+        }
+
+        @Nullable private SkinBand band;
+
+        /// The skin change of our Progressive opening (FilmLoginFigure, the character-creation pick): a band of warm light
+        /// runs down the figure from the head to the feet, and every texel it passes takes the new skin. Same law: the band
+        /// is .22 of the figure's height, the change runs at a constant rate (.52 s, as the arrival's), each pixel crosses
+        /// with smoothstep, and the band's middle shines up to .8 toward (255, 246, 214). Drawn on two pictures of the
+        /// model (before and after), with the sway held for the moment so the two match.
+        private final class SkinBand extends AnimationTimer {
+            static final double BAND = .22, TIME = .52, SHINE = .8;
+            private final int w, h, top, bottom;
+            private final int[] from, to, out;
+            private final javafx.scene.image.WritableImage picture;
+            private final ImageView view;
+            private final boolean swaying;
+            private long start = -1;
+            private boolean done;
+
+            SkinBand(Image skin, boolean isSlim) {
+                double scale = getScene().getWindow() != null ? getScene().getWindow().getOutputScaleX() : 1;
+                swaying = canvas.getAnimationPlayer().isRunning();
+                if (swaying) canvas.getAnimationPlayer().stop();
+                javafx.scene.SnapshotParameters sp = new javafx.scene.SnapshotParameters();
+                sp.setFill(Color.TRANSPARENT);
+                sp.setTransform(javafx.scene.transform.Transform.scale(scale, scale));
+                javafx.scene.image.WritableImage before = canvas.snapshot(sp, null);
+                canvas.updateSkin(skin, isSlim, null);
+                javafx.scene.image.WritableImage after = canvas.snapshot(sp, null);
+                w = (int) Math.min(before.getWidth(), after.getWidth());
+                h = (int) Math.min(before.getHeight(), after.getHeight());
+                from = new int[w * h];
+                to = new int[w * h];
+                out = new int[w * h];
+                javafx.scene.image.WritablePixelFormat<java.nio.IntBuffer> fmt = javafx.scene.image.PixelFormat.getIntArgbInstance();
+                before.getPixelReader().getPixels(0, 0, w, h, fmt, from, 0, w);
+                after.getPixelReader().getPixels(0, 0, w, h, fmt, to, 0, w);
+                // the figure's own height (head to feet, both skins), so the band runs over the figure and not the stage
+                int t = h, b = -1;
+                for (int y = 0; y < h; y++)
+                    for (int x = 0; x < w; x++)
+                        if ((from[y * w + x] >>> 24) > 8 || (to[y * w + x] >>> 24) > 8) {
+                            if (y < t) t = y;
+                            b = y;
+                            break;
+                        }
+                top = t;
+                bottom = Math.max(b, t + 1);
+                picture = new javafx.scene.image.WritableImage(w, h);
+                view = new ImageView(picture);
+                view.setFitWidth(w / scale);
+                view.setFitHeight(h / scale);
+                view.setManaged(false);
+                view.relocate(canvas.getBoundsInParent().getMinX(), canvas.getBoundsInParent().getMinY());
+                paint(0);
+                getChildren().add(view);
+                canvas.setOpacity(0);
+                start();
+            }
+
+            @Override
+            public void handle(long now) {
+                if (start < 0) start = now;
+                double c = (now - start) / 1e9 / TIME;
+                if (c >= 1) {
+                    finish();
+                    return;
+                }
+                paint(c);
+            }
+
+            /// One moment of the change, c from 0 to 1.
+            private void paint(double c) {
+                double front = -BAND + c * (1 + 2 * BAND), span = bottom - top;
+                for (int y = 0; y < h; y++) {
+                    double s = (y - top) / span;
+                    double k = (front - s) / BAND * .5 + .5;
+                    k = k < 0 ? 0 : k > 1 ? 1 : k;
+                    k = k * k * (3 - 2 * k);
+                    double shine = (1 - Math.abs(2 * k - 1)) * SHINE;
+                    int row = y * w;
+                    for (int x = 0; x < w; x++) {
+                        int a = from[row + x], z = to[row + x];
+                        int argb = k >= 1 ? z : k <= 0 ? a : blend(a, z, k);
+                        if (shine > 0 && (argb >>> 24) > 0) {
+                            int r = argb >> 16 & 255, g = argb >> 8 & 255, bl = argb & 255;
+                            r += (int) Math.round((255 - r) * shine);
+                            g += (int) Math.round((246 - g) * shine);
+                            bl += (int) Math.round((214 - bl) * shine);
+                            argb = argb & 0xff000000 | r << 16 | g << 8 | bl;
+                        }
+                        out[row + x] = argb;
+                    }
+                }
+                picture.getPixelWriter().setPixels(0, 0, w, h, javafx.scene.image.PixelFormat.getIntArgbInstance(), out, 0, w);
+            }
+
+            private int blend(int a, int b, double k) {
+                double aa = (a >>> 24) * (1 - k), ba = (b >>> 24) * k, sum = aa + ba;
+                if (sum <= 0) return 0;
+                int r = (int) Math.round(((a >> 16 & 255) * aa + (b >> 16 & 255) * ba) / sum);
+                int g = (int) Math.round(((a >> 8 & 255) * aa + (b >> 8 & 255) * ba) / sum);
+                int bl = (int) Math.round(((a & 255) * aa + (b & 255) * ba) / sum);
+                return (int) Math.round(Math.min(255, sum)) << 24 | r << 16 | g << 8 | bl;
+            }
+
+            /// Ends at once: the real model again, swaying as before.
+            void finish() {
+                if (done) return;
+                done = true;
+                stop();
+                getChildren().remove(view);
+                canvas.setOpacity(1);
+                if (swaying) canvas.getAnimationPlayer().start();
+                if (band == this) band = null;
+            }
         }
     }
 }
