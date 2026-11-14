@@ -403,6 +403,7 @@ def main():
     parser.add_argument("--output", type=Path, default=Path.home() / "Developer/sao-launcher-runs/gitee3")
     parser.add_argument("--embed-pack", action="store_true", help="Embed a full pack for offline test builds only")
     parser.add_argument("--toolchain-cache", type=Path, help="Reuse previously SHA-256-pinned downloads/toolchains")
+    parser.add_argument("--keep-work", action="store_true", help="Keep the intermediate work folder (about 240 MB) after a successful build")
     parser.add_argument("--pack", type=Path, default=Path.home() / "Downloads/SAO OATH0.8.zip")
     parser.add_argument("--baseline", type=Path, default=Path.home() / "Developer/sao-launcher-runs/jarname1/input")
     parser.add_argument("--jar", type=Path, help="Reuse an already built JAR; performs no Gradle invocation")
@@ -439,6 +440,9 @@ def main():
     probe(host, paths, work, evidence)
     notices(dist, lock)
     finalize(dist, args.output)
+    # The toolchains live in the cache; the per-build work copy is only intermediate files (14 Nov: disk was short).
+    if not args.keep_work and work != cache:
+        shutil.rmtree(work, ignore_errors=True)
     print("ALL_TARGETS_COMPLETE " + str(dist), flush=True)
 
 

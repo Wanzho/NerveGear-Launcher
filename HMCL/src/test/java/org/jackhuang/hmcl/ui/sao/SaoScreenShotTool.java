@@ -100,6 +100,12 @@ public final class SaoScreenShotTool {
             Platform.exit();
             System.exit(0);
         }
+        // SAO_SHOTS=skin: the skin window for a Microsoft-linked account (James, 14 Nov: "同步正版放到右边皮肤栏里").
+        if ("skin".equals(System.getenv("SAO_SHOTS"))) {
+            shootPremiumSkin(base);
+            Platform.exit();
+            System.exit(0);
+        }
         // SAO_SHOTS=wire-dark: only the wire1 dark shots (a re-shoot after a dark-only colour fix).
         if ("wire-dark".equals(System.getenv("SAO_SHOTS"))) {
             shootWire(base, true);
@@ -871,6 +877,39 @@ public final class SaoScreenShotTool {
                 write(im[0], out.resolve(tag + st[0] + ".png"));
                 System.out.println("maint shot: " + tag + st[0]);
             }
+        }
+    }
+
+    /// The skin window signed in as a premium-linked ARGUS ID: 同步正版 in the 皮肤库 header, premium rows tagged 正版.
+    private static void shootPremiumSkin(Path base) throws Exception {
+        Path out = base.resolve("skin");
+        Files.createDirectories(out);
+        for (boolean dark : new boolean[]{false, true}) {
+            System.setProperty("sao.windowButtons", "left");
+            SaoFakeService fake = new SaoFakeService();
+            fake.setPreference("theme", dark ? "dark" : "light");
+            SaoHelmetPage[] page = new SaoHelmetPage[1];
+            Scene[] scene = new Scene[1];
+            fx(() -> {
+                fake.force(org.jackhuang.hmcl.sao.SaoPackState.READY, 1, "", null);
+                fake.oathPremiumLogin();
+                page[0] = new SaoHelmetPage(fake);
+                scene[0] = new Scene(page[0], 1920, 1080);
+            });
+            Thread.sleep(2500);
+            fx(() -> scene[0].snapshot(null));
+            Thread.sleep(600);
+            fx(() -> { page[0].forceLit(); page[0].forceApp(2); });
+            Thread.sleep(1500);
+            WritableImage[] im = new WritableImage[1];
+            fx(() -> im[0] = scene[0].snapshot(null));
+            write(im[0], out.resolve((dark ? "dark" : "light") + "-premium-skin.png"));
+            System.out.println("skin shot: " + (dark ? "dark" : "light"));
+            // Link Start in progress: the bar names the step (James, 14 Nov: "按linkstart没有反应").
+            fx(() -> { page[0].forceApp(-1); fake.force(org.jackhuang.hmcl.sao.SaoPackState.WORKING, -1, "申请进服凭证", null); });
+            Thread.sleep(1500);
+            fx(() -> im[0] = scene[0].snapshot(null));
+            write(im[0], out.resolve((dark ? "dark" : "light") + "-link-start-step.png"));
         }
     }
 

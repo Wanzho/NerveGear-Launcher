@@ -739,6 +739,13 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     }
     /// {@inheritDoc}
     @Override public void oathLogout() { oath.logout(); }
+    /// The production Microsoft device/browser flow (every service default is stated here, SaoExtrasSystemTest).
+    @Override public SaoMicrosoftFlow microsoftSignIn() { return SaoMicrosoftFlows.start(); }
+    /// A Microsoft identity, or an ARGUS ID linked to Microsoft, is known.
+    @Override public boolean microsoftLinked() {
+        SaoData.@Nullable OathAccount account = oathAccount().get();
+        return microsoftIdentity().get() != null || account != null && account.premiumName() != null;
+    }
     /// {@inheritDoc}
     @Override public void linkStartOath() {
         if (closed.get() || uninstalling.get()) return;

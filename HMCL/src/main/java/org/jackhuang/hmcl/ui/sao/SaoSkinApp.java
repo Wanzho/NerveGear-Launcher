@@ -142,8 +142,9 @@ final class SaoSkinApp {
         HBox actions = new HBox(8, apply, edit);
         // 同步正版皮肤 (James, 14 Nov: "add button to fetch skin aswell"): only for a Microsoft-linked account; takes the
         // active skin from Microsoft again, puts it on ARGUS and shows it here.
-        Button syncPremium = button("同步正版皮肤");
-        syncPremium.setMaxWidth(Double.MAX_VALUE);
+        // James, 14 Nov: "同步正版放到右边皮肤栏里": it sits in the 皮肤库 header, where the premium skins land.
+        Button syncPremium = button("同步正版");
+        syncPremium.getStyleClass().add("vr-button-tight");
         // Only a signed-in ARGUS account that is linked to Microsoft (正版); never offline or non-premium players
         // (James, 14 Nov: "这个按钮别给离线玩家/非正版玩家显示"). Follows sign-in and sign-out while the window is open.
         Runnable premiumOnly = () -> {
@@ -176,7 +177,7 @@ final class SaoSkinApp {
         StackPane viewBox = new StackPane(view, status);
         StackPane.setAlignment(status, Pos.BOTTOM_LEFT);
         StackPane.setMargin(status, new Insets(0, 0, 8, 10));
-        VBox left = new VBox(8, viewBox, viewBar, actions, syncPremium);
+        VBox left = new VBox(8, viewBox, viewBar, actions);
         left.setMinWidth(Editor.wOf(view));
         left.setMaxWidth(Editor.wOf(view));
 
@@ -238,7 +239,9 @@ final class SaoSkinApp {
         keepRow.setAlignment(Pos.CENTER_LEFT);
         ScrollPane list = scroll(library);
         VBox.setVgrow(list, Priority.ALWAYS);
-        VBox right = new VBox(8, key("皮肤库"), keepRow, list, new HBox(6, importPng, exportPng, reset));
+        HBox libraryHead = new HBox(8, key("皮肤库"), grow(), syncPremium);
+        libraryHead.setAlignment(Pos.CENTER_LEFT);
+        VBox right = new VBox(8, libraryHead, keepRow, list, new HBox(6, importPng, exportPng, reset));
         HBox.setHgrow(right, Priority.ALWAYS);
 
         HBox body = new HBox(16, left, line(), right);
@@ -422,7 +425,9 @@ final class SaoSkinApp {
         VBox words = new VBox(1, n, arm);
         Button del = round(SVG.DELETE, 22, 12);
         del.setOnAction(e -> s.deleteSavedSkin(k));
-        HBox row = new HBox(8, face, words, grow(), del);
+        // Premium skins come from the Microsoft account and can't be removed here: a 正版 tag instead of the bin.
+        Node end = k.premium() ? accentTag("正版") : del;
+        HBox row = new HBox(8, face, words, grow(), end);
         row.setAlignment(Pos.CENTER_LEFT);
         row.getStyleClass().add("vr-tile");
         row.setOnMouseClicked(e -> {
@@ -433,6 +438,18 @@ final class SaoSkinApp {
             status.setText("「" + k.name() + "」");
         });
         return row;
+    }
+
+    /// The 正版 tag on a premium library row, in the badge's accent style.
+    private static Node accentTag(String text) {
+        Text t = new Text(text);
+        t.setFont(SaoAssets.sao(11, true));
+        t.setFill(javafx.scene.paint.Color.WHITE);
+        StackPane b = new StackPane(t);
+        b.getStyleClass().add("vr-badge");
+        b.setPadding(new Insets(1, 7, 1, 7));
+        b.setMaxSize(Region.USE_PREF_SIZE, Region.USE_PREF_SIZE);
+        return b;
     }
 
     /// Whether a node is a button or inside it.
