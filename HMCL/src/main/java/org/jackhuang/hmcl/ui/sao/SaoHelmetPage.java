@@ -2096,6 +2096,15 @@ public final class SaoHelmetPage extends StackPane {
     /// keeps the display on with the progress until the engine reports the game running.
     private void begin(Runnable launch) {
         if (gated()) return;
+        // James, 14 Nov: "按linkstart没有反应……我根本不知道". A click while something runs says what is running.
+        SaoPackState now = service.state().get();
+        if (now == SaoPackState.RUNNING) { notice("! 游戏已经在运行"); return; }
+        if (now == SaoPackState.WORKING || now == SaoPackState.CHECKING) {
+            org.jackhuang.hmcl.sao.SaoInstallProgress ip = service.installProgress().get();
+            String doing = now == SaoPackState.CHECKING ? "检查文件" : !ip.label().isBlank() ? ip.label() : service.stepLabel().get();
+            notice("! 正在" + (doing.isBlank() ? "准备" : doing) + "，完成后再按 Link Start");
+            return;
+        }
         // The display powers down only once the engine reports the game RUNNING: a gate the engine applies (launcher
         // minimum, account ticket) leaves the helmet on with its message.
         if (pendingLaunch != null) service.state().removeListener(pendingLaunch);
@@ -2124,6 +2133,14 @@ public final class SaoHelmetPage extends StackPane {
             pendingLaunch = null;
             linkStartOut();
         }
+    }
+
+    /// A short-lived status line for a click that could not start anything; it clears itself after 4 s.
+    private void notice(String text) {
+        problem.setText(text);
+        PauseTransition p = new PauseTransition(Duration.seconds(4));
+        p.setOnFinished(e -> { if (problem.getText().equals(text)) problem.setText(""); });
+        p.play();
     }
 
     /// Lets the window be dragged by the empty glass.

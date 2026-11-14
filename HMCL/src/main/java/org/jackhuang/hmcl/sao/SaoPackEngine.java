@@ -521,8 +521,11 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
         }
         char @Nullable [] password = authPassword == null ? null : authPassword.clone();
         if (authPassword != null) Arrays.fill(authPassword, '\0');
-        if (!launchable(state.get()) || !busy.compareAndSet(false, true)) {
+        // WORKING with nothing busy is Link Start's own account check, which leads here.
+        SaoPackState now = state.get();
+        if (!(launchable(now) || now == SaoPackState.WORKING) || !busy.compareAndSet(false, true)) {
             if (password != null) Arrays.fill(password, '\0');
+            launchLog("start ignored: " + now + (busy.get() ? ", busy" : ""));
             return;
         }
         activePassword = password;
@@ -536,7 +539,8 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
                 installer.recover();
                 // Link Start only launches: not ready, it says why and the button turns back to 下载/更新.
                 SaoReadiness ready = computeReadiness();
-                if (!ready.ready()) { busy.set(false); refuse(ready); return; }
+                if (!ready.ready()) { busy.set(false); launchLog("refused: " + ready.kind()); refuse(ready); return; }
+                launchStep("检查游戏文件");
                 SaoPackArchive pack = requireSource();
                 @Nullable SaoPackManifest previous = installer.installed();
                 if (previous == null || VersionNumber.compare(pack.manifest().version(), previous.version()) > 0) extras.checkInstallCapacity();
@@ -545,8 +549,11 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
                     installer.apply(pack, false);
                 files.enforceRequiredResources();
                 extras.beforeLaunch();
-                if (!launcherPermitted()) { busy.set(false); refreshState(); return; }
-                publish(() -> { installedVersion.set(pack.manifest().version()); step.set("Link Start"); state.set(SaoPackState.RUNNING); });
+                if (!launcherPermitted()) { busy.set(false); launchLog("refused: launcher update required"); refreshState(); return; }
+                // RUNNING waits for the real process: until then the bar names each step (James, 14 Nov: "按linkstart没有反应
+                // ……我根本不知道"). Account checks and the ticket are network round trips that took seconds with no sign.
+                launchStep(offline ? "启动游戏" : "登录游戏服务器");
+                publish(() -> installedVersion.set(pack.manifest().version()));
                 if (closed.get()) throw new IOException("Launcher has closed");
                 long started = System.currentTimeMillis();
                 saveSetting("lastRunStarted", Long.toString(started));
@@ -560,6 +567,8 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
                     @Override public void setProcess(org.jackhuang.hmcl.util.platform.ManagedProcess process) {
                         if (account instanceof SaoOathLaunchAccount launched) oath.gameStarted(launched);
                         lifecycle.started();
+                        launchLog("game process started");
+                        publish(() -> { step.set("Link Start"); state.set(SaoPackState.RUNNING); });
                     }
                     /// Captures sanitized output only; handoff and authentication lines are filtered first.
                     @Override public void onLog(String line, boolean stderr) { appendGameLog(line); }
@@ -582,6 +591,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
                 lifecycle.handedOff();
                 // Busy remains true for the running process; its monitor releases it on exit.
             } catch (Exception failure) {
+                org.jackhuang.hmcl.util.logging.Logger.LOG.warning("Link Start failed: " + launchFailure(failure), failure);
                 gameRunning.set(false);
                 lifecycle.exited();
                 busy.set(false);
@@ -731,14 +741,49 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     @Override public void oathLogout() { oath.logout(); }
     /// {@inheritDoc}
     @Override public void linkStartOath() {
+        if (closed.get() || uninstalling.get()) return;
         // An install or a game already running owns this launch; a repeat click must not refresh the session again.
-        if (closed.get() || uninstalling.get() || busy.get() || !launchable(state.get()) || !launcherPermitted()) return;
+        // It is never silent: the reason goes on the status line (James, 14 Nov).
+        if (busy.get() || !launchable(state.get())) {
+            String why = gameRunning.get() || state.get() == SaoPackState.RUNNING ? "游戏已经在运行"
+                    : "正在" + currentStepName() + "，完成后再按 Link Start";
+            launchLog("click ignored: " + why);
+            publish(() -> error.set(why));
+            return;
+        }
+        if (!launcherPermitted()) { launchLog("refused: launcher update required"); return; }
+        launchLog("clicked");
+        working();
+        launchStep("验证账号");
         // A refused account refresh never reaches startGame; FAILED makes the helmet show its reason.
-        oath.linkStart().exceptionally(failure -> {
-            publish(() -> { if (!busy.get() && launchable(state.get())) { state.set(SaoPackState.FAILED); step.set(""); progress.set(-1); } });
-            return null;
+        oath.linkStart().whenComplete((ignored, failure) -> {
+            if (failure != null) {
+                Throwable cause = failure instanceof java.util.concurrent.CompletionException && failure.getCause() != null ? failure.getCause() : failure;
+                org.jackhuang.hmcl.util.logging.Logger.LOG.warning("Link Start account check failed: " + launchFailure(cause));
+                publish(() -> { if (!busy.get()) { state.set(SaoPackState.FAILED); step.set(""); progress.set(-1);
+                    if (error.get() == null) error.set(launchFailure(cause)); } });
+            } else if (!busy.get()) {
+                // Signed out, locked, or a launch already in flight: nothing started, so the bar goes back.
+                launchLog("account check ended without a launch");
+                worker.execute(() -> { try { if (!busy.get()) refreshState(); } catch (IOException ignoredRefresh) { } });
+            }
         });
     }
+
+    /// The step name the bar shows now, for the "wait" message of an ignored click.
+    private String currentStepName() {
+        String label = installProgress.get().label();
+        if (label.isBlank()) label = step.get();
+        return label.isBlank() ? "准备" : label;
+    }
+
+    /// One bar label and one log line per Link Start step; no account data.
+    private void launchStep(String label) {
+        launchLog("step " + label);
+        publish(() -> { if (state.get() == SaoPackState.WORKING) installProgress.set(SaoInstallProgress.phase(SaoInstallProgress.Stage.PREPARING, label)); });
+    }
+
+    private static void launchLog(String what) { org.jackhuang.hmcl.util.logging.Logger.LOG.info("Link Start: " + what); }
     /// {@inheritDoc}
     @Override public @Nullable Path oathSkin() { return oath.skin(); }
     /// Publishes the server-owned appearance choices and inherited previews.

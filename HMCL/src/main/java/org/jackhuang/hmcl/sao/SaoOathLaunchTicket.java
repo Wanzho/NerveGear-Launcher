@@ -27,6 +27,8 @@ final class SaoOathLaunchTicket implements AutoCloseable {
     private final Path path;
     /// Used to avoid deleting a later launch's replacement file.
     private final byte[] expected;
+    /// Local-clock time the written file expires; the in-game keeper renews before it.
+    private final long expiresAt;
 
     /// Creates the private file before process construction and schedules deletion at the server's expiry.
     SaoOathLaunchTicket(Path instance, String api, String profileId, String server, JsonObject reply) throws IOException, SaoAccountException {
@@ -51,6 +53,7 @@ final class SaoOathLaunchTicket implements AutoCloseable {
         if (!ticket.matches("[A-Za-z0-9_-]{43}") || Math.abs(remaining) > MAX_CLOCK_SKEW
                 || !profileId.equalsIgnoreCase(issuedProfile)) throw new SaoAccountException("启动凭证已过期，请校准电脑时间后重试", "invalidTicket");
         if (skewed) remaining = SKEWED_LIFETIME;
+        expiresAt = System.currentTimeMillis() + remaining;
         Logger.registerAccessToken(ticket);
         JsonObject file = new JsonObject(); file.addProperty("version", 1); file.addProperty("apiRoot", api);
         file.addProperty("profileId", profileId); file.addProperty("targetServer", server);
@@ -81,6 +84,18 @@ final class SaoOathLaunchTicket implements AutoCloseable {
         }
         if (!com.sun.jna.Platform.isWindows()) throw new IOException("无法保护启动凭证");
         SaoWindowsPrivatePaths.protect(file,false);
+    }
+
+    /// Local-clock expiry of the written proof.
+    long expiresAt() { return expiresAt; }
+
+    /// True while the game has not taken this exact file yet (it deletes the file when it reads it).
+    synchronized boolean unclaimed() {
+        try {
+            if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS) || Files.size(path) != expected.length) return false;
+            byte[] actual = Files.readAllBytes(path);
+            try { return java.security.MessageDigest.isEqual(expected, actual); } finally { Arrays.fill(actual, (byte) 0); }
+        } catch (IOException gone) { return false; }
     }
 
     /// Deletes this launch's leftover ticket on process exit/failure/expiry without following links.

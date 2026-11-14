@@ -166,12 +166,22 @@ final class SaoGameBridge {
             if (offline) clearOfflineTicket();
             LaunchPlan plan = launchPlan(account, manifest, memoryMiB, window, jvmArgs, selectJava(), instanceDir(), offline, signedServer);
             if (cancelled.getAsBoolean()) throw new IOException("Launcher has closed");
-            if (!offline && account instanceof SaoOathLaunchAccount oath) launchTicket = oath.ticket(instanceDir(), plan.server());
+            if (!offline && account instanceof SaoOathLaunchAccount oath) {
+                progress.accept("申请进服凭证", -1.0);
+                launchTicket = oath.ticket(instanceDir(), plan.server());
+            }
             if (cancelled.getAsBoolean()) throw new IOException("Launcher has closed");
+            progress.accept("启动 Java", -1.0);
             ManagedProcess process = new HMCLGameLauncher(instance, instance.getResolvedManifest(), plan.auth(), plan.options(), listener).launch();
             started = true;
             @Nullable SaoOathLaunchTicket cleanup = launchTicket;
-            if (cleanup != null) process.getProcess().onExit().thenRun(() -> { try { cleanup.close(); } catch (IOException ignored) { } });
+            if (cleanup != null && account instanceof SaoOathLaunchAccount oath) {
+                // Rejoins from the in-game server list need a new single-use ticket each time (James, 14 Nov).
+                Process game = process.getProcess(); Path dir = instanceDir(); String server = plan.server();
+                SaoTicketKeeper keeper = new SaoTicketKeeper(cleanup, () -> oath.ticket(dir, server), game::isAlive, System::currentTimeMillis);
+                keeper.start();
+                game.onExit().thenRun(keeper::close);
+            } else if (cleanup != null) process.getProcess().onExit().thenRun(() -> { try { cleanup.close(); } catch (IOException ignored) { } });
             try {
                 SaoAuthHandoff.writeAndClose(process.getProcess().getOutputStream(), handoff ? password : null);
             } catch (IOException failure) {
