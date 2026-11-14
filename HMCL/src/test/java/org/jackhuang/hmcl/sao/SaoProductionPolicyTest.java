@@ -1,7 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 package org.jackhuang.hmcl.sao;
 
-import org.jackhuang.hmcl.game.QuickPlayOption;
 import org.jackhuang.hmcl.java.JavaRuntime;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
@@ -116,13 +115,13 @@ class SaoProductionPolicyTest {
         }
     }
 
-    /// QuickPlay uses signed targets, preserves explicit pack targets, and suppresses every target for offline play.
+    /// The ticket uses signed targets, Link Start never QuickPlays, preserves explicit pack targets, and suppresses every target for offline play.
     @Test void quickPlayPolicyAndPackPriority() throws Exception {
         SaoPackManifest empty = manifest("");
         SaoGameBridge.LaunchPlan signed = SaoGameBridge.launchPlan(SaoGameBridge.offlineAccount("FixturePlayer"), empty,
                 2048, new SaoData.GameWindow(1280, 720, false), "", JavaRuntime.CURRENT_JAVA, temporary, false, "signed.example:25566");
         assertEquals("signed.example:25566", signed.server());
-        assertEquals(new QuickPlayOption.MultiPlayer(signed.server()), signed.options().getQuickPlayOption());
+        assertNull(signed.options().getQuickPlayOption());
         SaoGameBridge.LaunchPlan pack = SaoGameBridge.launchPlan(SaoGameBridge.offlineAccount("FixturePlayer"), manifest("fixture.example:25567"),
                 2048, new SaoData.GameWindow(1280, 720, false), "", JavaRuntime.CURRENT_JAVA, temporary, false, "signed.example:25566");
         assertEquals("fixture.example:25567", pack.server());

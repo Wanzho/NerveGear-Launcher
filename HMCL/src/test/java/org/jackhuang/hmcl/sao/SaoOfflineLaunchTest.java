@@ -5,7 +5,6 @@ import org.jackhuang.hmcl.auth.AuthInfo;
 import org.jackhuang.hmcl.auth.offline.OfflineAccount;
 import org.jackhuang.hmcl.auth.offline.OfflineAccountFactory;
 import org.jackhuang.hmcl.game.LaunchOptions;
-import org.jackhuang.hmcl.game.QuickPlayOption;
 import org.jackhuang.hmcl.java.JavaRuntime;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Unmodifiable;
@@ -73,12 +72,12 @@ class SaoOfflineLaunchTest {
         } finally { bridge.close(); }
     }
 
-    /// Ordinary Link Start retains its configured multiplayer target, independent of the offline account class.
+    /// Ordinary Link Start keeps its ticket target but never auto-joins, independent of the offline account class.
     @Test void ordinaryLinkStartRetainsItsJoinPlan() throws Exception {
         SaoGameBridge.LaunchPlan plan = SaoGameBridge.launchPlan(SaoGameBridge.offlineAccount("Player_1"), manifest(),
                 2048, new SaoData.GameWindow(1280, 720, false), "", JavaRuntime.CURRENT_JAVA, temporary, false);
         assertEquals("server.example:25565", plan.server());
-        assertEquals(new QuickPlayOption.MultiPlayer("server.example:25565"), plan.options().getQuickPlayOption());
+        assertNull(plan.options().getQuickPlayOption());
     }
 
     /// An existing ticket is deleted without reading proof bytes; repeated cleanup never creates a new file.

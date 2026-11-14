@@ -201,7 +201,8 @@ final class SaoGameBridge {
         return launchPlan(account, manifest, memoryMiB, window, jvmArgs, runtime, instance, offline, null);
     }
 
-    /// Uses one accepted policy snapshot for both QuickPlay and the ARGUS launch-ticket destination; offline ignores it.
+    /// Uses one accepted policy snapshot for the ARGUS launch-ticket destination; offline ignores it.
+    /// No QuickPlay: Link Start opens the title screen and the player joins a server themselves (James, 14 Nov).
     static LaunchPlan launchPlan(Account account, SaoPackManifest manifest, int memoryMiB, SaoData.GameWindow window,
                                  String jvmArgs, JavaRuntime runtime, Path instance, boolean offline,
                                  @Nullable String signedServer) throws Exception {
@@ -216,7 +217,6 @@ final class SaoGameBridge {
                 .setJavaArguments(org.jackhuang.hmcl.util.StringUtils.tokenize(jvmArgs));
         String server = offline ? "" : !manifest.server().isEmpty() ? manifest.server()
                 : signedServer != null ? signedServer : account instanceof SaoOathLaunchAccount ? "mc.saooath.com" : "";
-        if (!server.isEmpty()) options.setQuickPlayOption(new QuickPlayOption.MultiPlayer(server));
         return new LaunchPlan(auth, options.create(), server);
     }
 

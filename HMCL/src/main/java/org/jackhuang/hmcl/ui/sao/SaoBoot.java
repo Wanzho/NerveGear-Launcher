@@ -317,7 +317,7 @@ final class SaoBoot {
         Double[] pts = new Double[130];
         for (int i = 0; i <= 64; i++) {
             double x = -73.3 + i * 146.7 / 64, env = Math.sin(i / 64.0 * Math.PI);
-            double noise = (NOISE[(i * 7 + (int) Math.floor(t / 45)) % 64] - 0.5) * 20 * (1 - calm);
+            double noise = (NOISE[Math.floorMod(i * 7 + (int) Math.floor(t / 45), 64)] - 0.5) * 20 * (1 - calm);
             double clean = Math.sin(i / 64.0 * Math.PI * 4 + t / 120) * 6 * calm;
             pts[i * 2] = x;
             pts[i * 2 + 1] = 52 + (noise + clean) * env;
