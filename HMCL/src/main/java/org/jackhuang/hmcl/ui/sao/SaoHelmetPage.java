@@ -1297,7 +1297,7 @@ public final class SaoHelmetPage extends StackPane {
         windows.getChildren().add(w);
         // Opens and closes like a window in the game (James, 14 Nov: "窗口打开我们不是做了吗": the interface's MenuMotion).
         w.open();
-        w.contentIn(SaoFloatWindow.CONTENT_MS);
+        w.contentIn(SaoFloatWindow.contentMs());
         app = w;
         appButton = b;
         if (b != null) b.getStyleClass().add("vr-dock-on");
@@ -2482,17 +2482,23 @@ public final class SaoHelmetPage extends StackPane {
 
         @Nullable private SkinBand band;
 
-        /// The skin change of our Progressive opening (FilmLoginFigure, the character-creation pick): a band of warm light
-        /// runs down the figure from the head to the feet, and every texel it passes takes the new skin. Same law: the band
-        /// is .22 of the figure's height, the change runs at a constant rate (.52 s, as the arrival's), each pixel crosses
-        /// with smoothstep, and the band's middle shines up to .8 toward (255, 246, 214). Drawn on two pictures of the
-        /// model (before and after), with the sway held for the moment so the two match.
+        /// The skin change of our Progressive opening's character creation (the mod's own opening, filmed 19 Oct,
+        /// "film vs game 10-19/02", measured at 30 fps; James, 14 Nov: "参考我们做progressive opening时候的那个效果",
+        /// "我不记得是扫过去的啊"): the old figure dims to a dark silhouette, flashes white, turns amber, the amber turns
+        /// to white light with a halo, and the new skin comes out of the light from the head down while the halo goes.
+        /// Drawn on two pictures of the model (before and after), with the sway held for the moment so they match.
         private final class SkinBand extends AnimationTimer {
-            static final double BAND = .22, TIME = .52, SHINE = .8;
+            /// Milliseconds, measured on the opening (24.9-25.5 s and 27.1-28.3 s of the film).
+            static final double DARK = 150, WHITE_AT = 220, WHITE = 100, AMBER_AT = 320, AMBER = 80, LIGHT_AT = 560,
+                    LIGHT = 200, SHAPE_AT = 700, REVEAL_AT = 900, REVEAL = 350, GLOW_OUT = 1400, END = 1400;
+            /// The figure's band of change as it takes its colours, a share of its height (FilmLoginFigure.BAND).
+            static final double BAND = .22;
+            /// The silhouette's colours as filmed: dark, the white flash and the light, amber.
+            static final int DARK_INK = 0x2D2A21, LIGHT_INK = 0xFFF3CE, AMBER_INK = 0xC47A0A;
             private final int w, h, top, bottom;
             private final int[] from, to, out;
             private final javafx.scene.image.WritableImage picture;
-            private final ImageView view;
+            private final ImageView view, halo;
             private final boolean swaying;
             private long start = -1;
             private boolean done;
@@ -2515,7 +2521,7 @@ public final class SaoHelmetPage extends StackPane {
                 javafx.scene.image.WritablePixelFormat<java.nio.IntBuffer> fmt = javafx.scene.image.PixelFormat.getIntArgbInstance();
                 before.getPixelReader().getPixels(0, 0, w, h, fmt, from, 0, w);
                 after.getPixelReader().getPixels(0, 0, w, h, fmt, to, 0, w);
-                // the figure's own height (head to feet, both skins), so the band runs over the figure and not the stage
+                // the figure's own height (head to feet, both skins), so the colours come down the figure
                 int t = h, b = -1;
                 for (int y = 0; y < h; y++)
                     for (int x = 0; x < w; x++)
@@ -2528,12 +2534,20 @@ public final class SaoHelmetPage extends StackPane {
                 bottom = Math.max(b, t + 1);
                 picture = new javafx.scene.image.WritableImage(w, h);
                 view = new ImageView(picture);
-                view.setFitWidth(w / scale);
-                view.setFitHeight(h / scale);
-                view.setManaged(false);
-                view.relocate(canvas.getBoundsInParent().getMinX(), canvas.getBoundsInParent().getMinY());
+                halo = new ImageView(picture);
+                for (ImageView v : new ImageView[]{halo, view}) {
+                    v.setFitWidth(w / scale);
+                    v.setFitHeight(h / scale);
+                    v.setManaged(false);
+                    v.setMouseTransparent(true);
+                    v.relocate(canvas.getBoundsInParent().getMinX(), canvas.getBoundsInParent().getMinY());
+                }
+                // the light's halo: the same picture, blurred and added
+                halo.setEffect(new javafx.scene.effect.GaussianBlur(30 * scale));
+                halo.setBlendMode(javafx.scene.effect.BlendMode.ADD);
+                halo.setOpacity(0);
                 paint(0);
-                getChildren().add(view);
+                getChildren().addAll(halo, view);
                 canvas.setOpacity(0);
                 start();
             }
@@ -2541,38 +2555,56 @@ public final class SaoHelmetPage extends StackPane {
             @Override
             public void handle(long now) {
                 if (start < 0) start = now;
-                double c = (now - start) / 1e9 / TIME;
-                if (c >= 1) {
+                double t = (now - start) / 1e6;
+                if (t >= END) {
                     finish();
                     return;
                 }
-                paint(c);
+                paint(t);
             }
 
-            /// One moment of the change, c from 0 to 1.
-            private void paint(double c) {
-                double front = -BAND + c * (1 + 2 * BAND), span = bottom - top;
+            private static double ease(double x) {
+                x = x < 0 ? 0 : x > 1 ? 1 : x;
+                return x * x * (3 - 2 * x);
+            }
+
+            /// One moment of the change, t in milliseconds.
+            private void paint(double t) {
+                // the silhouette's flat colour now (the old figure under it until the light)
+                double dark = ease(t / DARK), white = ease((t - WHITE_AT) / WHITE), amber = ease((t - AMBER_AT) / AMBER),
+                        light = ease((t - LIGHT_AT) / LIGHT);
+                int ink = mixRgb(mixRgb(mixRgb(DARK_INK, LIGHT_INK, white), AMBER_INK, amber), LIGHT_INK, light);
+                double flat = t < LIGHT_AT ? dark : 1;
+                int[] shape = t < SHAPE_AT ? from : to;
+                double c = (t - REVEAL_AT) / REVEAL, front = -BAND + c * (1 + 2 * BAND), span = bottom - top;
                 for (int y = 0; y < h; y++) {
-                    double s = (y - top) / span;
-                    double k = (front - s) / BAND * .5 + .5;
-                    k = k < 0 ? 0 : k > 1 ? 1 : k;
-                    k = k * k * (3 - 2 * k);
-                    double shine = (1 - Math.abs(2 * k - 1)) * SHINE;
+                    double k = 0;
+                    if (t >= REVEAL_AT) {
+                        double s = (y - top) / span;
+                        k = ease((front - s) / BAND * .5 + .5);
+                    }
                     int row = y * w;
                     for (int x = 0; x < w; x++) {
-                        int a = from[row + x], z = to[row + x];
-                        int argb = k >= 1 ? z : k <= 0 ? a : blend(a, z, k);
-                        if (shine > 0 && (argb >>> 24) > 0) {
-                            int r = argb >> 16 & 255, g = argb >> 8 & 255, bl = argb & 255;
-                            r += (int) Math.round((255 - r) * shine);
-                            g += (int) Math.round((246 - g) * shine);
-                            bl += (int) Math.round((214 - bl) * shine);
-                            argb = argb & 0xff000000 | r << 16 | g << 8 | bl;
+                        int base = shape[row + x];
+                        if ((base >>> 24) == 0 && k <= 0) {
+                            out[row + x] = 0;
+                            continue;
                         }
-                        out[row + x] = argb;
+                        int sil = base & 0xff000000 | (flat >= 1 ? ink : mixRgb(base & 0xffffff, ink, flat));
+                        out[row + x] = k <= 0 ? sil : k >= 1 ? to[row + x] : blend(sil, to[row + x], k);
                     }
                 }
                 picture.getPixelWriter().setPixels(0, 0, w, h, javafx.scene.image.PixelFormat.getIntArgbInstance(), out, 0, w);
+                // the halo: a little with the white flash, full with the light, gone as the colours come in
+                double glow = Math.max(.35 * white * (1 - amber), light * (1 - ease((t - REVEAL_AT) / (GLOW_OUT - REVEAL_AT))));
+                halo.setOpacity(glow);
+            }
+
+            private static int mixRgb(int a, int b, double k) {
+                int r = (int) Math.round((a >> 16 & 255) + ((b >> 16 & 255) - (a >> 16 & 255)) * k);
+                int g = (int) Math.round((a >> 8 & 255) + ((b >> 8 & 255) - (a >> 8 & 255)) * k);
+                int bl = (int) Math.round((a & 255) + ((b & 255) - (a & 255)) * k);
+                return r << 16 | g << 8 | bl;
             }
 
             private int blend(int a, int b, double k) {
@@ -2589,7 +2621,7 @@ public final class SaoHelmetPage extends StackPane {
                 if (done) return;
                 done = true;
                 stop();
-                getChildren().remove(view);
+                getChildren().removeAll(halo, view);
                 canvas.setOpacity(1);
                 if (swaying) canvas.getAnimationPlayer().start();
                 if (band == this) band = null;
