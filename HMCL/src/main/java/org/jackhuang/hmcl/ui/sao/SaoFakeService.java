@@ -459,6 +459,20 @@ public final class SaoFakeService implements SaoLauncherService {
     }
     @Override public ObservableList<String> gameLog() { return log; }
     @Override public ReadOnlyObjectProperty<SaoData.@Nullable Crash> lastCrash() { return crash; }
+    /// Screenshot tool: the last run ended in a graphics-driver crash.
+    public void forceDriverCrash() {
+        crash.set(new SaoData.Crash(SaoData.Crash.DRIVER_REASON,
+                "EXCEPTION_ACCESS_VIOLATION (0xc0000005) at pc=0x00007ffb2c1a3f10\n# C  [ig9icd64.dll+0x13f10]", Path.of("hs_err_pid4242.log")));
+    }
+    @Override public CompletableFuture<@Nullable String> graphicsVendor() {
+        return CompletableFuture.completedFuture("NVIDIA");
+    }
+    @Override public boolean canPreferDiscreteGpu() { return true; }
+    @Override public CompletableFuture<Void> preferDiscreteGpu() {
+        CompletableFuture<Void> f = new CompletableFuture<>();
+        new Timeline(new KeyFrame(Duration.millis(600), e -> f.complete(null))).play();
+        return f;
+    }
     @Override public ReadOnlyObjectProperty<SaoData.Room> room() { return room; }
     @Override public void hostRoom() {
         room.set(new SaoData.Room(SaoData.RoomState.PREPARING, null, 1, "准备联机通道"));

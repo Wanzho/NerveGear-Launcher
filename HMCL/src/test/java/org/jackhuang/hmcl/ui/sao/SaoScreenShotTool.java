@@ -173,6 +173,9 @@ public final class SaoScreenShotTool {
                 for (int i = 0; i < apps.length; i++) {
                     shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, i, out.resolve(p + String.format("%02d-%s.png", i + 1, apps[i])));
                 }
+                // 日志 after a graphics-driver crash: the card's 关闭光影 / 用独显 / 驱动 buttons (14 Nov).
+                fx(fake::forceDriverCrash);
+                shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, 7, out.resolve(p + "08b-logs-driver-crash.png"));
                 // The skin editor over the helmet, then turned as a drag 80 px to the right would turn it.
                 shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, 2, out.resolve(p + "60-skin-library.png"));
                 fx(() -> SaoSkinApp.forceEdit.run());

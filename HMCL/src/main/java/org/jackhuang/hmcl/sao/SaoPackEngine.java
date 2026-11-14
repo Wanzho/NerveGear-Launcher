@@ -1295,6 +1295,71 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     @Override public @UnmodifiableView ObservableList<SaoData.JavaRuntime> javas() {
         refreshJava(); return javasView;
     }
+    /// The game's graphics card, the discrete one first; null when HMCL's hardware probe finds none.
+    private static org.jackhuang.hmcl.util.platform.hardware.@Nullable GraphicsCard gameCard() {
+        @Nullable List<org.jackhuang.hmcl.util.platform.hardware.GraphicsCard> cards = org.jackhuang.hmcl.util.platform.SystemInfo.getGraphicsCards();
+        if (cards == null || cards.isEmpty()) return null;
+        for (var card : cards)
+            if (card.getType() == org.jackhuang.hmcl.util.platform.hardware.GraphicsCard.Type.Discrete) return card;
+        return cards.get(0);
+    }
+    /// {@inheritDoc}
+    @Override public CompletableFuture<@Nullable String> graphicsVendor() {
+        return CompletableFuture.supplyAsync(() -> {
+            var card = gameCard();
+            if (card == null) return null;
+            String name = (card.getVendor() == null ? "" : card.getVendor().toString()) + " " + card.getName();
+            String n = name.toLowerCase(java.util.Locale.ROOT);
+            if (n.contains("nvidia") || n.contains("geforce") || n.contains("quadro")) return "NVIDIA";
+            if (n.contains("amd") || n.contains("radeon") || n.contains("ati ")) return "AMD";
+            if (n.contains("intel")) return "Intel";
+            return null;
+        });
+    }
+    /// {@inheritDoc}
+    @Override public boolean canPreferDiscreteGpu() {
+        if (org.jackhuang.hmcl.util.platform.OperatingSystem.CURRENT_OS != org.jackhuang.hmcl.util.platform.OperatingSystem.WINDOWS) return false;
+        @Nullable List<org.jackhuang.hmcl.util.platform.hardware.GraphicsCard> cards = org.jackhuang.hmcl.util.platform.SystemInfo.getGraphicsCards();
+        return cards != null && cards.stream().anyMatch(c -> c.getType() == org.jackhuang.hmcl.util.platform.hardware.GraphicsCard.Type.Discrete);
+    }
+    /// {@inheritDoc}
+    @Override public CompletableFuture<Void> preferDiscreteGpu() {
+        if (org.jackhuang.hmcl.util.platform.OperatingSystem.CURRENT_OS != org.jackhuang.hmcl.util.platform.OperatingSystem.WINDOWS)
+            return CompletableFuture.failedFuture(new IOException("只在 Windows 上可用"));
+        return CompletableFuture.runAsync(() -> {
+            java.util.Set<Path> binaries = new java.util.LinkedHashSet<>();
+            @Nullable Path picked = java();
+            if (picked != null) binaries.add(picked);
+            try {
+                for (org.jackhuang.hmcl.java.JavaRuntime runtime : game.availableJava()) binaries.add(runtime.getBinary());
+            } catch (Exception unavailable) {
+                org.jackhuang.hmcl.util.logging.Logger.LOG.warning("Discrete GPU preference: Java list unavailable", unavailable);
+            }
+            java.util.Set<Path> targets = new java.util.LinkedHashSet<>();
+            for (Path binary : binaries) {
+                Path bin = binary.toAbsolutePath().getParent();
+                if (bin == null) continue;
+                for (String exe : new String[]{"java.exe", "javaw.exe"})
+                    if (Files.isRegularFile(bin.resolve(exe))) targets.add(bin.resolve(exe));
+            }
+            if (targets.isEmpty()) throw new java.util.concurrent.CompletionException(new IOException("没找到游戏用的 Java"));
+            for (Path exe : targets) {
+                try {
+                    // GpuPreference=2 is "high performance", the value Windows' own Graphics settings page writes.
+                    Process p = new ProcessBuilder("reg", "add", "HKCU\\Software\\Microsoft\\DirectX\\UserGpuPreferences",
+                            "/v", exe.toString(), "/t", "REG_SZ", "/d", "GpuPreference=2;", "/f").redirectErrorStream(true).start();
+                    p.getInputStream().readAllBytes();
+                    if (!p.waitFor(20, java.util.concurrent.TimeUnit.SECONDS) || p.exitValue() != 0)
+                        throw new IOException("reg add exit " + (p.isAlive() ? "timeout" : p.exitValue()));
+                } catch (IOException | InterruptedException failed) {
+                    if (failed instanceof InterruptedException) Thread.currentThread().interrupt();
+                    org.jackhuang.hmcl.util.logging.Logger.LOG.warning("Discrete GPU preference failed for " + exe, failed);
+                    throw new java.util.concurrent.CompletionException(new IOException("设置独显失败"));
+                }
+            }
+            org.jackhuang.hmcl.util.logging.Logger.LOG.info("Discrete GPU preference set for " + targets.size() + " Java executables");
+        });
+    }
     /// {@inheritDoc}
     @Override public @Nullable Path java() {
         String path = settings.text("java", "");

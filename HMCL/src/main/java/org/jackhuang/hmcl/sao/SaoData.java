@@ -209,6 +209,12 @@ public final class SaoData {
     /// @param report the crash report or log file
     @NotNullByDefault
     public record Crash(String reason, String detail, Path report) {
+        /// What the crash card says when the graphics driver stopped the game (HMCL's own text tells players to use
+        /// Java 8u51, which cannot run this 1.20.1 pack).
+        public static final String DRIVER_REASON = "显卡驱动出错，游戏开不起来。先点“关闭光影”再进；还不行就“用独显”，或者更新显卡驱动。";
+
+        /// The graphics driver stopped the game; the card then offers 关闭光影, 用独显 and the driver download.
+        public boolean graphics() { return DRIVER_REASON.equals(reason); }
     }
 
     /// Where the multiplayer room is.

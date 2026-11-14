@@ -344,6 +344,23 @@ public interface SaoLauncherService {
         return FXCollections.emptyObservableList();
     }
 
+    /// Maker of the graphics card that runs the game ("NVIDIA", "AMD" or "Intel"; the discrete one when there are
+    /// two), or null when unknown. Looked up off the FX thread.
+    default java.util.concurrent.CompletableFuture<@Nullable String> graphicsVendor() {
+        return java.util.concurrent.CompletableFuture.completedFuture(null);
+    }
+
+    /// True on Windows with a discrete graphics card, where [#preferDiscreteGpu()] can help.
+    default boolean canPreferDiscreteGpu() {
+        return false;
+    }
+
+    /// Tells Windows to run the game's Java on the high-performance graphics card: the per-user graphics preference
+    /// (HKCU, no administrator rights), the same switch as Settings → Display → Graphics.
+    default java.util.concurrent.CompletableFuture<Void> preferDiscreteGpu() {
+        return java.util.concurrent.CompletableFuture.failedFuture(new UnsupportedOperationException("只在 Windows 上可用"));
+    }
+
     /// The Java picked by the player, or null for automatic.
     default @Nullable Path java() {
         return null;

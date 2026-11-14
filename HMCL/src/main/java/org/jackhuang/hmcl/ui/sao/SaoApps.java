@@ -631,6 +631,58 @@ final class SaoApps {
 
     // ------------------------------------------------------------------ logs
 
+    /// The graphics-driver crash's own fixes: 关闭光影, 用独显 (Windows with a discrete card) and the maker's driver page.
+    private static HBox graphicsFixes(SaoLauncherService s, Text said) {
+        Button noShaders = SaoUiKit.accent("关闭光影");
+        Button discrete = button("用独显");
+        Button driver = button("下载显卡驱动");
+        java.util.function.Consumer<String> ok = m -> { said.getStyleClass().setAll("vr-ink"); said.setText(m); };
+        java.util.function.Consumer<Throwable> bad = err -> { said.getStyleClass().setAll("vr-warn"); said.setText("! " + rootMessage(err)); };
+        noShaders.setOnAction(e -> {
+            noShaders.setDisable(true);
+            s.setShader(null).whenComplete((v, err) -> javafx.application.Platform.runLater(() -> {
+                noShaders.setDisable(false);
+                if (err == null) ok.accept("光影已关，按 Link Start 再进一次");
+                else bad.accept(err);
+            }));
+        });
+        discrete.setVisible(s.canPreferDiscreteGpu());
+        discrete.setManaged(discrete.isVisible());
+        discrete.setOnAction(e -> {
+            discrete.setDisable(true);
+            s.preferDiscreteGpu().whenComplete((v, err) -> javafx.application.Platform.runLater(() -> {
+                discrete.setDisable(false);
+                if (err == null) ok.accept("已让游戏用独立显卡，按 Link Start 再进一次");
+                else bad.accept(err);
+            }));
+        });
+        driver.setVisible(false);
+        driver.setManaged(false);
+        s.graphicsVendor().thenAccept(vendor -> javafx.application.Platform.runLater(() -> {
+            @Nullable String url = vendor == null ? null : switch (vendor) {
+                case "NVIDIA" -> "https://www.nvidia.cn/drivers/";
+                case "AMD" -> "https://www.amd.com/zh-cn/support/download/drivers.html";
+                case "Intel" -> "https://www.intel.cn/content/www/cn/zh/support/detect.html";
+                default -> null;
+            };
+            if (url == null) return;
+            driver.setText("下载 " + vendor + " 驱动");
+            driver.setOnAction(e -> SaoUi.linkOpener.accept(url));
+            driver.setVisible(true);
+            driver.setManaged(true);
+        }));
+        HBox row = new HBox(6, noShaders, discrete, driver);
+        row.setPadding(new Insets(4, 0, 2, 0));
+        return row;
+    }
+
+    /// A failure's own message, without the completion wrappers.
+    private static String rootMessage(Throwable err) {
+        Throwable t = err;
+        while ((t instanceof java.util.concurrent.CompletionException || t instanceof java.util.concurrent.ExecutionException) && t.getCause() != null) t = t.getCause();
+        return t.getMessage() == null ? "没成功" : t.getMessage();
+    }
+
     /// Logs: HMCL's crash analysis on top when the last run crashed, then the game's log.
     static SaoFloatWindow logs(SaoLauncherService s, Runnable close) {
         VBox crashBox = new VBox();
@@ -640,15 +692,16 @@ final class SaoApps {
             if (c == null) return;
             Text why = ink(c.reason(), 14);
             why.getStyleClass().setAll("vr-warn");
+            why.setWrappingWidth(380);
             Text detail = dim(c.detail(), 11.5);
-            detail.setWrappingWidth(430);
+            detail.setWrappingWidth(380);
             Button report = button("查看报告");
             report.setOnAction(e -> s.openFile(c.report()));
             // 一键反馈: logs and the crash report in one package for the QQ group, through the engine's
             // buildFeedbackZip() once it is there (SaoDialogs.feedback is the hook); hidden until then.
             Button feedback = SaoUiKit.accent("一键反馈");
             Text packed = dim("", 11.5);
-            packed.setWrappingWidth(430);
+            packed.setWrappingWidth(380);
             feedback.setOnAction(e -> {
                 feedback.setDisable(true);
                 packed.getStyleClass().setAll("vr-dim");
@@ -662,7 +715,11 @@ final class SaoApps {
                     }
                 });
             });
-            HBox h = tile(icon(SVG.WARNING, 26), new VBox(3, key("崩溃原因"), why, detail, packed), grow(), feedback, report);
+            VBox text = new VBox(3, key("崩溃原因"), why);
+            // James, 14 Nov: most players can't update a driver or pick a GPU themselves, so the card does it.
+            if (c.graphics()) text.getChildren().add(graphicsFixes(s, packed));
+            text.getChildren().addAll(detail, packed);
+            HBox h = tile(icon(SVG.WARNING, 26), text, grow(), feedback, report);
             h.getStyleClass().add("vr-tile-warn");
             crashBox.getChildren().add(h);
         });

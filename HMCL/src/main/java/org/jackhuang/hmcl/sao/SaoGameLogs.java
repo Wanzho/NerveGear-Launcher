@@ -65,8 +65,6 @@ final class SaoGameLogs {
         }
     }
 
-    /// What the crash card says when the graphics driver stopped the game.
-    static final String DRIVER_REASON = "显卡驱动出错，游戏开不起来。先把显卡驱动更新到最新；笔记本在显卡设置里让 Java 用独立显卡；还不行就在 光影 里选“关闭光影”再进。";
 
     /// Applies HMCL's crash rules to the latest report or captured output after an abnormal exit.
     @Nullable SaoData.Crash analyze(boolean abnormal, long since) throws IOException {
@@ -88,7 +86,7 @@ final class SaoGameLogs {
             try {
                 // HMCL's driver text tells players to drop to Java 8u51, which cannot run this 1.20.1 pack (14 Nov).
                 if (result.rule() == CrashReportAnalyzer.Rule.GRAPHICS_DRIVER || result.rule() == CrashReportAnalyzer.Rule.OPENGL_NOT_SUPPORTED)
-                    reason = DRIVER_REASON;
+                    reason = SaoData.Crash.DRIVER_REASON;
                 else reason = result.rule() == CrashReportAnalyzer.Rule.TOO_OLD_JAVA
                         ? i18n("game.crash.reason.too_old_java", CrashReportAnalyzer.getJavaVersionFromMajorVersion(Integer.parseInt(result.matcher().group("expected"))))
                         : i18n("game.crash.reason." + result.rule().name().toLowerCase(Locale.ROOT),
