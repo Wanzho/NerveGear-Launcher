@@ -134,8 +134,6 @@ public final class SaoHelmetPage extends StackPane {
     private static final String GLINT_MODE = System.getProperty("sao.glint", "over");
     /// Off since 14 Nov (James: "呼吸很奇怪，还是最好跟着鼠标来吧"); -Dsao.breathe=true brings it back.
     private static final boolean BREATHE = "true".equals(System.getProperty("sao.breathe"));
-    /// How fast the view follows the mouse: the gap closes by 1 - e^(-dt / FOLLOW_S), a spring with no overshoot.
-    private static final double FOLLOW_S = 0.16;
     /// Turn at the window's edge (mouse 0.5 from the centre), in degrees.
     private static final double TURN_Y_DEG = 1.1, TURN_X_DEG = 0.8;
     static final boolean SWAY = !"false".equals(System.getProperty("sao.sway"));
@@ -195,10 +193,12 @@ public final class SaoHelmetPage extends StackPane {
     /// The dock's buttons.
     private final Button[] dockButtons = new Button[SaoApps.APPS.length];
 
-    /// Mouse position in parts of the window, -0.5 to 0.5, and its smoothed follow.
+    /// Mouse position in parts of the window, -0.5 to 0.5, answered on the same frame.
     private double headX, headY, lookX, lookY;
-    /// The time of the last frame, for the follow spring.
-    private double lastFrameT = -1;
+    /// Global pointer reader so the windows keep following the mouse outside the launcher window.
+    private javafx.scene.robot.@Nullable Robot pointerRobot;
+    /// Optional global-pointer override (screen coordinates) for deterministic off-screen tests.
+    java.util.function.@Nullable Supplier<Point2D> pointerOverride;
     /// Whether the display is on.
     private boolean poweredOn;
 
@@ -280,8 +280,8 @@ public final class SaoHelmetPage extends StackPane {
         // The head follows the mouse (James, 14 Nov), measured from the page centre, -0.5..0.5 on each axis; drags
         // (window, character) count too, so the view never jumps when a drag ends.
         javafx.event.EventHandler<MouseEvent> look = e -> {
-            headX = Math.max(-0.5, Math.min(0.5, e.getX() / Math.max(1, getWidth()) - 0.5));
-            headY = Math.max(-0.5, Math.min(0.5, e.getY() / Math.max(1, getHeight()) - 0.5));
+            headX = clampHead(e.getX() / Math.max(1, getWidth()) - 0.5);
+            headY = clampHead(e.getY() / Math.max(1, getHeight()) - 0.5);
         };
         addEventFilter(MouseEvent.MOUSE_MOVED, look);
         addEventFilter(MouseEvent.MOUSE_DRAGGED, look);
@@ -328,14 +328,16 @@ public final class SaoHelmetPage extends StackPane {
         world.getTransforms().add(worldShrink);
         world.setCamera(new PerspectiveCamera(false));
         // The breath moves the finished picture of the space (world's translate, see [#frame(double)]), not the space.
-        space.getTransforms().addAll(centre, fit, turnY, turnX);
-        space.getChildren().add(windows);
+        // The floating windows turn with the head; the dock stands directly in space like a visor HUD so it stays put.
+        space.getTransforms().addAll(centre, fit);
+        windows.getTransforms().addAll(turnY, turnX);
 
         news = buildNews();
         server = buildServer();
         player = buildPlayer();
         dock = buildDock();
-        windows.getChildren().addAll(news, server, player, dock);
+        windows.getChildren().addAll(news, server, player);
+        space.getChildren().addAll(windows, dock);
         boot = new SaoBoot(new SaoBoot.Page() {
             @Override
             public SaoFloatWindow[] windows() {
@@ -1445,6 +1447,7 @@ public final class SaoHelmetPage extends StackPane {
         double s = Math.min(w / EW, h / EH);
         SaoFloatWindow.fitScale = s;
         SaoDialogs.setScale(s);
+        SaoUiKit.setWindowDensity(s * k);
         fit.setX(s * k);
         fit.setY(s * k);
         fit.setZ(s * k);
@@ -1462,16 +1465,11 @@ public final class SaoHelmetPage extends StackPane {
 
         // The head turns about the eye: the space moves the other way, near windows more than far ones.
         double eye = -(h / 2.0) / Math.tan(HALF_FOV) / s;
-        // James, 14 Nov: "呼吸很奇怪，还是最好跟着鼠标来吧": the head follows the mouse again, with the 8 Nov rule kept
-        // ("为什么要乱晃"): it moves only when the mouse moves, eases there like a spring and stops dead when the mouse
-        // stops. No drift of its own.
-        double dt = lastFrameT < 0 ? 0 : Math.max(0, Math.min(0.1, t - lastFrameT));
-        lastFrameT = t;
-        double follow = 1 - Math.exp(-dt / FOLLOW_S);
-        lookX += (headX - lookX) * follow;
-        lookY += (headY - lookY) * follow;
-        if (Math.abs(headX - lookX) < 1e-4) lookX = headX;
-        if (Math.abs(headY - lookY) < 1e-4) lookY = headY;
+        // James, 14 Nov: "我想要游戏内的效果" and "在窗口外动的话，里面这东西也不会动": poll the global cursor relative to
+        // the window (clamped to [-0.5, 0.5] outside) and answer on this exact frame with no trailing ease.
+        pollPointer(pw, ph);
+        lookX = headX;
+        lookY = headY;
         // Only the finished picture moves (James, 8 Nov: "请优化"): the space stays still, so JavaFX keeps its 3D
         // render and only shifts it, in whole screen pixels so the text stays sharp.
         world.setTranslateY(BREATHE ? Math.round(s * BREATH_PX * breath(t) * k) / k : 0);
@@ -2237,6 +2235,7 @@ public final class SaoHelmetPage extends StackPane {
         // hover test let a drag on the character move the whole window). The page does this itself, by where the
         // press went, instead of through the decorator's hover flag.
         windows.addEventFilter(MouseEvent.MOUSE_PRESSED, e -> pressOnWindow = true);
+        dock.addEventFilter(MouseEvent.MOUSE_PRESSED, e -> pressOnWindow = true);
         pad.addEventFilter(MouseEvent.MOUSE_PRESSED, e -> pressOnWindow = true);
         cover.addEventFilter(MouseEvent.MOUSE_PRESSED, e -> pressOnWindow = true);
         characterLayer.addEventFilter(MouseEvent.MOUSE_PRESSED, e -> pressOnWindow = true);
@@ -2306,6 +2305,7 @@ public final class SaoHelmetPage extends StackPane {
     private void applyDark() {
         SaoAssets.setLogoDark(dark);
         SaoDialogs.setDark(dark);
+        SaoUiKit.setDark(dark);
         for (javafx.scene.Node n : new javafx.scene.Node[]{this, space, cover, getScene() == null ? null : getScene().getRoot()}) {
             if (n == null) continue;
             n.getStyleClass().remove(DARK);
@@ -2481,16 +2481,51 @@ public final class SaoHelmetPage extends StackPane {
         return 0;
     }
 
+    /// Clamps a normalised head offset to the window's maximum range `[-0.5, 0.5]`.
+    static double clampHead(double v) {
+        return v < -0.5 ? -0.5 : v > 0.5 ? 0.5 : v;
+    }
+
+    /// Reads the global cursor position relative to this page when the launcher window is showing on screen (or when a
+    /// test supplies [#pointerOverride]), clamping outside-window positions to `[-0.5, 0.5]`.
+    private void pollPointer(double pw, double ph) {
+        java.util.function.@Nullable Supplier<Point2D> over = pointerOverride;
+        javafx.stage.@Nullable Window win = getScene() == null ? null : getScene().getWindow();
+        boolean liveWindow = win != null && win.isShowing()
+                && !(win instanceof javafx.stage.Stage st && st.isIconified());
+        if (over == null && !liveWindow) return;
+        try {
+            double sx, sy;
+            if (over != null) {
+                @Nullable Point2D p = over.get();
+                if (p == null) return;
+                sx = p.getX();
+                sy = p.getY();
+            } else {
+                if (pointerRobot == null) pointerRobot = new javafx.scene.robot.Robot();
+                sx = pointerRobot.getMouseX();
+                sy = pointerRobot.getMouseY();
+            }
+            if (!Double.isFinite(sx) || !Double.isFinite(sy)) return;
+            @Nullable Point2D local = screenToLocal(sx, sy);
+            if (local == null || !Double.isFinite(local.getX()) || !Double.isFinite(local.getY())) return;
+            headX = clampHead(local.getX() / Math.max(1, pw) - 0.5);
+            headY = clampHead(local.getY() / Math.max(1, ph) - 0.5);
+        } catch (RuntimeException | LinkageError ignored) {
+            // Fall back to the in-window MouseEvent filter if the platform pointer query is unavailable.
+        }
+    }
+
     /// Y-axis turn for a mouse offset (-0.5 left .. 0.5 right). Positive turns the space so it moves right on screen.
-    static double turnYDeg(double lookX) { return lookX * TURN_Y_DEG; }
+    static double turnYDeg(double lookX) { return clampHead(lookX) * TURN_Y_DEG; }
 
     /// X-axis turn for a mouse offset (-0.5 top .. 0.5 bottom). Negative turns the space so it moves down on screen.
-    static double turnXDeg(double lookY) { return -lookY * TURN_X_DEG; }
+    static double turnXDeg(double lookY) { return -clampHead(lookY) * TURN_X_DEG; }
 
     /// Turns the head (screenshot tools).
     void forceHead(double x, double y) {
-        headX = lookX = x;
-        headY = lookY = y;
+        headX = lookX = clampHead(x);
+        headY = lookY = clampHead(y);
     }
 
     /// The player's character, turning slowly in HMCL's 3D skin view and turned by dragging.

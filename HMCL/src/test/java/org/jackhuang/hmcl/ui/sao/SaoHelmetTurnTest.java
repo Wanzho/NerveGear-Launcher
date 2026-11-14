@@ -30,4 +30,56 @@ final class SaoHelmetTurnTest {
     @Test void smallTurn() {
         assertTrue(Math.abs(SaoHelmetPage.turnYDeg(0.5)) <= 0.6 && Math.abs(SaoHelmetPage.turnXDeg(0.5)) <= 0.45);
     }
+
+    @Test void outsideWindowPointerClampedToEdgeMaximum() {
+        assertEquals(-0.5, SaoHelmetPage.clampHead(-3.2), 1e-9);
+        assertEquals(0.5, SaoHelmetPage.clampHead(4.8), 1e-9);
+        assertEquals(0.25, SaoHelmetPage.clampHead(0.25), 1e-9);
+        assertEquals(SaoHelmetPage.turnYDeg(0.5), SaoHelmetPage.turnYDeg(5.0), 1e-9);
+        assertEquals(SaoHelmetPage.turnYDeg(-0.5), SaoHelmetPage.turnYDeg(-5.0), 1e-9);
+        assertEquals(SaoHelmetPage.turnXDeg(0.5), SaoHelmetPage.turnXDeg(5.0), 1e-9);
+        assertEquals(SaoHelmetPage.turnXDeg(-0.5), SaoHelmetPage.turnXDeg(-5.0), 1e-9);
+    }
+
+    @Test void darkGlassDitherRemovesBandingWithoutShiftingMeanColour() {
+        int w = 580, h = 860;
+        int[] px = SaoUiKit.darkGlassPixels(w, h);
+        double ka = 230.0 / 255.0;
+        double maxRowErr = 0;
+        for (int y = 0; y < h; y++) {
+            double t = y / (double) (h - 1);
+            double expR = (40.0 + (26.0 - 40.0) * t) * ka;
+            double expG = (42.0 + (27.0 - 42.0) * t) * ka;
+            double expB = (49.0 + (32.0 - 49.0) * t) * ka;
+            double sr = 0, sg = 0, sb = 0;
+            for (int x = 0; x < w; x++) {
+                int c = px[y * w + x];
+                assertEquals(230, c >>> 24);
+                sr += c >> 16 & 255;
+                sg += c >> 8 & 255;
+                sb += c & 255;
+            }
+            maxRowErr = Math.max(maxRowErr, Math.abs(sr / w - expR));
+            maxRowErr = Math.max(maxRowErr, Math.abs(sg / w - expG));
+            maxRowErr = Math.max(maxRowErr, Math.abs(sb / w - expB));
+        }
+        assertTrue(maxRowErr < 0.12, "row mean drift too high: " + maxRowErr);
+
+        int maxRun = 0;
+        for (int x = 0; x < w; x++) {
+            int cur = px[x] & 0xffffff;
+            int len = 1;
+            for (int y = 1; y < h; y++) {
+                int next = px[y * w + x] & 0xffffff;
+                if (next == cur) len++;
+                else {
+                    maxRun = Math.max(maxRun, len);
+                    cur = next;
+                    len = 1;
+                }
+            }
+            maxRun = Math.max(maxRun, len);
+        }
+        assertTrue(maxRun <= 14, "expected dither to break 55px flat bands, got maxRun=" + maxRun);
+    }
 }
