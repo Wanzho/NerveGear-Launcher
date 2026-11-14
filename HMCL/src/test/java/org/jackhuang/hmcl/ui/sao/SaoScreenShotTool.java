@@ -983,6 +983,12 @@ public final class SaoScreenShotTool {
 
     /// The motion films: signing in (a mistake, then success), an app window opening with a switch, the Microsoft
     /// sign-in window to its end. 1280 x 720, 深色 unless SAO_MOTION_THEME=light.
+    /// SAO_MOTION_ONLY=skin,window films only those (all when unset).
+    private static boolean want(String film) {
+        String only = System.getenv("SAO_MOTION_ONLY");
+        return only == null || java.util.Arrays.asList(only.split(",")).contains(film);
+    }
+
     private static void shootMotion(Path base) throws Exception {
         Path out = base.resolve("motion");
         System.setProperty("sao.windowButtons", "left");
@@ -1024,7 +1030,7 @@ public final class SaoScreenShotTool {
             f.setText("starburst");
         }));
         click(a, sc, 4300, () -> button(pg, "登录"));
-        if (!"skin".equals(System.getenv("SAO_MOTION_ONLY"))) film(sc, out.resolve("01-login"), 10500, a);
+        if (want("login")) film(sc, out.resolve("01-login"), 10500, a);
         else { fx(() -> { fake.loginDelayMs = 0; fake.oathLogin("Kirito_07", "starburst".toCharArray(), true); }); Thread.sleep(2500); }
 
         // 2. A window: the 设置 dock button, the window flies in and its content comes in after the glass, a switch
@@ -1041,12 +1047,12 @@ public final class SaoScreenShotTool {
         click(b, sc, 2600, toggle);
         click(b, sc, 3900, toggle);
         b.add(new Cue(5600, pg::debugCloseApp));
-        if (!"skin".equals(System.getenv("SAO_MOTION_ONLY"))) film(sc, out.resolve("02-window"), 7600, b);
+        if (want("window")) film(sc, out.resolve("02-window"), 7600, b);
 
         // 3. 微软正版登录: opens, browser, signing in, done (the tick glows), closes by itself.
         java.util.List<Cue> c = new java.util.ArrayList<>();
         c.add(new Cue(500, () -> pg.openMicrosoft(fake::microsoftSignIn)));
-        if (!"skin".equals(System.getenv("SAO_MOTION_ONLY"))) film(sc, out.resolve("03-microsoft"), 8200, c);
+        if (want("microsoft")) film(sc, out.resolve("03-microsoft"), 8200, c);
 
         // 4. The skin changes twice (the band of light runs down the figure), then the same skin comes back on a refresh
         // (nothing plays).
@@ -1057,6 +1063,6 @@ public final class SaoScreenShotTool {
         d.add(new Cue(600, () -> { fake.setSkin(kai, false); pg.debugRefreshAccount(); }));
         d.add(new Cue(2400, () -> { fake.setSkin(noor, true); pg.debugRefreshAccount(); }));
         d.add(new Cue(4200, pg::debugRefreshAccount));
-        film(sc, out.resolve("04-skin"), 5600, d);
+        if (want("skin")) film(sc, out.resolve("04-skin"), 5600, d);
     }
 }

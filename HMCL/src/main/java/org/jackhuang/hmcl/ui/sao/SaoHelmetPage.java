@@ -1287,10 +1287,7 @@ public final class SaoHelmetPage extends StackPane {
         }
         if (app != null) {
             SaoFloatWindow old = app;
-            old.moveBack(380, 0, 200);
-            PauseTransition p = new PauseTransition(Duration.millis(210));
-            p.setOnFinished(e -> windows.getChildren().remove(old));
-            p.play();
+            old.close(() -> windows.getChildren().remove(old));
         }
         if (appButton != null) appButton.getStyleClass().remove("vr-dock-on");
         SaoFloatWindow w = a.make().make(service, this::closeApp);
@@ -1298,8 +1295,9 @@ public final class SaoHelmetPage extends StackPane {
         // Centred in the view (James, 8 Nov: "为什么所有东西又这么靠下不居中了").
         w.home(660, Math.max(96, (EH - w.height()) / 2 - 10), 0, 0, 0);
         windows.getChildren().add(w);
-        w.flyIn(320);
-        w.contentIn(120);
+        // Opens and closes like a window in the game (James, 14 Nov: "窗口打开我们不是做了吗": the interface's MenuMotion).
+        w.open();
+        w.contentIn(SaoFloatWindow.CONTENT_MS);
         app = w;
         appButton = b;
         if (b != null) b.getStyleClass().add("vr-dock-on");
@@ -1351,10 +1349,7 @@ public final class SaoHelmetPage extends StackPane {
         packWin = null;
         if (appButton != null) appButton.getStyleClass().remove("vr-dock-on");
         appButton = null;
-        w.moveBack(420, 0, 240);
-        PauseTransition p = new PauseTransition(Duration.millis(250));
-        p.setOnFinished(e -> windows.getChildren().remove(w));
-        p.play();
+        w.close(() -> windows.getChildren().remove(w));
         for (SaoFloatWindow home : new SaoFloatWindow[]{news, server, player}) home.moveBack(0, 1, 320);
         // A skin put on or an account changed in the app shows on the player at once.
         refreshAccount();

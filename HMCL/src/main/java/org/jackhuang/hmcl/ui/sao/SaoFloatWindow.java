@@ -45,6 +45,8 @@ final class SaoFloatWindow extends Group {
     private final Rotate pitch = new Rotate(0, Rotate.X_AXIS);
     /// Grows a little while the mouse is over the window (James, 7 Nov: "hover动画（对全局）鼠标在的界面会略微放大一点点").
     private final javafx.scene.transform.Scale grow = new javafx.scene.transform.Scale(1, 1, 1);
+    /// The opening and closing size, about the window's centre (the in-game interface's MenuMotion laws).
+    private final javafx.scene.transform.Scale pop = new javafx.scene.transform.Scale(1, 1, 1);
     /// How lit the glass is, 0 to 1. Kept off the window itself: opacity on the turned window flattened it, so the
     /// side windows stood straight while another window was open (James, 8 Nov: "什么叫做开了别的窗口你俩就不斜了").
     final DoubleProperty glass = new SimpleDoubleProperty(1);
@@ -139,7 +141,9 @@ final class SaoFloatWindow extends Group {
         pitch.setPivotY(h / 2);
         grow.setPivotX(w / 2);
         grow.setPivotY(h / 2);
-        getTransforms().addAll(at, yaw, pitch, grow);
+        pop.setPivotX(w / 2);
+        pop.setPivotY(h / 2);
+        getTransforms().addAll(at, yaw, pitch, grow, pop);
         hoverProperty().addListener((o, a, b) -> hoverChanged());
         held.addListener((o, a, b) -> hoverChanged());
         recede.addListener((o, a, b) -> place());
@@ -229,6 +233,110 @@ final class SaoFloatWindow extends Group {
     /// @param delayMs after the glass starts to come in
     void contentIn(double delayMs) {
         SaoMotion.stagger(body, delayMs);
+    }
+
+    // ---- opening and closing: the in-game interface's laws (dev.james.sao.ui.MenuMotion, measured frame by frame on
+    // the series at 24000/1001 fps), so a launcher window opens and closes like a window in the game.
+
+    /// One film frame, in seconds.
+    static final double FRAME = 1001.0 / 24000.0;
+    /// The opening or closing that runs now.
+    private javafx.animation.@Nullable AnimationTimer popping;
+
+    private static double clamp(double x) {
+        return x < 0 ? 0 : x > 1 ? 1 : x;
+    }
+
+    private static double smooth(double x) {
+        x = clamp(x);
+        return x * x * (3 - 2 * x);
+    }
+
+    private static double pow(double x, double p) {
+        return Math.pow(clamp(x), p);
+    }
+
+    /// E02 f31665-31675: a window is 0.53 of its size and faint on its first frame, 0.72, 0.76, 0.92 and full on the fifth.
+    static double openScale(double s) {
+        return 1 - .47 * pow(1 - s / (4.5 * FRAME), 2.2);
+    }
+
+    static double openOpacity(double s) {
+        return clamp(.08 + s / (3.6 * FRAME));
+    }
+
+    /// E03 f11158-11163, E02 f31724-31728: it shrinks to 0.9, then 0.73 ...
+    static double closeScale(double s) {
+        return 1 - .28 * smooth(s / FRAME / 2.3);
+    }
+
+    /// ... is squeezed sideways into a vertical line ...
+    static double closeSqueeze(double s) {
+        double k = s / FRAME;
+        return k <= 2 ? 1 : pow(1 - (k - 2) / 2.7, 3.4);
+    }
+
+    /// ... and is gone on the fifth frame.
+    static double closeOpacity(double s) {
+        double k = s / FRAME;
+        if (k >= 5) return 0;
+        return k < 2 ? 1 - .075 * k : k < 3 ? .85 - .25 * (k - 2) : k < 4 ? .6 - .25 * (k - 3) : .35 * (5 - k);
+    }
+
+    static final double CLOSE_SECONDS = 5 * FRAME;
+
+    /// When the window's content may start coming in: as the glass reaches full size (E02: the body fills in from
+    /// the fourth frame).
+    static final double CONTENT_MS = 3.5 * FRAME * 1000;
+
+    /// Runs one law on the clock until it ends.
+    private void popWith(double seconds, java.util.function.DoubleConsumer at, @Nullable Runnable done) {
+        if (popping != null) popping.stop();
+        if (!SaoMotion.on()) {
+            at.accept(seconds);
+            if (done != null) done.run();
+            return;
+        }
+        at.accept(0);
+        popping = new javafx.animation.AnimationTimer() {
+            private long start = -1;
+
+            @Override
+            public void handle(long now) {
+                if (start < 0) start = now;
+                double s = (now - start) / 1e9;
+                at.accept(Math.min(s, seconds));
+                if (s >= seconds) {
+                    stop();
+                    if (popping == this) popping = null;
+                    if (done != null) done.run();
+                }
+            }
+        };
+        popping.start();
+    }
+
+    /// Opens the window about its centre, as a window opens in the game.
+    void open() {
+        recede.set(0);
+        popWith(4.5 * FRAME, s -> {
+            double k = openScale(s);
+            pop.setX(k);
+            pop.setY(k);
+            glass.set(openOpacity(s));
+        }, null);
+    }
+
+    /// Closes the window as the game does: smaller, squeezed into a line, gone (about 0.21 s).
+    ///
+    /// @param done when it is gone
+    void close(Runnable done) {
+        popWith(CLOSE_SECONDS, s -> {
+            double k = closeScale(s);
+            pop.setX(k * closeSqueeze(s));
+            pop.setY(k);
+            glass.set(closeOpacity(s));
+        }, done);
     }
 
     /// Flies the window in from behind and below, growing out of the dock's light.
