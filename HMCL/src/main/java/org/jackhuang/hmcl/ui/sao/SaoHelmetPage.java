@@ -134,6 +134,8 @@ public final class SaoHelmetPage extends StackPane {
     private static final String GLINT_MODE = System.getProperty("sao.glint", "over");
     /// Off since 14 Nov (James: "呼吸很奇怪，还是最好跟着鼠标来吧"); -Dsao.breathe=true brings it back.
     private static final boolean BREATHE = "true".equals(System.getProperty("sao.breathe"));
+    /// The helmet view follows the mouse only when asked for (James, 15 Nov: 画面不动).
+    static final boolean FOLLOW = "true".equals(System.getProperty("sao.follow"));
     /// Turn at the window's edge (mouse 0.5 from the centre), in degrees.
     private static final double TURN_Y_DEG = 1.1, TURN_X_DEG = 0.8;
     static final boolean SWAY = !"false".equals(System.getProperty("sao.sway"));
@@ -1467,9 +1469,16 @@ public final class SaoHelmetPage extends StackPane {
         double eye = -(h / 2.0) / Math.tan(HALF_FOV) / s;
         // James, 14 Nov: "我想要游戏内的效果" and "在窗口外动的话，里面这东西也不会动": poll the global cursor relative to
         // the window (clamped to [-0.5, 0.5] outside) and answer on this exact frame with no trailing ease.
-        pollPointer(pw, ph);
-        lookX = headX;
-        lookY = headY;
+        // James, 15 Nov: "试一版干脆去掉任何抖动的" (asked: 画面不动): by default the helmet view stays still; no
+        // mouse follow, no breathing. -Dsao.follow=true brings the same-frame follow back.
+        if (FOLLOW) {
+            pollPointer(pw, ph);
+            lookX = headX;
+            lookY = headY;
+        } else {
+            lookX = 0;
+            lookY = 0;
+        }
         // Only the finished picture moves (James, 8 Nov: "请优化"): the space stays still, so JavaFX keeps its 3D
         // render and only shifts it, in whole screen pixels so the text stays sharp.
         world.setTranslateY(BREATHE ? Math.round(s * BREATH_PX * breath(t) * k) / k : 0);
