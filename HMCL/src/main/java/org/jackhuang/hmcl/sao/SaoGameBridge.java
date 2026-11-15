@@ -119,6 +119,10 @@ final class SaoGameBridge {
         repository.refresh();
         @Nullable DefaultGameInstance installed = repository.getSnapshot().findInstance(INSTANCE_ID);
         if (installed == null) {
+            // 柚歌, 15 Nov ("整合包操作失败: Cannot reserve game instance sao-oath"): an earlier attempt that stopped
+            // half-way leaves versions/sao-oath behind without a registered instance, and HMCL refuses to build over
+            // it, so every later try failed too. The leftover moves aside (never deleted) and the build starts clean.
+            moveUnregisteredAside(instanceDir(), instanceDir().getParent().resolveSibling(".sao-unfinished"), System.currentTimeMillis());
             progress.accept("下载 Minecraft 1.20.1", -1.0);
             // Supplying the exact remote avoids accepting another loader or version-list ambiguity.
             NeoForgeRemoteVersion loader = new NeoForgeRemoteVersion(GameVersionNumber.asGameVersion(SaoPackManifest.MINECRAFT),
@@ -133,6 +137,26 @@ final class SaoGameBridge {
         validateInstance(installed);
         progress.accept(repair ? "校验 Minecraft / NeoForge 依赖" : "准备 Minecraft / NeoForge 依赖", -1.0);
         runTask(dependencies.checkGameCompletionAsync(installed, installed.getResolvedManifest(), repair));
+    }
+
+    /// Moves a leftover, unregistered instance folder to `asideDir/sao-oath-<time>` so a fresh build can claim the
+    /// name. A link is refused (never followed), and a folder whose existence cannot even be checked, or that cannot
+    /// be moved, stops with a plain reason instead of HMCL's "Cannot reserve game instance".
+    static @Nullable Path moveUnregisteredAside(Path root, Path asideDir, long now) throws IOException {
+        if (Files.notExists(root, LinkOption.NOFOLLOW_LINKS)) return null;
+        if (!Files.exists(root, LinkOption.NOFOLLOW_LINKS))
+            throw new IOException("无法读取游戏目录 " + root + "，请把启动器放到有读写权限的文件夹（不要直接在压缩包里运行）");
+        if (Files.isSymbolicLink(root) || !Files.isDirectory(root, LinkOption.NOFOLLOW_LINKS))
+            throw new IOException("游戏目录 " + root + " 不是普通文件夹，请删除它后再安装");
+        Path aside = asideDir.resolve(INSTANCE_ID + "-" + now);
+        try {
+            Files.createDirectories(asideDir);
+            Files.move(root, aside);
+        } catch (IOException failure) {
+            throw new IOException("上次安装留下的游戏目录 " + root + " 移不开，请关掉占用它的程序或手动删除后再试", failure);
+        }
+        org.jackhuang.hmcl.util.logging.Logger.LOG.warning("Moved an unregistered instance folder aside: " + aside);
+        return aside;
     }
 
     /// Downloads pack dependencies through HMCL's mirror and checksum-aware transfer code.
