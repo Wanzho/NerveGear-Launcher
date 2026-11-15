@@ -515,6 +515,12 @@ final class SaoOathAccounts implements AutoCloseable {
                     if (closed.get() || generation.get() != expected) return;
                     if (failure == null && currentIdentity == null) return;
                     @Nullable Throwable cause = failure instanceof CompletionException ? failure.getCause() : failure;
+                    // Player reports 15 Nov: the panel fell back to the form right after premium-challenge with no
+                    // reason left on screen. The code (or the class, with its stack) goes to the log; never tokens.
+                    if (cause instanceof SaoAccountException safe)
+                        org.jackhuang.hmcl.util.logging.Logger.LOG.warning("ARGUS premium sign-in failed: code=" + safe.code());
+                    else if (cause != null)
+                        org.jackhuang.hmcl.util.logging.Logger.LOG.warning("ARGUS premium sign-in failed: " + cause.getClass().getName(), cause);
                     currentLinking = failure == null ? new SaoOathLinking(SaoOathLinking.Kind.LINKED, "已连接 ARGUS")
                             : new SaoOathLinking(SaoOathLinking.Kind.FAILED,
                             cause instanceof SaoAccountException safe ? safe.getMessage() : "账号操作失败，请稍后重试");
