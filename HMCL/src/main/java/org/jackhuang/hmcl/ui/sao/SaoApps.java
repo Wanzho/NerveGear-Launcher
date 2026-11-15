@@ -829,7 +829,9 @@ final class SaoApps {
             summary.getChildren().clear();
             if (ip.stage() == org.jackhuang.hmcl.sao.SaoInstallProgress.Stage.IDLE) return;
             boolean failed = ip.stage() == org.jackhuang.hmcl.sao.SaoInstallProgress.Stage.FAILED;
-            double amount = ip.totalBytes() > 0 ? (double) ip.bytesDone() / ip.totalBytes()
+            // 整合包已就绪 carries no counts; a finished install is a full bar, not the 30 % unknown placeholder.
+            boolean complete = ip.stage() == org.jackhuang.hmcl.sao.SaoInstallProgress.Stage.COMPLETE;
+            double amount = complete ? 1 : ip.totalBytes() > 0 ? (double) ip.bytesDone() / ip.totalBytes()
                     : ip.totalFiles() > 0 ? (double) ip.completedFiles() / ip.totalFiles() : -1;
             List<String> facts = new ArrayList<>();
             if (ip.totalBytes() > 0) facts.add(size(ip.bytesDone()) + " / " + size(ip.totalBytes()));
@@ -840,7 +842,7 @@ final class SaoApps {
             if (failed) label.getStyleClass().setAll("vr-warn");
             VBox mid = new VBox(5, row(label, dim(String.join(" · ", facts), 11.5)), bar(560, amount));
             HBox.setHgrow(mid, Priority.ALWAYS);
-            HBox top = tile(icon(failed ? SVG.WARNING : SVG.DOWNLOAD, 22), mid,
+            HBox top = tile(icon(failed ? SVG.WARNING : complete ? SVG.CHECK_CIRCLE : SVG.DOWNLOAD, 22), mid,
                     sao(amount >= 0 ? Math.round(amount * 100) + "%" : "...", 13, true));
             if (failed) top.getStyleClass().add("vr-tile-warn");
             summary.getChildren().add(top);
