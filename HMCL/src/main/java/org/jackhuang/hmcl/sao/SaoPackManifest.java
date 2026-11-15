@@ -155,7 +155,11 @@ public record SaoPackManifest(String version, String minecraft, String neoforge,
                 || lower.startsWith("saves/") || lower.startsWith("screenshots/")
                 || lower.startsWith("shaderpacks/") || lower.equals("config/oculus.properties")
                 || lower.equals("config/iris.properties") || lower.contains("keybind")
-                || lower.equals("servers.dat") || lower.equals("servers.dat_old");
+                || lower.equals("servers.dat") || lower.equals("servers.dat_old")
+                // SAO settings the game saves itself (opening playWhen, saoFont, HUD switches, theme): copied only when
+                // absent, never restored, or every repair/update undoes the player's choice (柚歌, 15 Nov).
+                || lower.equals("config/sao-entrance.properties") || lower.equals("config/sao-interface.properties")
+                || lower.equals("config/sao-interface-packui.properties");
     }
 
     /// Decodes an explicit manifest without Gson reflection or nullable record construction.
