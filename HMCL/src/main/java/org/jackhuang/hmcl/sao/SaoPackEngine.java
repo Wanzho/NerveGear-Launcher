@@ -1499,7 +1499,8 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     private void publishNews() {
         List<SaoData.News> combined = new ArrayList<>(remoteNews);
         combined.removeIf(item -> item.kind() == SaoData.NewsKind.UPDATE && item.title().equals(embeddedNews.title()));
-        combined.add(embeddedNews);
+        // A thin launcher carries no pack: its placeholder ("v未内置整合包", no date, no text) is not a notice.
+        if (!embeddedNews.title().contains("未内置整合包")) combined.add(embeddedNews);
         @Unmodifiable List<SaoData.News> replacement = List.copyOf(combined);
         SaoData.ReleaseVerification verification = online.verification();
         publish(() -> { replace(news, replacement); releaseVerification.set(verification); });
