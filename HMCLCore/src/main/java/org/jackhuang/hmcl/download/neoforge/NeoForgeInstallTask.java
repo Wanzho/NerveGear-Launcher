@@ -52,6 +52,10 @@ public final class NeoForgeInstallTask extends Task<GameInstancePatch> {
 
     private Task<GameInstancePatch> dependency;
 
+    /// A launcher may ship known installers so installation never depends on maven.neoforged.net (SAO, 15 Nov).
+    /// Given the remote version id, returns a verified local installer or null to download as usual.
+    public static volatile java.util.function.@org.jetbrains.annotations.Nullable Function<String, @org.jetbrains.annotations.Nullable Path> bundledInstaller;
+
     public NeoForgeInstallTask(DefaultDependencyManager dependencyManager, GameInstanceManifest manifest, NeoForgeRemoteVersion remoteVersion) {
         this.dependencyManager = dependencyManager;
         this.manifest = manifest;
@@ -67,6 +71,14 @@ public final class NeoForgeInstallTask extends Task<GameInstancePatch> {
     @Override
     public void preExecute() throws Exception {
         installer = Files.createTempFile("neoforge-installer", ".jar");
+
+        var bundled = bundledInstaller;
+        Path local = bundled == null ? null : bundled.apply(remoteVersion.getSelfVersion());
+        if (local != null && Files.isRegularFile(local)) {
+            Files.copy(local, installer, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            dependent = null;
+            return;
+        }
 
         DownloadProvider downloadProvider = dependencyManager.getDownloadProvider();
         dependent = new FileDownloadTask(
@@ -91,7 +103,7 @@ public final class NeoForgeInstallTask extends Task<GameInstancePatch> {
 
     @Override
     public Collection<? extends Task<?>> getDependents() {
-        return Collections.singleton(dependent);
+        return dependent == null ? Collections.emptySet() : Collections.singleton(dependent);
     }
 
     @Override

@@ -123,6 +123,13 @@ final class SaoGameBridge {
             // half-way leaves versions/sao-oath behind without a registered instance, and HMCL refuses to build over
             // it, so every later try failed too. The leftover moves aside (never deleted) and the build starts clean.
             moveUnregisteredAside(instanceDir(), instanceDir().getParent().resolveSibling(".sao-unfinished"), System.currentTimeMillis());
+            // NeoForge comes from inside the launcher (15 Nov): its libraries go in place first, the installer is
+            // handed to HMCL's task, so only Minecraft itself is downloaded. No bundle means the usual download.
+            @Nullable SaoNeoForgeBundle.Result bundle = SaoNeoForgeBundle.unpack(
+                    repository.getLayout().getLibrariesDirectory(), root.resolve("dependencies").resolve("neoforge"));
+            @Nullable Path bundledInstaller = bundle == null ? null : bundle.installer();
+            org.jackhuang.hmcl.download.neoforge.NeoForgeInstallTask.bundledInstaller =
+                    version -> bundledInstaller != null && version.endsWith("47.1.106") ? bundledInstaller : null;
             progress.accept("下载 Minecraft 1.20.1", -1.0);
             // Supplying the exact remote avoids accepting another loader or version-list ambiguity.
             NeoForgeRemoteVersion loader = new NeoForgeRemoteVersion(GameVersionNumber.asGameVersion(SaoPackManifest.MINECRAFT),
