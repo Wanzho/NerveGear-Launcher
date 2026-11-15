@@ -339,7 +339,7 @@ final class SaoAccountClient {
             // sao_auth answers every malformed register with this; on the live server it is almost always the password
             // rule (姜尚真, 15 Nov: "账号操作失败" with no reason).
             case "Invalid request." -> route.endsWith("/sao/register") || route.endsWith("/sao/password") || route.endsWith("/sao/reset")
-                    ? new SaoAccountException("密码至少 10 位、不能有空格，两次要一样", "badRequest")
+                    ? new SaoAccountException("密码至少 8 位、不能有空格，两次要一样", "badRequest")
                     : new SaoAccountException("账号操作失败，请检查输入后重试", "badRequest");
             default -> status == 401 || status == 403 ? new SaoAccountException(
                     route.endsWith("/sao/register") ? "这个名字已被注册" : route.endsWith("/sao/login") || route.endsWith("/sao/password") ? "密码错误" : "登录已失效，请重新登录", "invalidCredentials")
