@@ -81,7 +81,10 @@ final class SaoGameBridge {
         provider.setFileSource(source);
         provider.setVersionListSource(source);
         modDownloads = new SaoModDownloads(provider, snapshot -> installProgress.accept(snapshot));
-        dependencies = new DefaultDependencyManager(repository, provider, new DefaultCacheRepository(root.resolve("dependencies")));
+        // Files the player already has in PCL/HMCL/official .minecraft are copied (verified) instead of downloaded.
+        Path minecraft = root.resolve("minecraft");
+        dependencies = new DefaultDependencyManager(repository, provider,
+                new SaoExistingMinecraft.Cache(root.resolve("dependencies"), () -> SaoExistingMinecraft.find(minecraft)));
     }
 
     /// Returns the fixed run directory, matching GameBuilder.enableIsolation().
