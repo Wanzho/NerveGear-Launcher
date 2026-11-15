@@ -31,6 +31,11 @@ ShowUninstDetails nevershow
 !define MUI_UNICON "${ICON}"
 !define MUI_ABORTWARNING
 
+; 15 Nov (亦正亦邪: "这东西自动安装在C盘"): the player picks the folder. The game, the pack and saves live in
+; .sao-oath-launcher inside it, so this is where all the space goes. CheckWritable refuses a folder that needs admin.
+!define MUI_DIRECTORYPAGE_TEXT_TOP "启动器、游戏和整合包都会装在这个文件夹里，需要几 GB 空间。C 盘不够可以换到别的盘，比如 D:\Games\NerveGear-Launcher。不要选 Program Files。"
+!define MUI_PAGE_CUSTOMFUNCTION_LEAVE CheckWritable
+!insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_UNPAGE_INSTFILES
 !insertmacro MUI_LANGUAGE "SimpChinese"
