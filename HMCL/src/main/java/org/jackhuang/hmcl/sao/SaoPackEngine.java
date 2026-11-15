@@ -1434,7 +1434,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
         saveSetting("downloadSource", source.name()); game.setDownloadSource(source);
     }
     /// {@inheritDoc}
-    @Override public int downloadThreads() { return Math.max(1, Math.min(256, settings.number("downloadThreads", 64))); }
+    @Override public int downloadThreads() { return Math.max(1, Math.min(256, settings.number("downloadThreads", 16))); }
     /// {@inheritDoc}
     @Override public void setDownloadThreads(int threads) {
         if (threads < 1 || threads > 256) { windowFailure("下载设置失败", new IOException("Parallel downloads must be between 1 and 256")); return; }

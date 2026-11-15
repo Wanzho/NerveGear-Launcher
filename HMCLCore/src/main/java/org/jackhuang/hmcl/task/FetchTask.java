@@ -83,7 +83,20 @@ public abstract class FetchTask<T extends @UnknownNullability Object> extends Ta
     protected void receivedResponse(UrlResponseInfo response) throws IOException { }
 
     /// Delay before the next retry of a candidate; subclasses may provide bounded exponential backoff.
-    protected long retryDelayMillis(int failedAttempt) { return 200; }
+    /// Grows 0.5 s, 1 s, 2 s, 4 s with a little jitter, so a struggling mirror is not hammered by every file at once.
+    protected long retryDelayMillis(int failedAttempt) {
+        long base = 500L << Math.min(failedAttempt, 3);
+        return base + java.util.concurrent.ThreadLocalRandom.current().nextLong(base / 2 + 1);
+    }
+
+    /// True while a later candidate exists, so a host benched mid-retry hands over instead of retrying.
+    private boolean handOverWhenBenched;
+
+    /// The host of a candidate, or null when it has none.
+    static @Nullable String hostOf(WebURL url) {
+        try { return java.net.URI.create(url.toString()).getHost(); }
+        catch (IllegalArgumentException invalid) { return null; }
+    }
 
     /// Whether a recoverable failure should retry this candidate; false advances to the next candidate.
     /// Subclasses can reject stalled or permanently invalid responses without retrying the same host.
@@ -117,7 +130,12 @@ public abstract class FetchTask<T extends @UnknownNullability Object> extends Ta
         if (SEMAPHORE != null)
             SEMAPHORE.acquire();
         try {
-            for (DownloadCandidate candidate : candidates.getCandidates()) {
+            // 自动选择 (15 Nov): hosts that keep failing go to the back of the line; see DownloadHostHealth.
+            DownloadHostHealth health = DownloadHostHealth.shared();
+            List<DownloadCandidate> ordered = health.order(candidates.getCandidates(),
+                    c -> c.url() == null ? null : hostOf(c.url()));
+            for (int index = 0; index < ordered.size(); index++) {
+                DownloadCandidate candidate = ordered.get(index);
                 WebURL url = candidate.url();
                 if (url == null) {
                     if (exceptions == null)
@@ -127,6 +145,9 @@ public abstract class FetchTask<T extends @UnknownNullability Object> extends Ta
                 }
 
                 int retry = candidate.retry() >= 0 ? candidate.retry() : DEFAULT_RETRY;
+                // A benched host is the last resort: one quick extra try, not five.
+                if (health.benched(hostOf(url))) retry = Math.min(retry, 1);
+                handOverWhenBenched = index < ordered.size() - 1;
                 Duration connectTimeout = Objects.requireNonNullElse(candidate.connectTimeout(), NetworkUtils.TIMEOUT);
                 Duration readTimeout = Objects.requireNonNullElse(candidate.readTimeout(), NetworkUtils.TIMEOUT);
 
@@ -498,6 +519,7 @@ public abstract class FetchTask<T extends @UnknownNullability Object> extends Ta
                             throw e;
                         }
                         context = null;
+                        DownloadHostHealth.shared().success(hostOf(url));
                         return;
                     } finally {
                         IOUtils.closeQuietly(inputStream);
@@ -518,6 +540,11 @@ public abstract class FetchTask<T extends @UnknownNullability Object> extends Ta
                         exceptions = new ArrayList<>();
 
                     exceptions.add(ex);
+                    DownloadHostHealth.shared().failure(hostOf(url));
+                    if (handOverWhenBenched && DownloadHostHealth.shared().benched(hostOf(url))) {
+                        LOG.warning("Failed to download " + url + ", host benched, trying the next source", ex);
+                        throw toDownloadException(url, null, exceptions);
+                    }
 
                     LOG.warning("Failed to download " + url + ", repeat times: " + attempts + (redirects == null ? "" : ", redirects: " + redirects), ex);
 

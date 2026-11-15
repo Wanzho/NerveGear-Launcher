@@ -801,11 +801,24 @@ final class SaoApps {
         });
         Slider threads = new Slider(1, 256, s.downloadThreads());
         threads.getStyleClass().add("vr-slider");
-        Text tv = sao(Integer.toString(s.downloadThreads()), 14, true);
+        // 黄, 15 Nov ("为什么只有一个条可以拉，不能直接改数字"): the number is a field too; Enter or leaving it applies,
+        // anything outside 1-256 snaps back to the slider's value.
+        TextField tv = field("");
+        tv.setText(Integer.toString(s.downloadThreads()));
+        tv.setPrefColumnCount(3);
+        tv.setMaxWidth(64);
         threads.valueProperty().addListener((o, a, b) -> {
-            tv.setText(Integer.toString(b.intValue()));
-            s.setDownloadThreads(b.intValue());
+            if (!tv.isFocused()) tv.setText(Integer.toString(b.intValue()));
+            if (b.intValue() != s.downloadThreads()) s.setDownloadThreads(b.intValue());
         });
+        Runnable typed = () -> {
+            int n;
+            try { n = Integer.parseInt(tv.getText().strip()); } catch (NumberFormatException bad) { n = -1; }
+            if (n >= 1 && n <= 256) threads.setValue(n);
+            tv.setText(Integer.toString((int) threads.getValue()));
+        };
+        tv.setOnAction(e -> typed.run());
+        tv.focusedProperty().addListener((o, was, now) -> { if (!now) typed.run(); });
         VBox right = column(246, key("下载源"), new HBox(6, auto, bmcl, official),
                 rule(), row(key("同时下载"), tv), threads);
         return new SaoFloatWindow("Java 与下载源", W, H, close).add(columns(left, right));

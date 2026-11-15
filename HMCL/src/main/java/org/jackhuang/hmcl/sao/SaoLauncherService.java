@@ -387,7 +387,7 @@ public interface SaoLauncherService {
 
     /// Parallel downloads, 1 to 256.
     default int downloadThreads() {
-        return 64;
+        return 16;
     }
 
     /// Sets the parallel downloads.
