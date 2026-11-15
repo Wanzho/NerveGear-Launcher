@@ -95,7 +95,7 @@ final class SaoAccountApp {
         private Node register() {
             TextField name = field("3-16 位字母、数字、下划线");
             TextField email = field("用于接收验证码及找回密码");
-            PasswordField pw = password(""), again = password("");
+            PasswordField pw = password("至少 10 位，不能有空格"), again = password("");
             Text problem = warn();
             Button go = accent("注册");
             go.setDefaultButton(true);
@@ -109,8 +109,9 @@ final class SaoAccountApp {
                     problem.setText("! 邮箱格式不对");
                     return;
                 }
-                if (pw.getText().isEmpty()) {
-                    problem.setText("! 请设置密码");
+                @Nullable String weak = passwordProblem(pw.getText());
+                if (weak != null) {
+                    problem.setText("! " + weak);
                     return;
                 }
                 if (!pw.getText().equals(again.getText())) {
@@ -192,7 +193,7 @@ final class SaoAccountApp {
             @Nullable String remembered = s.rememberedOathName();
             if (remembered != null) name.setText(remembered);
             TextField code = field("6 位数字");
-            PasswordField pw = password(""), again = password("");
+            PasswordField pw = password("至少 10 位，不能有空格"), again = password("");
             Text problem = warn();
             Button send = button("发送验证码");
             Button go = accent("重置密码");
@@ -222,7 +223,12 @@ final class SaoAccountApp {
                     problem.setText("! 验证码是 6 位数字");
                     return;
                 }
-                if (pw.getText().isEmpty() || !pw.getText().equals(again.getText())) {
+                @Nullable String weak = passwordProblem(pw.getText());
+                if (weak != null) {
+                    problem.setText("! " + weak);
+                    return;
+                }
+                if (!pw.getText().equals(again.getText())) {
                     problem.setText("! 两次密码不一样");
                     return;
                 }
@@ -286,6 +292,11 @@ final class SaoAccountApp {
             changePw.setOnAction(e -> {
                 if (old.getText().isEmpty() || neu.getText().isEmpty()) {
                     problem.setText("! 填好当前密码和新密码");
+                    return;
+                }
+                @Nullable String weak = passwordProblem(neu.getText());
+                if (weak != null) {
+                    problem.setText("! 新" + weak);
                     return;
                 }
                 if (!neu.getText().equals(again.getText())) {
@@ -388,6 +399,19 @@ final class SaoAccountApp {
     }
 
     /// Runs immediately for an existing account, otherwise after the presented backend flow succeeds.
+    /// The account server's own rule (sao_auth Passwords.valid, minPasswordLength 10 on the live server): 10-128
+    /// characters, no spaces. Checked here so a player sees why, not "账号操作失败" (姜尚真, 15 Nov).
+    static @Nullable String passwordProblem(String password) {
+        if (password.isEmpty()) return "请设置密码";
+        if (password.length() < 10) return "密码至少 10 位";
+        if (password.length() > 128) return "密码最多 128 位";
+        for (int i = 0; i < password.length(); i++) {
+            char c = password.charAt(i);
+            if (Character.isWhitespace(c) || Character.isISOControl(c) || Character.isSurrogate(c)) return "密码不能有空格或特殊符号";
+        }
+        return null;
+    }
+
     static void withMicrosoft(Runnable then) {
         if (microsoftAccount() != null) then.run();
         else org.jackhuang.hmcl.sao.SaoMicrosoftFlow.present(then);
