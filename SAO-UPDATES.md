@@ -279,3 +279,9 @@ The installation and game runtime checks still run. Link Start and official pack
 keep their version and integrity rules, and offline play clears any stale server ticket.
 
 The default download setting is 16 simultaneous downloads. Previously saved values are retained.
+
+Quick deltas can reference an official Modrinth dependency without redistributing its JAR.
+For an added or changed mod, omit its `entry` and its ZIP member, and include its exact
+`cdn.modrinth.com/data/.../versions/.../*.jar` HTTPS URL as the only `downloads` entry.
+Pin the byte count, SHA-1 and expected SHA-256 and retain any index SHA-512.
+The launcher verifies the named content before applying the update and caches it for repair.

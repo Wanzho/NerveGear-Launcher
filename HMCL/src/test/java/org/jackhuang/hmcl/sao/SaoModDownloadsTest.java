@@ -31,6 +31,26 @@ class SaoModDownloadsTest {
     /// Disposable staging and destination files.
     @TempDir Path temporary;
 
+    /// A standalone quick dependency begins its own measured one-file stage even when its bytes were cached.
+    @Test void officialQuickSourceReportsOneFile() throws Exception {
+        String body = "verified local copy";
+        SaoPackManifest.PackFile source = new SaoPackManifest.PackFile("mods/official.jar",
+                SaoPackArchive.sha1(new ByteArrayInputStream(body.getBytes(StandardCharsets.UTF_8))), body.length(),
+                null, List.of("https://cdn.modrinth.com/data/Fixture1/versions/Fixture2/official.jar"));
+        Path target = Files.writeString(temporary.resolve("official.jar"), body);
+        List<SaoInstallProgress> snapshots = new ArrayList<>();
+        try (SaoModDownloads downloads = new SaoModDownloads(urls -> { throw new AssertionError("Unexpected remote lookup"); },
+                snapshots::add, transfer -> assertEquals("existing", transfer.finalHost()), Set.of())) {
+            downloads.downloadOfficialMod(source, target);
+        }
+        assertEquals(1, snapshots.get(0).totalFiles());
+        assertEquals(0, snapshots.get(0).completedFiles());
+        SaoInstallProgress last = snapshots.get(snapshots.size() - 1);
+        assertEquals(1, last.completedFiles());
+        assertEquals(body.length(), last.bytesDone());
+        assertEquals(0, last.networkBytes());
+    }
+
     /// Queue preparation starts largest jars first, preserving insertion order for equal sizes.
     @Test void largestFilesAreSubmittedFirst() throws Exception {
         Map<SaoPackManifest.PackFile, Path> files = new LinkedHashMap<>();

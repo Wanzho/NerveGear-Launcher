@@ -465,6 +465,8 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
         installer = new SaoPackInstaller(game.instanceDir(), new SaoPackInstaller.Downloader() {
             /// Downloads one dependency through the production mirror/hash path.
             @Override public void download(SaoPackManifest.PackFile file, Path path) throws Exception { game.download(file, path); }
+            /// Applies the official CDN policy on the currently bound game bridge.
+            @Override public void downloadOfficialMod(SaoPackManifest.PackFile file, Path path) throws Exception { game.downloadOfficialMod(file, path); }
             /// Preserves detailed counters and all-file failure reporting for the entire batch.
             @Override public void downloadAll(Map<SaoPackManifest.PackFile, Path> files) throws Exception { game.downloadAll(files); }
         }, Map.of(), this::reportProgress);
@@ -1699,6 +1701,8 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
         installer = new SaoPackInstaller(game.instanceDir(), new SaoPackInstaller.Downloader() {
             /// Uses the currently bound bridge for single downloads.
             @Override public void download(SaoPackManifest.PackFile file, Path path) throws Exception { game.download(file, path); }
+            /// Applies the official CDN policy on the currently bound game bridge.
+            @Override public void downloadOfficialMod(SaoPackManifest.PackFile file, Path path) throws Exception { game.downloadOfficialMod(file, path); }
             /// Preserves batch verification and failure reporting.
             @Override public void downloadAll(Map<SaoPackManifest.PackFile, Path> batch) throws Exception { game.downloadAll(batch); }
         }, Map.of(), this::reportProgress);

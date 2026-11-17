@@ -199,6 +199,11 @@ final class SaoGameBridge {
         modDownloads.download(file, destination);
     }
 
+    /// Fetches a quick-update mod by its official CDN URL with redirect restrictions.
+    void downloadOfficialMod(SaoPackManifest.PackFile file, Path destination) throws Exception {
+        modDownloads.downloadOfficialMod(file, destination);
+    }
+
     /// Downloads the exact missing remote inventory with six workers and checksum-verified publication.
     void downloadAll(Map<SaoPackManifest.PackFile, Path> files) throws Exception { modDownloads.downloadAll(files); }
 

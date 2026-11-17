@@ -75,6 +75,96 @@ class SaoQuickUpdateTest {
         return new SaoPackInstaller(instance, (file, destination) -> { throw new AssertionError("Unexpected network payload"); }, Map.of(), (label, progress) -> { });
     }
 
+    /// Official CDN shape used by the fixture. The installer substitutes only the file transfer.
+    private static final String OFFICIAL_MOD = "https://cdn.modrinth.com/data/Example1/versions/Release1/example.jar";
+
+    /// Replaces one canonical payload with the precise entry-less descriptor used by Modrinth quick archives.
+    private Path externalDelta(Path embedded, String path, String url, String name, boolean wrongSha256) throws IOException {
+        Path result = temporary.resolve(name);
+        try (ZipFile source = new ZipFile(embedded.toFile());
+             ZipOutputStream output = new ZipOutputStream(Files.newOutputStream(result))) {
+            JsonObject metadata;
+            try (Reader reader = new InputStreamReader(source.getInputStream(source.getEntry(SaoQuickUpdate.NAME)), StandardCharsets.UTF_8)) {
+                metadata = JsonParser.parseReader(reader).getAsJsonObject();
+            }
+            for (JsonElement element : metadata.getAsJsonObject("after").getAsJsonArray("files")) {
+                JsonObject file = element.getAsJsonObject();
+                if (!file.get("path").getAsString().equals(path)) continue;
+                file.remove("entry");
+                JsonArray downloads = new JsonArray();
+                downloads.add(url);
+                file.add("downloads", downloads);
+            }
+            if (wrongSha256) metadata.getAsJsonObject("expected").addProperty(path, "0".repeat(64));
+            member(output, SaoQuickUpdate.NAME, metadata.toString());
+            for (var entries = source.entries(); entries.hasMoreElements();) {
+                var entry = entries.nextElement();
+                if (entry.getName().equals(SaoQuickUpdate.NAME) || entry.getName().equals("overrides/" + path)) continue;
+                output.putNextEntry(new ZipEntry(entry.getName()));
+                try (InputStream input = source.getInputStream(entry)) { input.transferTo(output); }
+                output.closeEntry();
+            }
+        }
+        return result;
+    }
+
+    /// Downloads the canonical external payload before committing and makes the result repairable from its local cache.
+    @Test void officialQuickModIsVerifiedAndCached() throws Exception {
+        String path = "mods/example.jar";
+        Path old = pack("0.8", "cdn-old.zip", Map.of(path, "old", "options.txt", "seed"), false);
+        Path next = pack("0.8.1", "cdn-next.zip", Map.of(path, "new", "options.txt", "seed"), false);
+        Path embedded = temporary.resolve(delta(old, next, "cdn-embedded.zip").file());
+        Path quick = externalDelta(embedded, path, OFFICIAL_MOD, "cdn-external.zip", false);
+        Path instance = temporary.resolve("cdn-instance");
+        AtomicInteger downloads = new AtomicInteger();
+        SaoPackInstaller installer = new SaoPackInstaller(instance, (file, destination) -> {
+            assertEquals(List.of(OFFICIAL_MOD), file.downloads());
+            assertEquals(path, file.path());
+            downloads.incrementAndGet();
+            Files.writeString(destination, "new");
+        }, Map.of(), (label, progress) -> { });
+        SaoPackArchive base = SaoPackArchive.open(old);
+        installer.apply(base, false);
+        Files.writeString(instance.resolve("options.txt"), "player settings");
+        SaoPackArchive cached = installer.applyQuick(List.of(quick), base, temporary.resolve("cdn-cache"));
+        assertEquals("0.8.1", Objects.requireNonNull(installer.installed()).version());
+        assertEquals("player settings", Files.readString(instance.resolve("options.txt")));
+        assertEquals("new", Files.readString(instance.resolve(path)));
+        Files.delete(instance.resolve(path));
+        installer.apply(cached, true);
+        assertEquals("new", Files.readString(instance.resolve(path)));
+        assertEquals(1, downloads.get());
+    }
+
+    /// A foreign URL is rejected before transfer; wrong content or a failed transfer keeps the previous installation.
+    @Test void externalQuickRejectsForeignOrDamagedPayloadWithoutMutatingInstall() throws Exception {
+        String path = "mods/missing.jar";
+        Path old = pack("0.8", "cdn-reject-old.zip", Map.of("config/managed.txt", "old"), false);
+        Path next = pack("0.8.1", "cdn-reject-next.zip", Map.of(path, "new", "config/managed.txt", "new"), false);
+        Path embedded = temporary.resolve(delta(old, next, "cdn-reject-embedded.zip").file());
+        Path foreign = externalDelta(embedded, path, "https://cdn.modrinth.com.example/data/Example1/versions/Release1/example.jar", "foreign.zip", false);
+        Path wrong = externalDelta(embedded, path, OFFICIAL_MOD, "wrong.zip", true);
+        Path instance = temporary.resolve("cdn-reject-instance");
+        AtomicInteger downloads = new AtomicInteger();
+        SaoPackInstaller installer = new SaoPackInstaller(instance, (file, destination) -> {
+            if (downloads.getAndIncrement() == 0) Files.writeString(destination, "new");
+            else throw new IOException("Injected transfer failure");
+        }, Map.of(), (label, progress) -> { });
+        SaoPackArchive base = SaoPackArchive.open(old);
+        installer.apply(base, false);
+        Path cache = temporary.resolve("cdn-reject-cache");
+        assertThrows(IOException.class, () -> installer.applyQuick(List.of(foreign), base, cache));
+        assertEquals(0, downloads.get());
+        assertThrows(IOException.class, () -> installer.applyQuick(List.of(wrong), base, cache));
+        assertEquals(1, downloads.get());
+        assertThrows(IOException.class, () -> installer.applyQuick(List.of(externalDelta(embedded, path, OFFICIAL_MOD,
+                "unavailable.zip", false)), base, cache));
+        assertEquals(2, downloads.get());
+        assertFalse(Files.exists(instance.resolve(path)));
+        assertEquals("old", Files.readString(instance.resolve("config/managed.txt")));
+        assertEquals("0.8", Objects.requireNonNull(installer.installed()).version());
+    }
+
     /// Normal game rewrites and absent unchanged settings do not block a quick update or lose player choices.
     @Test void playedSettingsArePreservedAcrossQuickUpdate() throws Exception {
         @Unmodifiable Map<String, String> settings = Map.ofEntries(Map.entry("mods/a.jar", "old"), Map.entry("config/forge-client.toml", "seed"),

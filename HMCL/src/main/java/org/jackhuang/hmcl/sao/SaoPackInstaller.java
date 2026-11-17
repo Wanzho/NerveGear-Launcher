@@ -53,6 +53,11 @@ public final class SaoPackInstaller {
         /// Fetches a source with exact manifest identity into the supplied temporary destination.
         void download(SaoPackManifest.PackFile file, Path destination) throws Exception;
 
+        /// Fetches an official Modrinth quick-update dependency. The production downloader restricts redirects to the CDN.
+        default void downloadOfficialMod(SaoPackManifest.PackFile file, Path destination) throws Exception {
+            download(file, destination);
+        }
+
         /// Fetches all dependencies with at most six workers, draining every failure before returning.
         /// Implementations may publish richer transfer snapshots; destinations always belong to private staging.
         default void downloadAll(Map<SaoPackManifest.PackFile, Path> files) throws Exception {
@@ -205,7 +210,7 @@ public final class SaoPackInstaller {
                 Files.createDirectories(cache);
                 Path work = Files.createTempDirectory(cache, "chain-");
                 try {
-                    SaoPackArchive composed = SaoQuickUpdate.compose(instance, installed, archives, pristine, work);
+                    SaoPackArchive composed = SaoQuickUpdate.compose(instance, installed, archives, pristine, work, downloader);
                     capacity.check(composed);
                     String key = SaoPackArchive.sha1(new ByteArrayInputStream(composed.manifest().toJson().getBytes(StandardCharsets.UTF_8)));
                     Path retained = cache.resolve(key + ".zip");

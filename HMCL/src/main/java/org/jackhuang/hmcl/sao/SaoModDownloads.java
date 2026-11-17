@@ -114,15 +114,18 @@ final class SaoModDownloads implements SaoPackInstaller.Downloader, AutoCloseabl
 
     /// Starts a fresh stage and waits for all files, collecting every terminal failure before throwing.
     @Override public void downloadAll(Map<SaoPackManifest.PackFile, Path> files) throws Exception {
-        synchronized (this) {
-            remaining.clear();
-            largestFirst(files).forEach(item -> remaining.put(item.getKey().path(), "等待连接"));
-            partial.clear(); failures.clear(); completed = 0; total = files.size(); verifiedBytes = 0;
-            totalBytes = files.keySet().stream().mapToLong(SaoPackManifest.PackFile::size).sum(); networkBytes = 0;
-            speedNanos = System.nanoTime(); lastPublish = speedBytes = 0; speed = 0;
-            publish(true, false);
-        }
+        beginDownloads(files);
         runBatch(this, files);
+    }
+
+    /// Opens one measured download stage for either a batch or a standalone official quick dependency.
+    private synchronized void beginDownloads(Map<SaoPackManifest.PackFile, Path> files) {
+        remaining.clear();
+        largestFirst(files).forEach(item -> remaining.put(item.getKey().path(), "等待连接"));
+        partial.clear(); failures.clear(); completed = 0; total = files.size(); verifiedBytes = 0;
+        totalBytes = files.keySet().stream().mapToLong(SaoPackManifest.PackFile::size).sum(); networkBytes = 0;
+        speedNanos = System.nanoTime(); lastPublish = speedBytes = 0; speed = 0;
+        publish(true, false);
     }
 
     /// Stable descending-size submission order makes the largest jars occupy the first worker slots.
@@ -167,13 +170,26 @@ final class SaoModDownloads implements SaoPackInstaller.Downloader, AutoCloseabl
 
     /// Fetches a file into a private sibling, rechecks its hash/size, then atomically publishes it.
     @Override public void download(SaoPackManifest.PackFile file, Path destination) throws Exception {
+        download(file, destination, false);
+    }
+
+    /// Uses only the manifest's one official file URL, including on range retries and redirects.
+    @Override public void downloadOfficialMod(SaoPackManifest.PackFile file, Path destination) throws Exception {
+        if (file.downloads().size() != 1 || !SaoQuickUpdate.officialModUrl(file.downloads().get(0)))
+            throw new IOException("Invalid official Modrinth URL");
+        beginDownloads(Map.of(file, destination));
+        download(file, destination, true);
+    }
+
+    /// Shares bounded staging, checksum verification and publication between both source policies.
+    private void download(SaoPackManifest.PackFile file, Path destination, boolean officialOnly) throws Exception {
         if (closed) throw new IOException("Pack downloader has closed");
         Thread worker = Thread.currentThread();
         long start = System.nanoTime();
         DownloadCandidates resolved = DownloadCandidates.of(file.downloads().get(0));
         Files.createDirectories(destination.toAbsolutePath().getParent());
         Path staged = Files.createTempFile(destination.toAbsolutePath().getParent(), ".sao-download-", ".part");
-        TransferTask task = new TransferTask(resolved, staged, file);
+        TransferTask task = new TransferTask(resolved, staged, file, officialOnly);
         workers.add(worker);
         boolean verified = false;
         String actualSha1 = "";
@@ -189,7 +205,7 @@ final class SaoModDownloads implements SaoPackInstaller.Downloader, AutoCloseabl
             } else try (@Nullable InputStream bundled = SaoModDownloads.class.getResourceAsStream("/assets/sao/files/" + file.sha1())) {
                 if (bundled != null) Files.copy(bundled, staged, StandardCopyOption.REPLACE_EXISTING);
                 else {
-                    task = new TransferTask(candidates.apply(file.downloads()), staged, file);
+                    task = new TransferTask(officialOnly ? resolved : candidates.apply(file.downloads()), staged, file, officialOnly);
                     task.run();
                 }
             }
@@ -266,6 +282,8 @@ final class SaoModDownloads implements SaoPackInstaller.Downloader, AutoCloseabl
     private final class TransferTask extends FileDownloadTask {
         /// The index identity checked for every candidate, in addition to HMCL's SHA-1 check.
         private final SaoPackManifest.PackFile file;
+        /// Quick-update remote dependencies must stay on the publisher's CDN.
+        private final boolean officialOnly;
         /// Actual request history, guarded by the list while range workers record concurrent responses.
         private final List<SaoInstallProgress.Attempt> attempts = new ArrayList<>();
         /// Connections registered for cancellation and removed when the file finishes.
@@ -291,9 +309,10 @@ final class SaoModDownloads implements SaoPackInstaller.Downloader, AutoCloseabl
         }
 
         /// Disables URL/ETag caching so an unchecked cached result cannot bypass the index digest.
-        private TransferTask(DownloadCandidates candidates, Path path, SaoPackManifest.PackFile file) {
+        private TransferTask(DownloadCandidates candidates, Path path, SaoPackManifest.PackFile file, boolean officialOnly) {
             super(candidates, path, new IntegrityCheck("SHA-1", file.sha1()));
             this.file = file;
+            this.officialOnly = officialOnly;
             addIntegrityCheckHandler((temporary, target) -> {
                 if (Files.size(temporary) != file.size()) throw new IOException("Index size mismatch: " + file.path());
             });
@@ -311,6 +330,8 @@ final class SaoModDownloads implements SaoPackInstaller.Downloader, AutoCloseabl
         /// Records each real request, setting UA after HMCL's defaults and before connect.
         @Override protected void configureConnection(HttpURLConnection connection) throws IOException, InterruptedException {
             String host = connection.getURL().getHost();
+            if (officialOnly && !SaoQuickUpdate.officialModUrl(connection.getURL().toExternalForm()))
+                throw new IOException("Modrinth redirected outside its official version-file CDN");
             if (!allowedHosts.isEmpty() && !allowedHosts.contains(host)) throw new IOException("Proof host is not allowed: " + host);
             if (closed) throw new InterruptedException();
             if (host.equals("mod.mcimirror.top")) PACER.acquire();

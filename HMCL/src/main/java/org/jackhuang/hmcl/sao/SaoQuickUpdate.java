@@ -9,6 +9,7 @@ import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
 
 import java.io.*;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.*;
@@ -21,8 +22,8 @@ import java.util.zip.*;
 /// @param after full resulting inventory
 /// @param base SHA-256 of every base inventory file
 /// @param expected SHA-256 of every resulting inventory file
-/// @param added new managed paths with embedded payloads
-/// @param changed changed managed paths with embedded payloads
+/// @param added new managed paths with embedded or official Modrinth payloads
+/// @param changed changed managed paths with embedded or official Modrinth payloads
 /// @param removed old managed paths absent from the result
 @NotNullByDefault
 public record SaoQuickUpdate(String from, String to, SaoPackManifest before, SaoPackManifest after,
@@ -263,9 +264,23 @@ public record SaoQuickUpdate(String from, String to, SaoPackManifest before, Sao
         return true;
     }
 
+    /// Accepts only a direct HTTPS Modrinth version-file source, both in the manifest and on redirects.
+    static boolean officialModUrl(String source) {
+        try {
+            URI uri = URI.create(source);
+            @Nullable String path = uri.getPath();
+            return "https".equals(uri.getScheme()) && "cdn.modrinth.com".equals(uri.getHost())
+                    && uri.getPort() == -1 && uri.getRawUserInfo() == null && uri.getRawQuery() == null
+                    && uri.getRawFragment() == null && path != null
+                    && path.matches("/data/[A-Za-z0-9]+/versions/[A-Za-z0-9]+/[^/]+[.]jar")
+                    && path.indexOf('\\') < 0 && path.codePoints().noneMatch(Character::isISOControl);
+        } catch (IllegalArgumentException invalid) { return false; }
+    }
+
     /// Stages every hop and validates its full expected inventory before producing one final complete installer source.
     /// Caller must hold the instance update lock and delete the returned temporary archive after installation.
-    static SaoPackArchive compose(Path instance, SaoPackManifest installed, List<Path> archives, @Nullable SaoPackArchive pristine, Path work) throws IOException {
+    static SaoPackArchive compose(Path instance, SaoPackManifest installed, List<Path> archives, @Nullable SaoPackArchive pristine,
+                                  Path work, SaoPackInstaller.Downloader downloader) throws Exception {
         if (archives.isEmpty()) throw new IOException(FULL_REQUIRED);
         List<SaoQuickUpdate> updates = new ArrayList<>();
         for (Path archive : archives) updates.add(open(archive));
@@ -304,13 +319,22 @@ public record SaoQuickUpdate(String from, String to, SaoPackManifest before, Sao
                 // Removals first, so a case-only rename or a file replaced by a folder can be staged.
                 for (String path : update.removed()) Files.deleteIfExists(SaoPackFiles.resolve(tree, path));
                 Set<String> replacements = new TreeSet<>(update.added()); replacements.addAll(update.changed());
+                @Unmodifiable Map<String, SaoPackManifest.PackFile> after = inventory(update.after());
                 for (String path : replacements) {
                     Path target = SaoPackFiles.resolve(tree, path);
-                    SaoPackManifest.PackFile file = inventory(update.after()).get(path);
+                    SaoPackManifest.PackFile file = after.get(path);
                     @Nullable ZipEntry entry = zip.getEntry("overrides/" + path);
-                    if (entry == null || entry.isDirectory() || entry.getSize() != file.size()) throw new IOException("Quick-update payload missing: " + path);
                     Files.createDirectories(target.getParent());
-                    try (InputStream input = zip.getInputStream(entry); OutputStream output = Files.newOutputStream(target)) { copy(input, output, file.size()); }
+                    if (file.entry() == null) {
+                        if (entry != null || !path.startsWith("mods/") || !path.endsWith(".jar")
+                                || file.downloads().size() != 1 || !officialModUrl(file.downloads().get(0)))
+                            throw new IOException("Quick-update mod source must use its official Modrinth file: " + path);
+                        Files.deleteIfExists(target);
+                        downloader.downloadOfficialMod(file, target);
+                    } else {
+                        if (entry == null || entry.isDirectory() || entry.getSize() != file.size()) throw new IOException("Quick-update payload missing: " + path);
+                        try (InputStream input = zip.getInputStream(entry); OutputStream output = Files.newOutputStream(target)) { copy(input, output, file.size()); }
+                    }
                 }
                 verifyTree(tree, update.after(), update.expected());
             } catch (FileAlreadyExistsException | DirectoryNotEmptyException | NotDirectoryException | java.util.zip.ZipException layout) {
