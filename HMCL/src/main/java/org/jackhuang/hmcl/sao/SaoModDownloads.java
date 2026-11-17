@@ -27,6 +27,12 @@ import java.util.function.Function;
 /// Never writes network bytes into a final jar; only verified same-directory temporary files are published.
 @NotNullByDefault
 final class SaoModDownloads implements SaoPackInstaller.Downloader, AutoCloseable {
+    /// Optional launcher data root; local imports are checked before candidate resolution.
+    private @Nullable Path offlineRoot;
+
+    /// Registers the owned source directory without initiating I/O.
+    void useOfflineRoot(Path root) { offlineRoot = root; }
+
     /// Fixed bulk limit, independent of the player's Minecraft/assets concurrency preference.
     static final int PARALLELISM = 6;
     /// Identifies this launcher on every request and redirect, without account or machine identifiers.
@@ -53,6 +59,8 @@ final class SaoModDownloads implements SaoPackInstaller.Downloader, AutoCloseabl
     private final Set<HttpURLConnection> connections = ConcurrentHashMap.newKeySet();
     /// Serializes counter updates and snapshot publication across six workers.
     private final Map<String, Long> partial = new HashMap<>();
+    /// Remaining file names and their current response hosts, guarded by this instance.
+    private final Map<String, String> remaining = new LinkedHashMap<>();
     /// Terminal failures retained until the next batch starts.
     private final List<SaoInstallProgress.Failure> failures = new ArrayList<>();
     /// Batch counters, guarded by this instance.
@@ -78,7 +86,7 @@ final class SaoModDownloads implements SaoPackInstaller.Downloader, AutoCloseabl
     /// Injects only candidate resolution for local HTTP integration tests; all transfer code remains real HMCL.
     SaoModDownloads(Function<List<String>, DownloadCandidates> candidates, Consumer<SaoInstallProgress> progress,
                     Consumer<Transfer> evidence, Set<String> allowedHosts) {
-        this(candidates, progress, evidence, allowedHosts, Duration.ofSeconds(10), 100 * 1024);
+        this(candidates, progress, evidence, allowedHosts, Duration.ofSeconds(10), 200 * 1024);
     }
 
     /// Injects a short stall window for deterministic loopback tests without changing production policy.
@@ -107,12 +115,20 @@ final class SaoModDownloads implements SaoPackInstaller.Downloader, AutoCloseabl
     /// Starts a fresh stage and waits for all files, collecting every terminal failure before throwing.
     @Override public void downloadAll(Map<SaoPackManifest.PackFile, Path> files) throws Exception {
         synchronized (this) {
+            remaining.clear();
+            largestFirst(files).forEach(item -> remaining.put(item.getKey().path(), "等待连接"));
             partial.clear(); failures.clear(); completed = 0; total = files.size(); verifiedBytes = 0;
             totalBytes = files.keySet().stream().mapToLong(SaoPackManifest.PackFile::size).sum(); networkBytes = 0;
             speedNanos = System.nanoTime(); lastPublish = speedBytes = 0; speed = 0;
             publish(true, false);
         }
         runBatch(this, files);
+    }
+
+    /// Stable descending-size submission order makes the largest jars occupy the first worker slots.
+    static @Unmodifiable List<Map.Entry<SaoPackManifest.PackFile, Path>> largestFirst(Map<SaoPackManifest.PackFile, Path> files) {
+        return files.entrySet().stream().sorted(Comparator.comparingLong(
+                (Map.Entry<SaoPackManifest.PackFile, Path> item) -> item.getKey().size()).reversed()).toList();
     }
 
     /// Runs up to six blocking downloads and drains workers before the caller can delete staging.
@@ -124,7 +140,7 @@ final class SaoModDownloads implements SaoPackInstaller.Downloader, AutoCloseabl
         });
         List<Future<String>> pending = new ArrayList<>();
         try {
-            for (var item : files.entrySet()) pending.add(pool.submit(() -> {
+            for (var item : largestFirst(files)) pending.add(pool.submit(() -> {
                 try { downloader.download(item.getKey(), item.getValue()); return ""; }
                 catch (Exception failure) {
                     if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
@@ -154,7 +170,7 @@ final class SaoModDownloads implements SaoPackInstaller.Downloader, AutoCloseabl
         if (closed) throw new IOException("Pack downloader has closed");
         Thread worker = Thread.currentThread();
         long start = System.nanoTime();
-        DownloadCandidates resolved = patientLastSource(candidates.apply(file.downloads()));
+        DownloadCandidates resolved = DownloadCandidates.of(file.downloads().get(0));
         Files.createDirectories(destination.toAbsolutePath().getParent());
         Path staged = Files.createTempFile(destination.toAbsolutePath().getParent(), ".sao-download-", ".part");
         TransferTask task = new TransferTask(resolved, staged, file);
@@ -167,14 +183,21 @@ final class SaoModDownloads implements SaoPackInstaller.Downloader, AutoCloseabl
             if (SaoPackFiles.matches(destination, file)) {
                 task.finalHost = "existing"; actualSha1 = file.sha1(); verified = true; return;
             }
-            try (@Nullable InputStream bundled = SaoModDownloads.class.getResourceAsStream("/assets/sao/files/" + file.sha1())) {
+            @Nullable Path localRoot = offlineRoot;
+            if (localRoot != null && SaoOfflineBundle.copyMod(localRoot, file, staged)) {
+                task.finalHost = "offline-bundle";
+            } else try (@Nullable InputStream bundled = SaoModDownloads.class.getResourceAsStream("/assets/sao/files/" + file.sha1())) {
                 if (bundled != null) Files.copy(bundled, staged, StandardCopyOption.REPLACE_EXISTING);
-                else task.runMonitored();
+                else {
+                    task = new TransferTask(candidates.apply(file.downloads()), staged, file);
+                    task.run();
+                }
             }
             if (closed || worker.isInterrupted()) throw new InterruptedException();
             if (Files.size(staged) != file.size()) throw new IOException("Pack size mismatch: " + file.path());
             try (InputStream input = Files.newInputStream(staged)) { actualSha1 = SaoPackArchive.sha1(input); }
             if (!actualSha1.equals(file.sha1())) throw new IOException("Pack SHA-1 mismatch: " + file.path());
+            if (!SaoPackFiles.matches(staged, file)) throw new IOException("Pack index digest mismatch: " + file.path());
             SaoPackFiles.atomicMove(staged, destination);
             verified = true;
         } catch (Exception failure) {
@@ -188,6 +211,7 @@ final class SaoModDownloads implements SaoPackInstaller.Downloader, AutoCloseabl
                 connections.removeAll(task.requests);
                 double seconds = (System.nanoTime() - start) / 1_000_000_000.0;
                 synchronized (this) {
+                    remaining.remove(file.path());
                     partial.remove(file.path());
                     if (verified) { completed++; verifiedBytes += file.size(); }
                     else failures.add(new SaoInstallProgress.Failure(file.path(), task.attempts, error));
@@ -220,8 +244,13 @@ final class SaoModDownloads implements SaoPackInstaller.Downloader, AutoCloseabl
         lastPublish = now;
         long done = verifiedBytes + partial.values().stream().mapToLong(Long::longValue).sum();
         boolean finished = completed + failures.size() >= total;
+        String label = "下载模组 " + completed + "/" + total;
+        if (!remaining.isEmpty() && remaining.size() <= 3) {
+            label = "剩下 " + remaining.size() + " 个：" + String.join("、", remaining.entrySet().stream()
+                    .map(item -> Path.of(item.getKey()).getFileName() + "（" + item.getValue() + "）").toList());
+        }
         progress.accept(new SaoInstallProgress(failed && finished ? SaoInstallProgress.Stage.FAILED : SaoInstallProgress.Stage.DOWNLOAD_MODS,
-                "下载模组 " + completed + "/" + total, completed, total, Math.min(done, totalBytes), totalBytes,
+                label, completed, total, Math.min(done, totalBytes), totalBytes,
                 networkBytes, finished ? 0 : speed, failures));
     }
 
@@ -237,92 +266,34 @@ final class SaoModDownloads implements SaoPackInstaller.Downloader, AutoCloseabl
     private final class TransferTask extends FileDownloadTask {
         /// The index identity checked for every candidate, in addition to HMCL's SHA-1 check.
         private final SaoPackManifest.PackFile file;
-        /// Actual request history, written by this task's single worker only.
+        /// Actual request history, guarded by the list while range workers record concurrent responses.
         private final List<SaoInstallProgress.Attempt> attempts = new ArrayList<>();
         /// Connections registered for cancellation and removed when the file finishes.
-        private final List<HttpURLConnection> requests = new ArrayList<>();
+        private final List<HttpURLConnection> requests = new CopyOnWriteArrayList<>();
+        /// Associates each response with its request even when range responses arrive out of order.
+        private final ThreadLocal<Integer> requestIndex = ThreadLocal.withInitial(() -> -1);
         /// Last body host; becomes the verified source only when the overall file succeeds.
-        private String finalHost = "bundled";
+        private volatile String finalHost = "bundled";
         /// Network byte count across retries and candidates.
         private volatile long bytes;
         /// Stall observations are written under this task's monitor and frozen after the watchdog is drained.
         private final List<Stall> stalls = new ArrayList<>();
-        /// Current request, cleared before retries and after body verification to avoid stale disconnects.
-        private @Nullable HttpURLConnection activeConnection;
-        /// Monotonic payload-window start; zero while connecting or between attempts.
-        private long windowStart, windowBytes;
-        /// Marks the current candidate as unsuitable for same-host retries.
-        private volatile boolean stalled;
-        /// Final candidate URL; with no fallback left, slow transfers continue and failures resume on the same host.
-        private final @Nullable String lastUrl;
-        /// Whether the current request targets the final candidate.
-        private volatile boolean lastCandidate;
+        /// Uses the same aggregate watchdog for single streams and parallel ranges.
+        @Override protected Duration slowDownloadWindow() { return stallWindow; }
 
-        /// A watchdog also catches bodies that send no bytes, rather than waiting for another write callback.
-        private void runMonitored() throws Exception {
-            ScheduledExecutorService monitor = Executors.newSingleThreadScheduledExecutor(action -> {
-                Thread thread = new Thread(action, "sao-mod-stall"); thread.setDaemon(true); return thread;
-            });
-            monitor.scheduleWithFixedDelay(this::checkStall, 50, 50, TimeUnit.MILLISECONDS);
-            try { run(); }
-            finally {
-                synchronized (this) { activeConnection = null; windowStart = 0; }
-                monitor.shutdownNow();
-                boolean interrupted = Thread.interrupted();
-                while (!monitor.isTerminated()) {
-                    try { monitor.awaitTermination(1, TimeUnit.SECONDS); }
-                    catch (InterruptedException ignored) { interrupted = true; }
-                }
-                if (interrupted) Thread.currentThread().interrupt();
-            }
-        }
+        /// Production uses 200 KiB/s; tests can inject a deterministic local threshold.
+        @Override protected long minimumDownloadSpeed() { return minimumBytesPerSecond; }
 
-        /// Disconnects a slow candidate; the retry policy then advances to the next indexed source.
-        private void checkStall() {
-            @Nullable HttpURLConnection abort = null;
-            synchronized (this) {
-                long now = System.nanoTime();
-                if (activeConnection == null || windowStart == 0 || stalled || lastCandidate || bytes - windowBytes >= file.size()) return;
-                double seconds = (now - windowStart) / 1_000_000_000.0;
-                if (now - windowStart < stallWindow.toNanos()) return;
-                long received = bytes - windowBytes;
-                if (received / seconds < minimumBytesPerSecond) {
-                    stalled = true; abort = activeConnection;
-                    stalls.add(new Stall(abort.getURL().getHost(), seconds, received, received / seconds));
-                } else { windowStart = now; windowBytes = bytes; }
-            }
-            if (abort != null) abort.disconnect();
-        }
-
-        /// A new candidate or retry gets a fresh observation window; connection setup has its own timeout.
-        @Override protected synchronized void beforeDownload(WebURL url) {
-            activeConnection = null; windowStart = 0; stalled = false;
-            lastCandidate = url.toString().equals(lastUrl);
-            super.beforeDownload(url);
-        }
-
-        /// Stalls and read timeouts switch hosts; ordinary transient failures keep bounded resume/backoff.
-        /// The last candidate always retries (with Range resume), since no other host remains.
-        @Override protected boolean shouldRetry(Exception failure) {
-            synchronized (this) {
-                if (lastCandidate) return true;
-                if (failure instanceof java.net.SocketTimeoutException && windowStart != 0 && !stalled) {
-                    double seconds = (System.nanoTime() - windowStart) / 1_000_000_000.0;
-                    long received = bytes - windowBytes;
-                    stalls.add(new Stall(finalHost, seconds, received, received / Math.max(seconds, 0.001)));
-                    stalled = true;
-                }
-            }
-            return !stalled;
+        /// Captures the evidence before FetchTask disconnects every socket for this candidate.
+        @Override protected void slowDownload(double seconds, long received) {
+            super.slowDownload(seconds, received);
+            stalls.add(new Stall(finalHost, seconds, received, received / seconds));
         }
 
         /// Disables URL/ETag caching so an unchecked cached result cannot bypass the index digest.
         private TransferTask(DownloadCandidates candidates, Path path, SaoPackManifest.PackFile file) {
             super(candidates, path, new IntegrityCheck("SHA-1", file.sha1()));
             this.file = file;
-            @Unmodifiable List<DownloadCandidate> list = candidates.getCandidates();
-            @Nullable org.glavo.url.WebURL last = list.isEmpty() ? null : list.get(list.size() - 1).url();
-            this.lastUrl = last == null ? null : last.toString();
             addIntegrityCheckHandler((temporary, target) -> {
                 if (Files.size(temporary) != file.size()) throw new IOException("Index size mismatch: " + file.path());
             });
@@ -346,19 +317,27 @@ final class SaoModDownloads implements SaoPackInstaller.Downloader, AutoCloseabl
             if (closed || Thread.currentThread().isInterrupted()) throw new InterruptedException();
             connection.setRequestProperty("User-Agent", USER_AGENT);
             connection.setRequestProperty("Accept-Encoding", "identity");
-            attempts.add(new SaoInstallProgress.Attempt(connection.getURL().toString(), host, 0));
+            synchronized (attempts) {
+                requestIndex.set(attempts.size());
+                attempts.add(new SaoInstallProgress.Attempt(connection.getURL().toString(), host, 0));
+            }
             requests.add(connection); connections.add(connection);
-            synchronized (this) { activeConnection = connection; windowStart = 0; }
         }
 
         /// Saves only URL, host and status, never response credentials or unrelated headers.
         @Override protected void receivedResponse(UrlResponseInfo response) {
-            int last = attempts.size() - 1;
-            SaoInstallProgress.Attempt request = attempts.get(last);
-            attempts.set(last, new SaoInstallProgress.Attempt(request.url(), request.host(), response.responseCode()));
+            SaoInstallProgress.Attempt request;
+            synchronized (attempts) {
+                int index = requestIndex.get();
+                request = attempts.get(index);
+                attempts.set(index, new SaoInstallProgress.Attempt(request.url(), request.host(), response.responseCode()));
+            }
             if (response.responseCode() / 100 == 2) {
                 finalHost = request.host();
-                synchronized (this) { windowStart = System.nanoTime(); windowBytes = bytes; }
+                synchronized (SaoModDownloads.this) {
+                    @Nullable String previous = remaining.put(file.path(), finalHost);
+                    publish(!finalHost.equals(previous), false);
+                }
             }
             if (request.host().equals("mod.mcimirror.top") && (response.responseCode() == 429 || response.responseCode() == 503))
                 PACER.cooldown(response.headers().firstValue("retry-after").orElse("5"));
@@ -369,32 +348,15 @@ final class SaoModDownloads implements SaoPackInstaller.Downloader, AutoCloseabl
             return Math.min(8000L, 1000L << Math.min(failedAttempt, 3)) + ThreadLocalRandom.current().nextLong(251);
         }
 
-        /// Counts actual writes; resets partial counters when HMCL discards a corrupt/changed candidate.
-        @Override protected Context getContext(@Nullable UrlResponseInfo response, boolean checkETag, @Nullable String bmclapiHash) throws IOException {
-            Context delegate = super.getContext(response, false, null);
-            synchronized (SaoModDownloads.this) { partial.put(file.path(), 0L); }
-            return new Context() {
-                /// Resets the underlying digest and current partial byte count.
-                @Override public void reset() throws IOException {
-                    delegate.reset();
-                    synchronized (SaoModDownloads.this) { partial.put(file.path(), 0L); }
-                }
-                /// Records received bytes after their successful write, including bytes later retransferred.
-                @Override public void write(byte[] buffer, int offset, int length) throws IOException {
-                    synchronized (SaoModDownloads.this) {
-                        long count = partial.getOrDefault(file.path(), 0L);
-                        if (length > file.size() - count) throw new IOException("Index byte limit exceeded: " + file.path());
-                        delegate.write(buffer, offset, length); bytes += length;
-                        networkBytes += length;
-                        partial.put(file.path(), count + length);
-                        publish(false, false);
-                    }
-                }
-                /// Preserves HMCL's success fence so failed or cancelled contexts never publish a file.
-                @Override public void close() throws IOException {
-                    delegate.withResult(isSuccess()); delegate.close();
-                }
-            };
+        /// Counts network payload once, including discarded retries, and reports retained range progress.
+        @Override protected void downloadProgress(long received, long retained) throws IOException {
+            if (retained > file.size()) throw new IOException("Index byte limit exceeded: " + file.path());
+            synchronized (SaoModDownloads.this) {
+                bytes += received;
+                networkBytes += received;
+                partial.put(file.path(), retained);
+                publish(false, false);
+            }
         }
 
         /// Summarizes actual attempted hosts, preserving order and removing repeats.

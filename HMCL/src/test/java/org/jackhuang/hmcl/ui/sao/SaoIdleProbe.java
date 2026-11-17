@@ -22,8 +22,8 @@ import java.lang.reflect.Method;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
-/// Measures what the main screen costs while nobody touches it, with no window, no focus and no sound (James,
-/// 8 Nov: "这个启动器很消耗吗", "请优化"). Every pulse it does what the real painter does: syncs the scene, and only
+/// Measures idle main-screen cost without a window or sound.
+/// Each pulse synchronizes the scene and only
 /// when something changed draws a frame (a snapshot of the whole scene, the 3D world redrawn only when its content
 /// changed). It prints the process CPU in percent of one core, frames drawn per second and 3D redraws per second.
 ///
@@ -97,7 +97,7 @@ public final class SaoIdleProbe {
                     if (renderSG.getBoolean(NodeHelper.getPeer(world))) worldRenders++;
                     if (character[0] != null && renderSG.getBoolean(NodeHelper.getPeer(character[0]))) characterRenders++;
                     scene[0].snapshot(img);
-                    root.clearDirtyTree();
+                    root.clearDirty();
                 } catch (ReflectiveOperationException e) {
                     throw new IllegalStateException(e);
                 }

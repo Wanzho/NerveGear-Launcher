@@ -28,7 +28,10 @@ class SaoUninstallerTest {
     @BeforeEach void requireIsolatedFixtureBase() {
         Path evidence = Path.of(System.getProperty("user.home"), "Developer", "sao-launcher-runs");
         Path actual = temporary.toAbsolutePath().normalize();
-        assertTrue(actual.startsWith(evidence.resolve("launcherback3/fixtures"))
+        String configured = System.getProperty("sao.test.fixtureRoot", "");
+        assertTrue(!configured.isBlank() && actual.getParent().equals(Path.of(configured).toAbsolutePath().normalize())
+                || actual.startsWith(Path.of(System.getProperty("user.home"), "Developer", "sao-codex-runs", "astra-rel011", "tmp"))
+                || actual.startsWith(evidence.resolve("launcherback3/fixtures"))
                 || actual.startsWith(evidence.resolve("launcherback4/fixtures"))
                 || actual.startsWith(evidence.resolve("launcherback5/fixtures"))
                 || actual.startsWith(evidence.resolve("friends1/fixtures"))

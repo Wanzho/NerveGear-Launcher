@@ -24,7 +24,6 @@ import org.jackhuang.hmcl.java.JavaRuntime;
 import org.jackhuang.hmcl.launch.ProcessListener;
 import org.jackhuang.hmcl.setting.DownloadSource;
 import org.jackhuang.hmcl.task.Task;
-import org.jackhuang.hmcl.task.TaskListener;
 import org.jetbrains.annotations.Unmodifiable;
 import java.util.function.BiConsumer;
 import org.jackhuang.hmcl.util.platform.ManagedProcess;
@@ -62,7 +61,7 @@ final class SaoGameBridge {
     /// Explicit runtime choice; null delegates to JavaManager and the managed repository.
     private volatile @Nullable Path selectedJava;
     /// Live HMCL task changes forwarded to immutable download-window records.
-    private BiConsumer<Task<?>, Boolean> taskObserver = (task, done) -> { };
+    private BiConsumer<Task<?>, SaoDownloadTasks.Status> taskObserver = (task, done) -> { };
     /// Owns task start/cancel ordering, including shutdown races before a graph starts.
     private final SaoTaskRunner taskRunner = new SaoTaskRunner();
     /// Independent bounded pack transfers avoid sharing the single Minecraft task-graph owner.
@@ -70,6 +69,12 @@ final class SaoGameBridge {
     /// Detailed operation callback, replaced by the engine before any install starts.
     private java.util.function.Consumer<SaoInstallProgress> installProgress = snapshot -> { };
 
+
+    /// Verified cache using only user-approved foreign game folders.
+    private final SaoExistingMinecraft.Cache existingCache;
+
+    /// Refreshes approved folders after settings change.
+    void refreshReuseSources() { existingCache.refreshSources(); }
 
     /// Creates the bridge without network, toolkit startup, account login or game launch.
     SaoGameBridge(Path root, BiConsumer<String, Double> progress) {
@@ -81,10 +86,10 @@ final class SaoGameBridge {
         provider.setFileSource(source);
         provider.setVersionListSource(source);
         modDownloads = new SaoModDownloads(provider, snapshot -> installProgress.accept(snapshot));
+        modDownloads.useOfflineRoot(root);
         // Files the player already has in PCL/HMCL/official .minecraft are copied (verified) instead of downloaded.
-        Path minecraft = root.resolve("minecraft");
-        dependencies = new DefaultDependencyManager(repository, provider,
-                new SaoExistingMinecraft.Cache(root.resolve("dependencies"), () -> SaoExistingMinecraft.find(minecraft)));
+        existingCache = new SaoExistingMinecraft.Cache(root.resolve("dependencies"), () -> SaoReuseSources.read(root));
+        dependencies = new DefaultDependencyManager(repository, provider, existingCache);
     }
 
     /// Returns the fixed run directory, matching GameBuilder.enableIsolation().
@@ -118,7 +123,10 @@ final class SaoGameBridge {
 
     /// Ensures Java 17, Minecraft 1.20.1, exact NeoForge 47.1.106 and launch dependencies through HMCL.
     void ensureInstalled(boolean repair) throws Exception {
+        SaoOfflineBundle.prepare(root, progress);
+        progress.accept("检查 Java 17", -1.0);
         selectJava();
+        progress.accept("识别 Minecraft / NeoForge 实例", -1.0);
         repository.refresh();
         @Nullable DefaultGameInstance installed = repository.getSnapshot().findInstance(INSTANCE_ID);
         if (installed == null) {
@@ -130,7 +138,8 @@ final class SaoGameBridge {
             // handed to HMCL's task, so only Minecraft itself is downloaded. No bundle means the usual download.
             @Nullable SaoNeoForgeBundle.Result bundle = SaoNeoForgeBundle.unpack(
                     repository.getLayout().getLibrariesDirectory(), root.resolve("dependencies").resolve("neoforge"));
-            @Nullable Path bundledInstaller = bundle == null ? null : bundle.installer();
+            @Nullable Path importedInstaller = SaoOfflineBundle.installer(root);
+            @Nullable Path bundledInstaller = importedInstaller != null ? importedInstaller : bundle == null ? null : bundle.installer();
             org.jackhuang.hmcl.download.neoforge.NeoForgeInstallTask.bundledInstaller =
                     version -> bundledInstaller != null && version.endsWith("47.1.106") ? bundledInstaller : null;
             progress.accept("下载 Minecraft 1.20.1", -1.0);
@@ -167,6 +176,22 @@ final class SaoGameBridge {
         }
         org.jackhuang.hmcl.util.logging.Logger.LOG.warning("Moved an unregistered instance folder aside: " + aside);
         return aside;
+    }
+
+    /// Repairs managed payload before readiness rejects a damaged jar; existing index is bound to the installed version.
+    void repairBeforeLaunch(SaoPackArchive pack, java.util.function.Consumer<String> status) throws Exception {
+        repository.refresh();
+        @Nullable DefaultGameInstance instance = repository.getSnapshot().findInstance(INSTANCE_ID);
+        if (instance == null) return;
+        org.jackhuang.hmcl.game.AssetIndexInfo descriptor = instance.getResolvedManifest().getAssetIndex();
+        @Nullable String digest = descriptor.getSha1();
+        if (digest == null) throw new IOException("Missing asset index checksum");
+        Path assets = repository.getLayout().getAssetDirectory();
+        String relative = "indexes/" + descriptor.getId() + ".json";
+        Path index = SaoPackFiles.resolve(assets, relative);
+        SaoPrelaunchRepair.repairIndex(index, new SaoPackManifest.PackFile(relative, digest, descriptor.getSize(),
+                null, List.of(descriptor.getUrl())), this::download, status);
+        SaoPrelaunchRepair.repair(instanceDir(), assets, index, pack, this::download, status);
     }
 
     /// Downloads pack dependencies through HMCL's mirror and checksum-aware transfer code.
@@ -253,12 +278,16 @@ final class SaoGameBridge {
         if (offline && (account.getClass() != OfflineAccount.class || ((OfflineAccount) account).getSkin() != null))
             throw new IOException("Offline play requires a plain offline account");
         AuthInfo auth = account.logIn();
+        // GeckoLib reads bundled UTF-8 animation JSON using the JVM default charset.
+        List<String> arguments = new ArrayList<>(org.jackhuang.hmcl.util.StringUtils.tokenize(jvmArgs));
+        arguments.removeIf(argument -> argument.startsWith("-Dfile.encoding="));
+        arguments.add("-Dfile.encoding=UTF-8");
         LaunchOptions.Builder options = new LaunchOptions.Builder().setInstanceId(INSTANCE_ID)
                 .setGameDir(instance).setJava(runtime).setMaxMemory(memoryMiB)
                 .setVersionName(INSTANCE_ID.toString()).setVersionType(Metadata.TITLE)
                 .setProfileName(Metadata.TITLE).setDisableAutoGameOptions(true)
                 .setWidth(window.width()).setHeight(window.height()).setFullscreen(window.fullscreen())
-                .setJavaArguments(org.jackhuang.hmcl.util.StringUtils.tokenize(jvmArgs));
+                .setJavaArguments(arguments);
         String server = offline ? "" : !manifest.server().isEmpty() ? manifest.server()
                 : signedServer != null ? signedServer : account instanceof SaoOathLaunchAccount ? "mc.saooath.com" : "";
         return new LaunchPlan(auth, options.create(), server);
@@ -354,7 +383,13 @@ final class SaoGameBridge {
         @Nullable String override = System.getProperty("sao.java");
         if (override != null && !override.isBlank()) candidates.add(Path.of(override));
         candidates.add(JavaRuntime.CURRENT_JAVA.getBinary());
-        candidates.addAll(new HMCLJavaRepository(root.resolve("java")).getAllJava(Platform.SYSTEM_PLATFORM));
+        HMCLJavaRepository managed = new HMCLJavaRepository(root.resolve("java"));
+        // Windows on ARM can run the bundle's x64 runtime; search compatible registrations as well as native ones.
+        Set<Platform> managedPlatforms = new LinkedHashSet<>(List.of(
+                Platform.SYSTEM_PLATFORM, Platform.CURRENT_PLATFORM, Platform.WINDOWS_X86_64));
+        for (Platform platform : managedPlatforms)
+            if (org.jackhuang.hmcl.java.JavaManager.isCompatible(platform) && platform.getBits() == Platform.SYSTEM_PLATFORM.getBits())
+                candidates.addAll(managed.getAllJava(platform));
         candidates.add(Path.of("/opt/homebrew/opt/openjdk@17/bin/java"));
         candidates.add(Path.of("/usr/local/opt/openjdk@17/bin/java"));
         @Nullable String javaHome = System.getenv("JAVA_HOME");
@@ -406,37 +441,25 @@ final class SaoGameBridge {
     }
 
     /// Connects live task-graph updates to the engine's download list.
-    void observeTasks(BiConsumer<Task<?>, Boolean> observer) { taskObserver = observer; }
+    void observeTasks(BiConsumer<Task<?>, SaoDownloadTasks.Status> observer) { taskObserver = observer; }
 
     /// Cancels a graph still running when the launcher is closed.
     void close() { modDownloads.close(); taskRunner.close(); }
 
     /// Runs HMCL's complete task graph, including pre/post execution, and propagates failures to the engine.
     <T> @Nullable T runTask(Task<T> task) throws Exception {
-        Map<Task<?>, javafx.beans.value.ChangeListener<Number>> listeners = new java.util.concurrent.ConcurrentHashMap<>();
-        TaskListener observer = new TaskListener() {
-            /// Observes actual progress changes from each HMCL task, without creating fake transfer records.
-            @Override public void onRunning(Task<?> running) {
+        try (SaoDownloadTasks.Observer observer = new SaoDownloadTasks.Observer(taskObserver) {
+            /// Keeps operation-level phase labels alongside the graph-scoped download observer.
+            @Override protected void running(Task<?> running) {
                 @Nullable String stage = running.getStage() != null ? running.getStage() : running.getInheritedStage();
                 if (stage != null && stage.startsWith("hmcl.install.")) {
                     if (stage.contains("neoforge")) progress.accept("安装 NeoForge " + SaoPackManifest.NEOFORGE, -1.0);
                     else if (stage.contains("game") || stage.contains("assets") || stage.contains("libraries"))
                         progress.accept("下载 Minecraft " + SaoPackManifest.MINECRAFT, -1.0);
                 }
-                if (!(running instanceof org.jackhuang.hmcl.task.FetchTask)) return;
-                javafx.beans.value.ChangeListener<Number> listener = (observable, oldValue, newValue) -> taskObserver.accept(running, false);
-                listeners.put(running, listener); running.progressProperty().addListener(listener);
-                taskObserver.accept(running, false);
             }
-            /// Removes the listener when a task finishes and marks its immutable record complete.
-            @Override public void onFinished(Task<?> finished) {
-                @Nullable javafx.beans.value.ChangeListener<Number> listener = listeners.remove(finished);
-                if (listener != null) { finished.progressProperty().removeListener(listener); taskObserver.accept(finished, true); }
-            }
-        };
-        try { return taskRunner.run(task, observer); }
-        finally {
-            listeners.forEach((running, listener) -> running.progressProperty().removeListener(listener));
+        }) {
+            return taskRunner.run(task, observer);
         }
     }
     /// Repository implementation that has exactly one isolated instance and no HMCL profile settings.

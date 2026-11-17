@@ -11,6 +11,10 @@ final class SaoLauncherLifecycle {
     /// Window/application operations supplied by the production adapter or an inert fixture.
     @NotNullByDefault
     interface Window {
+        /// Holds completion until the screen has finished; inert adapters may complete synchronously.
+        default void handover(Runnable complete) { complete.run(); }
+        /// Cancels any pending screen completion.
+        default void cancel() {}
         /// Keeps JavaFX alive and hides the main window.
         void hide();
         /// Restores the main window after crash analysis has been published.
@@ -26,6 +30,8 @@ final class SaoLauncherLifecycle {
     private long generation;
     /// Captured policy for this game run.
     private LauncherVisibility visibility = LauncherVisibility.HIDE_AND_REOPEN;
+    /// Screen completion and authentication transfer are independent gates for CLOSE.
+    private boolean screenDone, authDone, requested, closed;
     /// True only between begin and an actual exit/failure.
     private boolean active;
     /// Whether a hide operation was actually performed.
@@ -36,38 +42,69 @@ final class SaoLauncherLifecycle {
 
     /// Captures the next run's policy before process creation.
     synchronized void begin(SaoData.LauncherBehavior behavior) {
-        generation++; visibility = behavior.visibility(); active = true; hidden = false;
+        generation++; visibility = behavior.visibility(); active = true; hidden = false; screenDone = authDone = requested = closed = false;
     }
 
-    /// Hides only after a real OS process exists; a fast crash cannot leave a late queued hide behind.
+    /// Arms all policies after process creation; the callback retains its run generation.
     synchronized void started() {
         long expected = generation;
         publish.accept(() -> {
             synchronized (this) {
-                if (expected != generation || !active || visibility != LauncherVisibility.HIDE_AND_REOPEN) return;
-                hidden = true; window.hide();
+                if (expected != generation || !active || requested) return;
+                requested = true;
+                window.handover(() -> complete(expected));
             }
         });
     }
 
-    /// CLOSE waits for the protected stdin/ticket handoff, avoiding shutdown during authentication transfer.
+    /// Applies visibility only after the screen fade; KEEP still completes the screen contract.
+    private synchronized void complete(long expected) {
+        if (expected != generation || !active || screenDone) return;
+        screenDone = true;
+        if (visibility == LauncherVisibility.HIDE_AND_REOPEN) { hidden = true; window.hide(); }
+        closeIfReady();
+    }
+
+    /// CLOSE requires both protected authentication transfer and the screen's completed fade.
     synchronized void handedOff() {
         long expected = generation;
         publish.accept(() -> {
             synchronized (this) {
-                if (expected == generation && visibility == LauncherVisibility.CLOSE) window.close();
+                if (expected != generation || !active) return;
+                authDone = true;
+                closeIfReady();
             }
         });
     }
 
-    /// Called for normal exit, crash and failed preparation; the caller publishes the crash card first.
-    synchronized void exited() {
+    /// Executes normal shutdown once, and never during authentication or after an early exit.
+    private void closeIfReady() {
+        if (active && !closed && screenDone && authDone && visibility == LauncherVisibility.CLOSE) {
+            closed = true;
+            window.close();
+        }
+    }
+
+    /// Invalidates a pending fade immediately; window restoration waits for crash analysis to finish.
+    synchronized void processEnded() {
+        if (!active) return;
         active = false;
         long expected = generation;
         publish.accept(() -> {
             synchronized (this) {
-                if (expected != generation || !hidden) return;
-                hidden = false; window.show();
+                if (expected == generation) window.cancel();
+            }
+        });
+    }
+
+    /// Restores the launcher only after the engine has published this run's exit diagnostics.
+    synchronized void exited() {
+        processEnded();
+        long expected = generation;
+        publish.accept(() -> {
+            synchronized (this) {
+                if (expected != generation) return;
+                if (hidden) { hidden = false; window.show(); }
             }
         });
     }

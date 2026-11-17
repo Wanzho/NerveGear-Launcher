@@ -46,6 +46,7 @@ final class SaoUpdates {
             if (!root.keySet().containsAll(rootFields)) throw new IOException("Unexpected or missing version fields");
             @Nullable String server = root.has("server") ? server(string(root, "server")) : null;
             @Nullable String accountApi = root.has("accountApi") ? accountApi(string(root, "accountApi")) : null;
+            @Nullable String patchOrigin = root.has("patchOrigin") ? SaoPatchDownload.validateOrigin(string(root, "patchOrigin")) : null;
             @Nullable SaoData.Maintenance maintenance = null;
             if (root.has("maintenance")) {
                 JsonObject notice = child(root, "maintenance");
@@ -84,7 +85,7 @@ final class SaoUpdates {
                     || !launcher.getAsJsonPrimitive("nativeRequired").isBoolean())) throw new IOException("Expected nativeRequired boolean");
             boolean nativeRequired = launcher.has("nativeRequired") && launcher.get("nativeRequired").getAsBoolean();
             return new SaoData.VersionMetadata(2, sequence, quark, release, updates,
-                    new SaoData.LauncherRelease(latest, minimum, artifact, nativeRequired), server, accountApi, maintenance);
+                    new SaoData.LauncherRelease(latest, minimum, artifact, nativeRequired), server, accountApi, maintenance, patchOrigin);
         } catch (RuntimeException failure) { throw new IOException("Invalid version document", failure); }
     }
 
@@ -336,26 +337,34 @@ final class SaoUpdates {
     /// Copies an untrusted drop privately before matching its compressed identity; caller deletes the snapshot.
     static Path snapshot(Path zip, long size, String digest, Path cache) throws IOException {
         if (!Files.isRegularFile(zip, LinkOption.NOFOLLOW_LINKS) || Files.size(zip) != size) throw new IOException(INVALID_ARCHIVE);
-        Files.createDirectories(cache); Path copy = Files.createTempFile(cache, "drop-", ".zip");
-        boolean accepted = false;
+        long budget = SaoDiskSpace.packRequired(size);
+        SaoDiskSpace.require(cache, budget, SaoDiskSpace.SYSTEM);
         try {
-            Files.copy(zip, copy, StandardCopyOption.REPLACE_EXISTING); verify(copy, size, digest); accepted = true; return copy;
-        } finally { if (!accepted) Files.deleteIfExists(copy); }
+            Files.createDirectories(cache); Path copy = Files.createTempFile(cache, "drop-", ".zip");
+            boolean accepted = false;
+            try {
+                Files.copy(zip, copy, StandardCopyOption.REPLACE_EXISTING); verify(copy, size, digest); accepted = true; return copy;
+            } finally { if (!accepted) Files.deleteIfExists(copy); }
+        } catch (IOException failure) { throw SaoDiskSpace.explainIo(cache, budget, failure); }
     }
 
     /// Takes a private copy, validates exact archive bytes and manifest version, and returns that immutable input.
     /// The caller owns deletion of the returned temporary ZIP after its preserving installer transaction.
     static SaoPackArchive snapshot(Path zip, SaoData.PackRelease release, Path cache) throws IOException {
         if (!Files.isRegularFile(zip, LinkOption.NOFOLLOW_LINKS) || Files.size(zip) != release.size()) throw new IOException(INVALID_ARCHIVE);
-        Files.createDirectories(cache);
-        Path snapshot = Files.createTempFile(cache, "download-", ".zip");
-        boolean accepted = false;
+        long budget = SaoDiskSpace.required(SaoPackArchive.open(zip));
+        SaoDiskSpace.require(cache, budget, SaoDiskSpace.SYSTEM);
         try {
-            Files.copy(zip, snapshot, StandardCopyOption.REPLACE_EXISTING);
-            verify(snapshot, release);
-            SaoPackArchive archive = SaoPackArchive.open(snapshot);
-            if (!archive.manifest().version().equals(release.version())) throw new IOException(INVALID_ARCHIVE);
-            accepted = true; return archive;
-        } finally { if (!accepted) Files.deleteIfExists(snapshot); }
+            Files.createDirectories(cache);
+            Path snapshot = Files.createTempFile(cache, "download-", ".zip");
+            boolean accepted = false;
+            try {
+                Files.copy(zip, snapshot, StandardCopyOption.REPLACE_EXISTING);
+                verify(snapshot, release);
+                SaoPackArchive archive = SaoPackArchive.open(snapshot);
+                if (!archive.manifest().version().equals(release.version())) throw new IOException(INVALID_ARCHIVE);
+                accepted = true; return archive;
+            } finally { if (!accepted) Files.deleteIfExists(snapshot); }
+        } catch (IOException failure) { throw SaoDiskSpace.explainIo(cache, budget, failure); }
     }
 }

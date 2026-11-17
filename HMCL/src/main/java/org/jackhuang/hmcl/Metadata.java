@@ -36,11 +36,15 @@ public final class Metadata {
     /// English product name.
     public static final String FULL_NAME = "NerveGear Launcher";
     /// Independent launcher version; pack versions are tracked separately.
-    public static final String VERSION = JarUtils.getAttribute("hmcl.version", "0.1.0");
+    public static final String VERSION = JarUtils.getAttribute("hmcl.version", "0.1.1");
+    /// Whether this build permits locally modified mods in installed packs.
+    public static final boolean SAO_BETA = Boolean.parseBoolean(JarUtils.getAttribute("hmcl.sao.beta", "false"));
+    /// Default data directory name for this edition, before platform-specific prefixes.
+    private static final String DATA_DIRECTORY_NAME = SAO_BETA ? "sao-oath-launcher-beta" : "sao-oath-launcher";
     /// Windows taskbar identity owned by this fork.
-    public static final String WINDOWS_APP_USER_MODEL_ID = "org.saooath.launcher";
+    public static final String WINDOWS_APP_USER_MODEL_ID = SAO_BETA ? "org.saooath.launcher.beta" : "org.saooath.launcher";
     /// Localized window title.
-    public static final String TITLE = NAME;
+    public static final String TITLE = SAO_BETA ? NAME + " Beta" : NAME;
     /// English title with the launcher version.
     public static final String FULL_TITLE = FULL_NAME + " v" + VERSION;
     /// Minimum Java feature version that can run the launcher.
@@ -89,12 +93,12 @@ public final class Metadata {
         } else if (OperatingSystem.CURRENT_OS.isLinuxOrBSD()) {
             @Nullable String xdg = System.getenv("XDG_DATA_HOME");
             HMCL_USER_HOME = StringUtils.isNotBlank(xdg)
-                    ? Path.of(xdg, ".sao-oath-launcher").toAbsolutePath().normalize()
-                    : Path.of(System.getProperty("user.home"), ".local", "share", ".sao-oath-launcher").toAbsolutePath().normalize();
+                    ? Path.of(xdg, "." + DATA_DIRECTORY_NAME).toAbsolutePath().normalize()
+                    : Path.of(System.getProperty("user.home"), ".local", "share", "." + DATA_DIRECTORY_NAME).toAbsolutePath().normalize();
         } else if (OperatingSystem.CURRENT_OS == OperatingSystem.MACOS) {
-            HMCL_USER_HOME = Path.of(System.getProperty("user.home"), "Library", "Application Support", ".sao-oath-launcher").toAbsolutePath().normalize();
+            HMCL_USER_HOME = Path.of(System.getProperty("user.home"), "Library", "Application Support", "." + DATA_DIRECTORY_NAME).toAbsolutePath().normalize();
         } else {
-            HMCL_USER_HOME = OperatingSystem.getWorkingDirectory("sao-oath-launcher");
+            HMCL_USER_HOME = OperatingSystem.getWorkingDirectory(DATA_DIRECTORY_NAME);
         }
         @Nullable String local = System.getProperty("sao.dir", System.getenv("SAO_OATH_LOCAL_HOME"));
         HMCL_LOCAL_HOME = StringUtils.isNotBlank(local) ? Path.of(local).toAbsolutePath().normalize()
@@ -106,7 +110,7 @@ public final class Metadata {
     }
 
     /// Portable data root fixed to the install, never the process working directory.
-    /// A packaged `<install>/app/launcher.jar` keeps data in `<install>/.sao-oath-launcher`; a macOS `.app`
+    /// A packaged `<install>/app/launcher.jar` keeps data in its edition's dot directory; a macOS `.app`
     /// (read-only, possibly translocated) keeps it under the per-user home. Development runs keep the working
     /// directory unless it is a filesystem root or not writable (Finder starts apps in `/`).
     public static Path defaultLocalHome(@Nullable Path jar, Path workingDirectory, Path userHome) {
@@ -116,11 +120,16 @@ public final class Metadata {
             @Nullable Path bundle = install.getParent();
             boolean macBundle = install.getFileName() != null && install.getFileName().toString().equals("Contents")
                     && bundle != null && bundle.getFileName() != null && bundle.getFileName().toString().endsWith(".app");
-            return macBundle ? userHome.resolve("local") : install.resolve(".sao-oath-launcher");
+            return macBundle ? userHome.resolve("local") : install.resolve("." + DATA_DIRECTORY_NAME);
         }
         if (workingDirectory.getParent() == null || !java.nio.file.Files.isWritable(workingDirectory))
             return userHome.resolve("local");
-        return workingDirectory.resolve(".sao-oath-launcher");
+        return workingDirectory.resolve("." + DATA_DIRECTORY_NAME);
+    }
+
+    /// Tests whether a data directory has this edition's reserved name, for native uninstall.
+    public static boolean isDefaultDataDirectoryName(String name) {
+        return DATA_DIRECTORY_NAME.equalsIgnoreCase(name) || ("." + DATA_DIRECTORY_NAME).equalsIgnoreCase(name);
     }
 
     /// This fork has no HMCL release channel announcements.

@@ -1,0 +1,26 @@
+{
+  "minecraft": {
+    "id": "1.20.1",
+    "type": "release",
+    "url": "https://piston-meta.mojang.com/v1/packages/3ecf2cab995685d345a257326ba72192b7911250/1.20.1.json",
+    "time": "2026-11-10T07:00:30+00:00",
+    "releaseTime": "2023-06-12T13:25:51+00:00",
+    "sha1": "3ecf2cab995685d345a257326ba72192b7911250",
+    "complianceLevel": 1
+  },
+  "runtime": {
+    "availability": {
+      "group": 7609,
+      "progress": 100
+    },
+    "manifest": {
+      "sha1": "89ce85ccb518c62e18b4b58d63399ba2d9611426",
+      "size": 148571,
+      "url": "https://piston-meta.mojang.com/v1/packages/89ce85ccb518c62e18b4b58d63399ba2d9611426/manifest.json"
+    },
+    "version": {
+      "name": "17.0.15",
+      "released": "2025-05-19T08:28:47+00:00"
+    }
+  }
+}

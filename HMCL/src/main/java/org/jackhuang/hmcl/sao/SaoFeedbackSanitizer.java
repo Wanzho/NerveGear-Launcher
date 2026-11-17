@@ -14,7 +14,9 @@ import java.util.regex.Pattern;
 @NotNullByDefault
 final class SaoFeedbackSanitizer {
     /// Identifies credential context, including common underscored/hyphenated protocol spellings.
-    private static final Pattern AUTH = Pattern.compile("(?i)password|passwd|proxypass|(?:api|access|client|encryption)[_. -]?key|user[_. -]?properties|\\bpwd\\b|token|ticket|secret|credential|authorization|authentication|bearer|cookie|session|sao[_. -]?auth|(?:^|[\\s\"'])/(?:login|register|l|reg|changepassword)\\b|private[ _-]?key");
+    private static final Pattern AUTH = Pattern.compile("(?i)password|passwd|proxypass|client[_. -]?id|microsoft[_. -]?auth[_. -]?id|(?:api|access|client|encryption)[_. -]?key|user[_. -]?properties|\\bpwd\\b|token|ticket|secret|credential|authorization|authentication|bearer|cookie|session|sao[_. -]?auth|(?:^|[\\s\"'])/(?:login|register|l|reg|changepassword)\\b|private[ _-]?key");
+    /// A sensitive command flag on its own line owns the next argument, even when a command is line-wrapped.
+    private static final Pattern ARGUMENT_KEY = Pattern.compile("(?i)--(?:access[-_]?token|client[-_]?token|client[-_]?secret|password|session|uuid)[\\s\"',\\]]*$");
     /// Mailboxes, including masked account displays, are personal data even in otherwise harmless logs.
     private static final Pattern EMAIL = Pattern.compile("(?i)[\\p{L}\\p{N}.!#$%&'*+/=?^_`{|}~*-]+@[\\p{L}\\p{N}.-]+(?:\\.[\\p{L}]{2,})?");
     /// IPv4 literals are removed even when followed by a port or embedded in a URL.
@@ -23,6 +25,8 @@ final class SaoFeedbackSanitizer {
     private static final Pattern IPV6 = Pattern.compile("(?i)(?<![a-z0-9])(?:[0-9a-f]{0,4}:){2,}[0-9a-f:.]*(?:%[a-z0-9_.-]+)?");
     /// JWTs may appear without a descriptive key in exception messages.
     private static final Pattern JWT = Pattern.compile("eyJ[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+");
+    /// UUID and legacy compact session identities are not needed in support diagnostics.
+    private static final Pattern UUID_VALUE = Pattern.compile("(?i)(?<![a-f0-9])[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}(?![a-f0-9])|(?<![a-f0-9])[a-f0-9]{32}(?![a-f0-9])");
     /// JSON-style Unicode escapes can otherwise conceal sensitive keys, addresses and home identities.
     private static final Pattern UNICODE_ESCAPE = Pattern.compile("\\\\u([0-9a-fA-F]{4})");
     /// Consecutive percent bytes are decoded without interpreting plus signs or invoking any URI/network service.
@@ -48,7 +52,7 @@ final class SaoFeedbackSanitizer {
     /// Retains credential continuation/PEM context across individual process-output callbacks.
     @NotNullByDefault
     final class Stream {
-        /// A credential key ended before its value; the next nonblank line must also be omitted.
+        /// A credential key or command flag ended before its value; the next nonblank line must also be omitted.
         private boolean continuation;
         /// PEM private-key blocks are omitted through their end marker.
         private boolean privateKey;
@@ -72,8 +76,8 @@ final class SaoFeedbackSanitizer {
                 sensitiveDepth = Math.max(0, structureDelta(line));
                 return "[authentication data omitted]";
             }
-            if (AUTH.matcher(line).find()) {
-                String tail = line.stripTrailing(); continuation = tail.endsWith(":") || tail.endsWith("=");
+            if (AUTH.matcher(line).find() || ARGUMENT_KEY.matcher(line).find()) {
+                String tail = line.stripTrailing(); continuation = tail.endsWith(":") || tail.endsWith("=") || ARGUMENT_KEY.matcher(tail).find();
                 sensitiveDepth = Math.max(0, structureDelta(line));
                 return "[authentication data omitted]";
             }
@@ -93,6 +97,7 @@ final class SaoFeedbackSanitizer {
         result = EMAIL.matcher(result).replaceAll("[email omitted]");
         result = IPV4.matcher(result).replaceAll("[IP omitted]");
         result = IPV6.matcher(result).replaceAll("[IP omitted]");
+        result = UUID_VALUE.matcher(result).replaceAll("[UUID omitted]");
         return JWT.matcher(result).replaceAll("[authentication data omitted]");
     }
 

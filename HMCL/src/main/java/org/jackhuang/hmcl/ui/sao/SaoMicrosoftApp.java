@@ -58,9 +58,14 @@ final class SaoMicrosoftApp {
     /// @param start starts a sign-in (again, for 重试)
     /// @param close closes the window
     static SaoFloatWindow make(Supplier<SaoMicrosoftFlow> start, Runnable close) {
+        return make(start, close, () -> { });
+    }
+
+    /// Keeps the caller's cancellation connected even after a terminal failed attempt.
+    static SaoFloatWindow make(Supplier<SaoMicrosoftFlow> start, Runnable close, Runnable cancel) {
         StackPane body = new StackPane();
         VBox.setVgrow(body, Priority.ALWAYS);
-        View v = new View(start, body, close);
+        View v = new View(start, body, close, cancel);
         SaoFloatWindow w = new SaoFloatWindow("微软正版登录", SaoApps.W, SaoApps.H, v::closeByUser).add(body);
         v.begin();
         return w;
@@ -71,15 +76,18 @@ final class SaoMicrosoftApp {
         private final Supplier<SaoMicrosoftFlow> start;
         private final StackPane body;
         private final Runnable close;
+        /// Ends the caller across all retries when the user closes this window.
+        private final Runnable cancel;
         private @Nullable SaoMicrosoftFlow flow;
         /// The state kind shown last, so only a new kind comes in.
         private @Nullable Kind shownKind;
         private final ChangeListener<State> follow = (o, a, b) -> show(b);
 
-        View(Supplier<SaoMicrosoftFlow> start, StackPane body, Runnable close) {
+        View(Supplier<SaoMicrosoftFlow> start, StackPane body, Runnable close, Runnable cancel) {
             this.start = start;
             this.body = body;
             this.close = close;
+            this.cancel = cancel;
         }
 
         void begin() {
@@ -98,6 +106,7 @@ final class SaoMicrosoftApp {
                 f.state().removeListener(follow);
                 f.cancel();
             }
+            cancel.run();
             close.run();
         }
 

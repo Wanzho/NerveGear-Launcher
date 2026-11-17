@@ -108,13 +108,20 @@ public record SaoPackManifest(String version, String minecraft, String neoforge,
     /// @param sha1 lowercase SHA-1 from the source inventory or archive preprocessing
     /// @param size exact uncompressed bytes
     /// @param entry archive member, or null for a remotely downloaded file
+    /// @param sha512 optional stronger digest from the Modrinth index
     /// @param downloads ordered HTTPS sources; empty for archive members
     @NotNullByDefault
     public record PackFile(String path, String sha1, long size, @Nullable String entry,
-                           @Unmodifiable List<String> downloads) {
+                           @Unmodifiable List<String> downloads, @Nullable String sha512) {
+        /// Preserves source compatibility for inventories which only contain SHA-1.
+        public PackFile(String path, String sha1, long size, @Nullable String entry, @Unmodifiable List<String> downloads) {
+            this(path, sha1, size, entry, downloads, null);
+        }
+
         /// Validates checksums, bounded sizes, safe entry names and HTTPS-only remote sources.
         public PackFile {
             validatePath(path);
+            if (sha512 != null && !sha512.matches("[0-9a-f]{128}")) throw new IllegalArgumentException("Invalid SHA-512: " + path);
             if (!sha1.matches("[0-9a-f]{40}") || size < 0 || size > MAX_FILE_SIZE)
                 throw new IllegalArgumentException("Invalid checksum or size: " + path);
             downloads = List.copyOf(downloads);
@@ -147,11 +154,14 @@ public record SaoPackManifest(String version, String minecraft, String neoforge,
     }
 
     /// True for player state: install seeds absent defaults, updates and repair preserve existing files.
+    /// Exact persistent KubeJS battle-history file; keep records without exempting adjacent authored JSON.
+    static boolean isPersistentGameRecord(String path) { return path.equals("kubejs/data/sao_battle_records.json"); }
+
     public static boolean isPlayerFile(String path) {
         String lower = path.toLowerCase(Locale.ROOT);
         // Executable pack payloads remain managed even when their names contain a player-state keyword.
         if (lower.endsWith(".jar")) return false;
-        return lower.equals("options.txt") || lower.startsWith("options") && lower.endsWith(".txt")
+        return isPersistentGameRecord(path) || lower.equals("options.txt") || lower.startsWith("options") && lower.endsWith(".txt")
                 || lower.startsWith("saves/") || lower.startsWith("screenshots/")
                 || lower.startsWith("shaderpacks/") || lower.equals("config/oculus.properties")
                 || lower.equals("config/iris.properties") || lower.contains("keybind")
@@ -180,7 +190,8 @@ public record SaoPackManifest(String version, String minecraft, String neoforge,
                 if (file.has("downloads")) for (JsonElement url : file.getAsJsonArray("downloads")) downloads.add(url.getAsString());
                 files.add(new PackFile(file.get("path").getAsString(), file.get("sha1").getAsString(),
                         file.get("size").getAsLong(), file.has("entry") && !file.get("entry").isJsonNull()
-                        ? file.get("entry").getAsString() : null, downloads));
+                        ? file.get("entry").getAsString() : null, downloads,
+                        file.has("sha512") && !file.get("sha512").isJsonNull() ? file.get("sha512").getAsString() : null));
             }
             List<String> removals = new ArrayList<>();
             if (root.has("removals")) for (JsonElement item : root.getAsJsonArray("removals")) removals.add(item.getAsString());

@@ -59,8 +59,10 @@ final class SaoPackApp {
     /// The first-open checks, once they are in (null until then).
     private static final ReadOnlyObjectWrapper<@Nullable List<SaoData.SystemCheck>> CHECKS = new ReadOnlyObjectWrapper<>();
 
-    /// The engine the checks ran for (one run per engine, normally one per start).
+    /// The engine whose initial checks have been requested.
     private static @Nullable SaoLauncherService checkedFor;
+    /// Fences stale asynchronous results when installation triggers a fresh check.
+    private static long checksGeneration;
 
     private SaoPackApp() {
     }
@@ -80,10 +82,22 @@ final class SaoPackApp {
     /// Runs the system check once (first open); BLOCK stops every import.
     static void runChecks(SaoLauncherService s) {
         if (checkedFor == s) return;
+        refreshChecks(s);
+    }
+
+    /// Refreshes readiness hints after installation, so an automatically installed Java is immediately reflected.
+    static void refreshChecks(SaoLauncherService s) {
         checkedFor = s;
+        long generation = ++checksGeneration;
         CHECKS.set(null);
-        s.systemCheck().whenComplete((list, err) -> Platform.runLater(() ->
-                CHECKS.set(err == null && list != null ? List.copyOf(list) : List.of())));
+        s.systemCheck().whenComplete((@Nullable @org.jetbrains.annotations.Unmodifiable List<SaoData.SystemCheck> list, @Nullable Throwable err) -> {
+            Runnable update = () -> {
+                if (checkedFor == s && generation == checksGeneration)
+                    CHECKS.set(err == null && list != null ? List.copyOf(list) : List.of());
+            };
+            try { Platform.runLater(update); }
+            catch (IllegalStateException headless) { update.run(); }
+        });
     }
 
     /// Whether a BLOCK check stops installing.
@@ -101,10 +115,23 @@ final class SaoPackApp {
         RESULT.set(null);
         s.acceptDroppedFiles(List.copyOf(files)).whenComplete((ok, err) -> Platform.runLater(() -> {
             BUSY.set(Math.max(0, BUSY.get() - 1));
-            if (err == null) RESULT.set("");
+            if (err == null) {
+                RESULT.set("");
+                if (s.offlineBundleCleanupAvailable()) {
+                    javafx.scene.control.ButtonType remove = new javafx.scene.control.ButtonType("删除解压副本", javafx.scene.control.ButtonBar.ButtonData.OK_DONE);
+                    javafx.scene.control.ButtonType keep = new javafx.scene.control.ButtonType("保留", javafx.scene.control.ButtonBar.ButtonData.CANCEL_CLOSE);
+                    javafx.scene.control.Alert prompt = SaoDialogs.style(new javafx.scene.control.Alert(
+                            javafx.scene.control.Alert.AlertType.CONFIRMATION, "安装已完成。删除离线包的解压副本以释放空间？下载的原始 ZIP 会保留。", remove, keep));
+                    prompt.setTitle("离线包安装完成");
+                    prompt.showAndWait().filter(remove::equals).ifPresent(answer -> s.deleteOfflineBundleCopies());
+                }
+            }
             else {
                 @Nullable String backend = s.lastError().get();
                 Throwable t = err instanceof CompletionException && err.getCause() != null ? err.getCause() : err;
+                if (t instanceof SaoLauncherService.OperationBusyException || t instanceof java.util.concurrent.CancellationException) {
+                    RESULT.set(null); return;
+                }
                 RESULT.set(backend != null && !backend.isBlank() ? backend
                         : t.getMessage() != null && !t.getMessage().isBlank() ? t.getMessage() : "校验失败");
             }
@@ -211,7 +238,8 @@ final class SaoPackApp {
             SaoData.@Nullable VersionMetadata meta = u.metadata();
             List<String> facts = new ArrayList<>();
             if (pack) {
-                facts.add(installed == null ? "未安装" : "已安装 v" + installed);
+                String origin = s.localPack() ? "本地整合包" : s.betaPatchedPack() ? "Beta 本地补丁" : "已安装";
+                facts.add(installed == null ? "未安装" : origin + " v" + installed);
                 if (meta != null) facts.add("最新 v" + meta.pack().version());
             } else {
                 facts.add("当前 v" + org.jackhuang.hmcl.Metadata.VERSION);
@@ -255,7 +283,7 @@ final class SaoPackApp {
             } else if (RESULT.get() != null && !RESULT.get().isEmpty()) {
                 st = "! " + RESULT.get();
                 bad = true;
-            } else if (s.lastError().get() != null && s.state().get() == SaoPackState.FAILED) {
+            } else if (s.lastError().get() != null) {
                 st = "! " + s.lastError().get();
                 bad = true;
             } else if (!pack && lu.restartRequired()) {
@@ -334,11 +362,11 @@ final class SaoPackApp {
         for (Observable o : watched) o.addListener(on);
         // While the window is up the backend watches Downloads; closing it stops that and drops the half-done quick
         // updates (the backend's contract: they gather only while the prompt is open).
-        if (pack) s.watchPackDownload();
+        @Nullable SaoPackDownloadWatch downloadWatch = pack ? new SaoPackDownloadWatch(s) : null;
         win.parentProperty().addListener((o, a, b) -> {
             if (b != null) return;
             for (Observable x : watched) x.removeListener(on);
-            if (pack) s.cancelPackDownload();
+            if (downloadWatch != null) downloadWatch.close();
         });
         RESULT.set(null);
         refresh.run();

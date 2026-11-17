@@ -33,10 +33,11 @@ final class SaoPackFiles {
         return result;
     }
 
-    /// Checks exact byte size and SHA-1; absent and nonregular files never match.
+    /// Checks exact byte size, SHA-1 and the optional index SHA-512; absent and nonregular files never match.
     static boolean matches(Path path, SaoPackManifest.PackFile file) throws IOException {
         if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS) || Files.size(path) != file.size()) return false;
-        try (InputStream input = Files.newInputStream(path)) { return file.sha1().equals(SaoPackArchive.sha1(input)); }
+        try (InputStream input = Files.newInputStream(path)) { if (!file.sha1().equals(SaoPackArchive.sha1(input))) return false; }
+        return file.sha512() == null || file.sha512().equals(org.jackhuang.hmcl.util.DigestUtils.digestToString("SHA-512", path));
     }
 
     /// Replaces a file atomically when supported, with a same-filesystem replacement fallback.

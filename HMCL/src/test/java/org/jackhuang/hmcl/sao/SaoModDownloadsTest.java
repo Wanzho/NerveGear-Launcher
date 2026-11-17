@@ -31,6 +31,94 @@ class SaoModDownloadsTest {
     /// Disposable staging and destination files.
     @TempDir Path temporary;
 
+    /// Queue preparation starts largest jars first, preserving insertion order for equal sizes.
+    @Test void largestFilesAreSubmittedFirst() throws Exception {
+        Map<SaoPackManifest.PackFile, Path> files = new LinkedHashMap<>();
+        for (String body : List.of("a", "bbbb", "cc", "dddd", "eee"))
+            files.put(file(body, body), temporary.resolve(body));
+        assertEquals(List.of(4L, 4L, 3L, 2L, 1L), SaoModDownloads.largestFirst(files).stream()
+                .map(item -> item.getKey().size()).toList());
+        assertEquals(List.of("bbbb", "dddd", "eee", "cc", "a"), SaoModDownloads.largestFirst(files).stream()
+                .map(item -> item.getValue().getFileName().toString()).toList());
+    }
+
+    /// The real bounded executor fills its first six slots with the six largest inputs.
+    @Test void largestFilesOccupyFirstWorkerWave() throws Exception {
+        Map<SaoPackManifest.PackFile, Path> files = new LinkedHashMap<>();
+        for (int size : List.of(1, 4, 2, 8, 3, 7, 5, 6)) {
+            String body = "x".repeat(size);
+            files.put(file("wave" + size, body), temporary.resolve("wave" + size));
+        }
+        CountDownLatch firstWave = new CountDownLatch(6), release = new CountDownLatch(1);
+        List<Long> started = new CopyOnWriteArrayList<>();
+        ExecutorService caller = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> batch = caller.submit(() -> {
+                SaoModDownloads.runBatch((file, target) -> {
+                    started.add(file.size()); firstWave.countDown();
+                    if (!release.await(5, TimeUnit.SECONDS)) throw new IOException("Wave was not released");
+                }, files);
+                return null;
+            });
+            assertTrue(firstWave.await(5, TimeUnit.SECONDS));
+            assertEquals(Set.of(3L, 4L, 5L, 6L, 7L, 8L), new HashSet<>(started));
+            release.countDown(); batch.get(5, TimeUnit.SECONDS);
+        } finally { release.countDown(); caller.shutdownNow(); }
+    }
+
+    /// Real pack transfers count parallel payload only once and preserve size/hash verification and request evidence.
+    @Test void segmentedPackProgressCountsNetworkBytesOnce() throws Exception {
+        try (LocalServer server = new LocalServer()) {
+            String content = "abcdefghij".repeat(950_001);
+            byte @Unmodifiable [] body = content.getBytes(StandardCharsets.UTF_8);
+            AtomicInteger segments = new AtomicInteger();
+            server.server.createContext("/large", exchange -> {
+                try {
+                    @Nullable String range = exchange.getRequestHeaders().getFirst("Range");
+                    int first = 0, last = body.length - 1;
+                    if (range != null) {
+                        String[] bounds = range.substring(6).split("-");
+                        first = Integer.parseInt(bounds[0]); last = Integer.parseInt(bounds[1]);
+                        exchange.getResponseHeaders().set("Content-Range", "bytes " + first + "-" + last + "/" + body.length);
+                        exchange.getResponseHeaders().set("ETag", "\"pack\"");
+                        if (last > 0) segments.incrementAndGet();
+                    }
+                    exchange.sendResponseHeaders(range == null ? 200 : 206, last - first + 1);
+                    exchange.getResponseBody().write(body, first, last - first + 1);
+                } catch (IOException ignored) { }
+                finally { exchange.close(); }
+            });
+            List<SaoInstallProgress> snapshots = new CopyOnWriteArrayList<>();
+            List<SaoModDownloads.Transfer> transfers = new CopyOnWriteArrayList<>();
+            Path target = temporary.resolve("pack.jar");
+            try (SaoModDownloads downloads = downloader(server, List.of("/large"), snapshots, transfers, 0)) {
+                downloads.downloadAll(Map.of(file("pack", content), target));
+            }
+            assertEquals(4, segments.get()); assertArrayEquals(body, Files.readAllBytes(target));
+            SaoModDownloads.Transfer transfer = transfers.get(0);
+            assertTrue(transfer.verified()); assertEquals(body.length, transfer.networkBytes());
+            assertEquals(6, transfer.attempts().size());
+            assertEquals(5, transfer.attempts().stream().filter(attempt -> attempt.status() == 206).count());
+            SaoInstallProgress last = snapshots.get(snapshots.size() - 1);
+            assertEquals(body.length, last.bytesDone()); assertEquals(body.length, last.networkBytes());
+            assertNoTemporaryFiles();
+        }
+    }
+
+    /// The final few files are named with the host that actually returned their body.
+    @Test void remainingFileLabelIncludesResponseHost() throws Exception {
+        try (LocalServer server = new LocalServer()) {
+            String body = "label payload";
+            server.server.createContext("/file", exchange -> send(exchange, 200, body));
+            List<SaoInstallProgress> snapshots = new CopyOnWriteArrayList<>();
+            try (SaoModDownloads downloads = downloader(server, List.of("/file"), snapshots, new CopyOnWriteArrayList<>(), 0)) {
+                downloads.downloadAll(Map.of(file("named", body), temporary.resolve("named.jar")));
+            }
+            assertTrue(snapshots.stream().anyMatch(snapshot -> snapshot.label().contains("剩下 1 个")
+                    && snapshot.label().contains("named.jar") && snapshot.label().contains("127.0.0.1")));
+        }
+    }
+
     /// CDN ordering is locale-independent and stable, with no MCIM file requests or lost encoded URLs.
     @Test void modrinthFirstOrderingPreservesOriginalsAndEncodedPaths() {
         HMCLDownloadProvider provider = new HMCLDownloadProvider("https://bmclapi2.bangbang93.com");

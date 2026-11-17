@@ -2,6 +2,7 @@
 package org.jackhuang.hmcl.sao;
 
 import com.google.gson.*;
+import org.jackhuang.hmcl.Metadata;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Unmodifiable;
 import org.junit.jupiter.api.Test;
@@ -214,7 +215,8 @@ class SaoReleaseSignaturesTest {
 
     /// Fully valid pinned JAR and quick candidates remain unusable from unsigned metadata; signed controls accept both.
     @Test void unsignedMetadataNeverAuthorizesSelfUpdateOrQuickDrops() throws Exception {
-        Path jar = launcherJar(), old = pack("old.zip", "0.8", "old"), next = pack("next.zip", "0.8.1", "new");
+        String futureVersion = Metadata.VERSION + ".1";
+        Path jar = launcherJar(futureVersion), old = pack("old.zip", "0.8", "old"), next = pack("next.zip", "0.8.1", "new");
         Path quick = temporary.resolve("quick.zip"), root = temporary.resolve("launcher");
         SaoData.QuickRelease edge = SaoUpdateBuilder.build(old, next, quick, Map.of(), null, null);
         JsonObject policy = JsonParser.parseString(version(100)).getAsJsonObject();
@@ -222,6 +224,7 @@ class SaoReleaseSignaturesTest {
         pack.addProperty("file", "next.zip"); pack.addProperty("size", Files.size(next)); pack.addProperty("sha256", SaoUpdates.sha256(next));
         policy.getAsJsonArray("updates").add(new Gson().toJsonTree(edge));
         JsonObject launcher = policy.getAsJsonObject("launcher"); launcher.addProperty("file", "update.jar");
+        launcher.addProperty("latest", futureVersion);
         launcher.addProperty("size", Files.size(jar)); launcher.addProperty("sha256", SaoUpdates.sha256(jar));
         String document = policy.toString(); SaoUpdates.parse(document);
         Path instance;
@@ -256,13 +259,13 @@ class SaoReleaseSignaturesTest {
     }
 
     /// Creates a bounded inert launcher with every entry required by the real JAR validator; no class is executed.
-    private Path launcherJar() throws IOException {
+    private Path launcherJar(String version) throws IOException {
         Path path = temporary.resolve("update.jar"); Manifest manifest = new Manifest();
         manifest.getMainAttributes().putValue("Manifest-Version", "1.0");
         manifest.getMainAttributes().putValue("Main-Class", "org.jackhuang.hmcl.Main");
-        manifest.getMainAttributes().putValue("Implementation-Version", "0.1.1");
+        manifest.getMainAttributes().putValue("Implementation-Version", version);
         try (JarOutputStream output = new JarOutputStream(Files.newOutputStream(path), manifest)) {
-            member(output, "assets/hmcl.properties", "hmcl.version=0.1.1\n");
+            member(output, "assets/hmcl.properties", "hmcl.version=" + version + "\n");
             for (String entry : List.of("org/jackhuang/hmcl/Main.class", "org/jackhuang/hmcl/Launcher.class",
                     "org/jackhuang/hmcl/sao/SaoLauncherBootstrap.class", "org/jackhuang/hmcl/sao/SaoSelfUpdate.class")) member(output, entry, "inert");
         }

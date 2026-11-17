@@ -27,7 +27,7 @@ class SaoExtrasSystemTest {
         var blocks = SaoSystemChecks.evaluate(new SaoSystemChecks.Facts(16 * gib, 5 * gib - 1, 5 * gib, false, true, true));
         assertEquals(SaoData.CheckLevel.BLOCK, blocks.get(1).level()); assertEquals(SaoData.CheckLevel.BLOCK, blocks.get(2).level()); assertEquals(SaoData.CheckLevel.BLOCK, blocks.get(3).level());
         assertEquals(SaoData.CheckLevel.BLOCK, SaoSystemChecks.evaluate(new SaoSystemChecks.Facts(0, -1, 1, true, false, false)).get(1).level());
-        assertEquals(2 * SaoSystemChecks.OATH08_BYTES + SaoSystemChecks.OATH08_ZIP_BYTES + 2 * gib,
+        assertEquals(3 * SaoSystemChecks.OATH08_BYTES + 2 * gib,
                 SaoSystemChecks.requiredBytes(SaoSystemChecks.OATH08_BYTES, SaoSystemChecks.OATH08_ZIP_BYTES));
         assertEquals(Long.MAX_VALUE, SaoSystemChecks.requiredBytes(Long.MAX_VALUE, 1));
     }

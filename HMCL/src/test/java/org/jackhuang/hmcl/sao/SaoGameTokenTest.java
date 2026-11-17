@@ -57,6 +57,8 @@ class SaoGameTokenTest {
         final HttpServer server;
         /// HTTP status for /sao/game-token: 200 mints {@link #GAME}; anything else returns a JSON error.
         final AtomicInteger gameTokenStatus;
+        /// Configurable final-session validation response.
+        final AtomicInteger validateStatus = new AtomicInteger(204);
         /// Every request seen, as "METHOD path auth=<bearer or ->", for leak checks.
         final List<String> requests = new CopyOnWriteArrayList<>();
 
@@ -79,7 +81,7 @@ class SaoGameTokenTest {
             requests.add(exchange.getRequestMethod() + " " + path + " auth=" + (auth == null ? "-" : auth));
             int status; JsonObject reply = new JsonObject();
             if (path.equals("/authserver/validate")) {
-                status = FULL.equals(JsonParser.parseString(body).getAsJsonObject().get("accessToken").getAsString()) ? 204 : 403;
+                status = FULL.equals(JsonParser.parseString(body).getAsJsonObject().get("accessToken").getAsString()) ? validateStatus.get() : 403;
             } else if (path.equals("/sao/game-token") && ("Bearer " + FULL).equals(auth)) {
                 status = gameTokenStatus.get();
                 if (status == 200) {
@@ -171,6 +173,43 @@ class SaoGameTokenTest {
                 SaoOathLaunchAccount account = account(api, () -> { });
                 assertThrows(AuthenticationException.class, account::logIn, "Status " + failure + " must not fall back");
             }
+        }
+    }
+
+    /// Transient HTTP failures refuse this launch without revoking a still-valid prepared session.
+    @Test void transientFailuresPreserveSessionAndRefuseLaunch() throws Exception {
+        for (boolean validate : new boolean[]{true, false}) for (int status : new int[]{429, 500, 503}) {
+            try (Api api = new Api(validate ? 200 : status)) {
+                if (validate) api.validateStatus.set(status);
+                AtomicInteger revoked = new AtomicInteger();
+                SaoOathLaunchAccount prepared = account(api, revoked::incrementAndGet);
+                assertThrows(AuthenticationException.class, prepared::logIn);
+                assertEquals(0, revoked.get(), "Temporary response must not clear session");
+                assertEquals(validate ? 1 : 2, api.requests.size(), "No automatic POST retries");
+                api.validateStatus.set(204); api.gameTokenStatus.set(200);
+                assertEquals(GAME, prepared.logIn().getAccessToken(), "Explicit later attempt may recover");
+            }
+        }
+    }
+
+    /// A connection refusal is a real transport failure, not proof that the session expired.
+    @Test void transportFailurePreservesSession() throws Exception {
+        Api api = new Api(200);
+        AtomicInteger revoked = new AtomicInteger();
+        SaoOathLaunchAccount prepared = account(api, revoked::incrementAndGet);
+        api.close();
+        assertThrows(AuthenticationException.class, prepared::logIn);
+        assertEquals(0, revoked.get());
+    }
+
+    /// Authoritative invalid-session replies must still clear authorization and refuse launch.
+    @Test void invalidSessionStillClears() throws Exception {
+        try (Api api = new Api(200)) {
+            api.validateStatus.set(403);
+            AtomicInteger revoked = new AtomicInteger();
+            assertThrows(AuthenticationException.class, account(api, revoked::incrementAndGet)::logIn);
+            assertEquals(1, revoked.get());
+            assertEquals(1, api.requests.size());
         }
     }
 

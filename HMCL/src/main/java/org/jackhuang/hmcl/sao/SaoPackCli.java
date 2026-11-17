@@ -40,6 +40,16 @@ public final class SaoPackCli {
         Path root = Path.of(options.getOrDefault("--root", ".sao-oath-launcher")).toAbsolutePath().normalize();
         System.setProperty("sao.dir", root.toString());
         System.setProperty("sao.home", root.resolve("user").toString());
+        org.jackhuang.hmcl.util.CacheRepository.getInstance().changeDirectory(root.resolve("dependencies"));
+        @Nullable String bundle = options.get("--offline-bundle");
+        if (bundle != null) {
+            SaoOfflineBundle.Imported imported = SaoOfflineBundle.unpack(Path.of(bundle), root, (label, fraction) -> System.err.println(label));
+            if (!imported.damaged().isEmpty()) System.err.println("Damaged entries skipped: " + imported.damaged());
+            if (imported.pack() == null) throw new java.io.IOException("Bundled pack is damaged");
+            SaoData.VersionMetadata policy = new SaoOnlineData(root).importOfflineVersion(imported.directory());
+            SaoPackArchive verified = SaoUpdates.snapshot(imported.pack(), policy.pack(), root.resolve("pack-cache"));
+            options.put("--pack", verified.zip().toString());
+        }
         @Nullable SaoPackArchive selected = embedded ? SaoPackArchive.embedded(root.resolve("pack-cache"))
                 : SaoPackArchive.open(Path.of(required(options, "--pack")));
         if (selected == null) throw new IllegalArgumentException("This launcher has no embedded SAO pack");

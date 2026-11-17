@@ -416,7 +416,7 @@ public final class SaoFakeService implements SaoLauncherService {
     private boolean autoMemory;
     private @Nullable Path java;
     private SaoData.Source source = SaoData.Source.AUTO;
-    private int threads = 64;
+    private int threads = 16;
     private SaoData.GameWindow window = new SaoData.GameWindow(1600, 900, false);
     private String jvm = "";
 

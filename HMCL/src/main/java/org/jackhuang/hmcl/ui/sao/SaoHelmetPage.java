@@ -238,6 +238,8 @@ public final class SaoHelmetPage extends StackPane {
     /// Link Start and its lines.
     private final Button start = new Button("Link Start");
     private final Text problem = new Text();
+    /// Direct recovery action beside missing-drive and disk-space errors.
+    private final Button locationRecovery = button("重新选择游戏位置");
     private final Region fill = new Region();
 
     /// Builds the page with the installed engine, or a stand-in when none is installed yet.
@@ -272,13 +274,9 @@ public final class SaoHelmetPage extends StackPane {
             else if (now.kind() == org.jackhuang.hmcl.sao.SaoOathLinking.Kind.LINKED
                     && (problem.getText().startsWith("正在连接") || problem.getText().startsWith("正在用 Microsoft"))) problem.setText("");
         }));
-        org.jackhuang.hmcl.sao.SaoMicrosoftFlow.setPresenter(flow -> {
-            boolean[] first = {true};
-            openMicrosoft(() -> {
-                if (first[0]) { first[0] = false; return flow; }
-                return service.microsoftSignIn();
-            });
-        });
+        org.jackhuang.hmcl.sao.SaoMicrosoftFlow.setPresenter((start, cancel) ->
+                openApp(new SaoApps.App(SVG.PERSON, "微软正版登录",
+                        (s, close) -> SaoMicrosoftApp.make(start, close, cancel)), null));
         // The head follows the mouse (James, 14 Nov), measured from the page centre, -0.5..0.5 on each axis; drags
         // (window, character) count too, so the view never jumps when a drag ends.
         javafx.event.EventHandler<MouseEvent> look = e -> {
@@ -358,13 +356,13 @@ public final class SaoHelmetPage extends StackPane {
         });
         // The engine's hide at game start waits for the hand-over (James, 13 Nov).
         if (HANDOFF) SaoHandoff.install(hide -> boot.holdHide(() -> {
-            hide.run();
             handedOver();
-        }), boot::cancel);
+            hide.run();
+        }), this::cancelHandoff);
         boot.windowFade().addListener((o, a, f) -> {
             if (getScene() != null && getScene().getWindow() != null) getScene().getWindow().setOpacity(1 - f.doubleValue());
         });
-        service.gameLog().addListener((ListChangeListener<String>) c -> boot.readLog(service.gameLog()));
+        if (HANDOFF) service.observeGameLog(event -> boot.readLog(event, service.legacyHelmetSignal()));
 
         buildPad();
         // The window style James picked (6 Nov, from four): the anime's light menu panels with orange highlights.
@@ -438,7 +436,11 @@ public final class SaoHelmetPage extends StackPane {
         service.state().addListener((o, a, b) -> onState(a, b));
         service.progress().addListener((o, a, b) -> refreshState());
         service.stepLabel().addListener((o, a, b) -> refreshState());
-        service.lastError().addListener((o, a, b) -> refreshState());
+        service.lastError().addListener((var o, @Nullable var a, @Nullable var b) -> {
+            refreshState();
+            if (b != null && !b.isBlank()) SaoDialogs.failure(service, b);
+        });
+        javafx.application.Platform.runLater(() -> SaoDialogs.previousCrash(service));
         service.updateStatus().addListener((o, a, b) -> refreshState());
         service.launcherUpdate().addListener((o, a, b) -> refreshState());
         service.installProgress().addListener((o, a, b) -> refreshState());
@@ -572,7 +574,7 @@ public final class SaoHelmetPage extends StackPane {
             motd.setWrappingWidth(240);
             FlowPane names = new FlowPane(6, 6);
             for (String n : st.names()) {
-                Text t = sao(n, 12, false);
+                Text t = sao(SaoPlayerNames.display(n), 12, false);
                 StackPane chip = new StackPane(t);
                 chip.getStyleClass().add("vr-name");
                 names.getChildren().add(chip);
@@ -736,7 +738,9 @@ public final class SaoHelmetPage extends StackPane {
         logoBox.managedProperty().bind(signedIn.visibleProperty());
         spring.visibleProperty().bind(signedIn.visibleProperty().not());
         spring.managedProperty().bind(signedIn.visibleProperty().not());
-        VBox right = new VBox(6, sides, logoBox, spring, problem, linkRow);
+        locationRecovery.setVisible(false); locationRecovery.setManaged(false);
+        locationRecovery.setOnAction(event -> openApp(new SaoApps.App(SVG.SETTINGS, "游戏位置", SaoApps::settings), null));
+        VBox right = new VBox(6, sides, logoBox, spring, problem, locationRecovery, linkRow);
         right.setPrefWidth(RIGHT_W);
         right.setMinWidth(RIGHT_W);
         right.setMaxWidth(RIGHT_W);
@@ -823,7 +827,7 @@ public final class SaoHelmetPage extends StackPane {
             }
             offProblem.setText("");
             confirmOffline.setVisible(false);
-            begin(() -> service.linkStartOffline(n));
+            begin(() -> service.linkStartOffline(n), true);
         });
         offlineName.setOnAction(e -> offYes.fire());
         StackPane body = new StackPane(bodyRow, confirmOut, confirmName);
@@ -1302,7 +1306,7 @@ public final class SaoHelmetPage extends StackPane {
         pad.setManaged(false);
         pad.setPickOnBounds(false);
         pad.getTransforms().addAll(padShift, padFit);
-        Text version = dim(SaoUi.LAUNCHER_NAME + " " + Metadata.VERSION, 10);
+        Text version = dim(SaoUi.LAUNCHER_NAME + " " + Metadata.VERSION + (Metadata.SAO_BETA ? " Beta" : ""), 10);
         version.relocate(64, 676);
         Button minimize = round(SVG.MINIMIZE_CENTER, 30, 15);
         minimize.setOnAction(e -> Controllers.getDecorator().minimizeWindow());
@@ -1412,6 +1416,11 @@ public final class SaoHelmetPage extends StackPane {
         double k = getScene() != null && getScene().getWindow() != null
                 ? Math.max(1, Math.max(getScene().getWindow().getOutputScaleX(), getScene().getWindow().getOutputScaleY())) : 1;
         int w = (int) Math.floor(Math.min(pw, ph * 16 / 9)), h = (int) Math.round(w * 9 / 16.0);
+        if (frozenPicture) {
+            double pictureScale = Math.min(pw / frozenWidth, ph / frozenHeight);
+            screen.setScaleX(pictureScale); screen.setScaleY(pictureScale);
+            w = (int) frozenWidth; h = (int) frozenHeight;
+        }
         if (w <= 1 || h <= 1) return;
         if (previewResize(w, h, k)) return;
         screen.resizeRelocate(Math.floor((pw - w) / 2), Math.floor((ph - h) / 2), w, h);
@@ -1645,6 +1654,25 @@ public final class SaoHelmetPage extends StackPane {
         service.setLauncherAttention(visible, visible && win.isFocused());
     }
 
+    /// Current diagnostic backend, absent before the main page is constructed.
+    static @Nullable SaoLauncherService diagnosticService() {
+        @Nullable SaoHelmetPage page = current();
+        return page == null ? null : page.service;
+    }
+
+    /// Brief in-window confirmation without requesting OS focus.
+    static void exportToast(String message) {
+        @Nullable SaoHelmetPage page = current();
+        if (page == null) return;
+        page.toast.setText(message);
+        page.toast.applyCss();
+        page.toast.relocate((EW - page.toast.getLayoutBounds().getWidth()) / 2, 46);
+        page.toast.setVisible(true);
+        PauseTransition hide = new PauseTransition(Duration.seconds(8));
+        hide.setOnFinished(e -> page.toast.setVisible(false));
+        hide.play();
+    }
+
     /// One line at the top of the helmet for a background social event (click opens 好友), plus a taskbar/Dock
     /// attention request where the system supports it; the window is never brought to the front.
     private void showNotification(SaoData.Notification n) {
@@ -1727,6 +1755,102 @@ public final class SaoHelmetPage extends StackPane {
         }
     }
 
+    /// Stage bounds and page geometry captured before Link Start (including maximized letterboxing).
+    private @Nullable javafx.geometry.Rectangle2D originalBounds, alignmentTarget;
+    /// Original maximize flag, restored after hand-over, cancellation, or releasing the cover.
+    private boolean originalMaximized;
+    /// Minimum sizes temporarily relaxed for DPI-scaled game content, restored with stage bounds.
+    private double originalMinWidth, originalMinHeight;
+    /// Captured picture dimensions; while alignment runs only its outer scale changes.
+    private double frozenWidth, frozenHeight;
+    /// Whether frame() is preserving the captured picture layout.
+    private boolean frozenPicture;
+    /// True only after an interpolation call actually changed stage geometry.
+    private boolean boundsApplied;
+
+    /// True from Link Start through completion/cancel; decorator and page drags share this gate.
+    public static boolean handoverLocked() { return current != null && current.boot.handoff.active(); }
+
+    /// Captures a target without moving the stage. Claude owns calling applyStageBounds(t) from the timeline.
+    /// Fullscreen games, native-fullscreen launchers and other monitors cannot cover the primary game:
+    /// retain existing put-away/loading, never move or stay on top, and hide at readiness instead.
+    public java.util.Optional<javafx.geometry.Rectangle2D> targetStageBounds() {
+        if (originalBounds != null) return java.util.Optional.ofNullable(alignmentTarget);
+        if (getScene() == null || !(getScene().getWindow() instanceof javafx.stage.Stage st))
+            return java.util.Optional.empty();
+        originalBounds = new javafx.geometry.Rectangle2D(st.getX(), st.getY(), st.getWidth(), st.getHeight());
+        originalMaximized = st.isMaximized();
+        originalMinWidth = st.getMinWidth(); originalMinHeight = st.getMinHeight();
+        javafx.stage.Screen primary = javafx.stage.Screen.getPrimary();
+        javafx.geometry.Rectangle2D monitor = primary.getBounds();
+        var game = org.jackhuang.hmcl.sao.SaoGameWindowGeometry.content(primary, service.gameWindow());
+        if (game.isEmpty() || !org.jackhuang.hmcl.sao.SaoGameWindowGeometry.alignable(
+                monitor, originalBounds, st.isFullScreen(), service.gameWindow()))
+            return java.util.Optional.empty();
+        @Nullable javafx.geometry.Bounds pageBounds = localToScreen(getLayoutBounds());
+        @Nullable javafx.geometry.Bounds pictureBounds = screen.localToScreen(screen.getLayoutBounds());
+        if (pageBounds == null || pictureBounds == null || pictureBounds.getWidth() <= 0) return java.util.Optional.empty();
+        alignmentTarget = org.jackhuang.hmcl.sao.SaoGameWindowGeometry.target(originalBounds,
+                rectangle(pageBounds), rectangle(pictureBounds), game.get());
+        frozenWidth = screen.getWidth(); frozenHeight = screen.getHeight();
+        return java.util.Optional.of(alignmentTarget);
+    }
+
+    /// Converts measured scene bounds into the pure geometry API.
+    private static javafx.geometry.Rectangle2D rectangle(javafx.geometry.Bounds b) {
+        return new javafx.geometry.Rectangle2D(b.getMinX(), b.getMinY(), b.getWidth(), b.getHeight());
+    }
+
+    /// Straight stage interpolation only; deliberately owns no visual timing or animation.
+    public void applyStageBounds(double t) {
+        if (!boot.handoff.active() || boot.handoff.released() || alignmentTarget == null || originalBounds == null
+                || getScene() == null || !(getScene().getWindow() instanceof javafx.stage.Stage st)) return;
+        frozenPicture = true;
+        boundsApplied = true;
+        st.setMaximized(false);
+        st.setMinWidth(0); st.setMinHeight(0);
+        setStageBounds(st, org.jackhuang.hmcl.sao.SaoGameWindowGeometry.interpolate(originalBounds, alignmentTarget, t));
+    }
+
+    /// Applies all four logical bounds; no outer game frame/title-bar inset is guessed.
+    private static void setStageBounds(javafx.stage.Stage st, javafx.geometry.Rectangle2D r) {
+        st.setWidth(r.getWidth()); st.setHeight(r.getHeight()); st.setX(r.getMinX()); st.setY(r.getMinY());
+    }
+
+    /// Restores the exact captured stage bounds and maximized flag, and unlocks picture layout.
+    public void restoreStageBounds() {
+        if (boundsApplied && originalBounds != null && getScene() != null && getScene().getWindow() instanceof javafx.stage.Stage st) {
+            if (!st.isFullScreen()) {
+                st.setMaximized(false);
+                setStageBounds(st, originalBounds);
+                st.setMinWidth(originalMinWidth); st.setMinHeight(originalMinHeight);
+                st.setMaximized(originalMaximized);
+            }
+        }
+        originalBounds = alignmentTarget = null;
+        frozenPicture = false;
+        boundsApplied = false;
+        screen.setScaleX(1); screen.setScaleY(1);
+    }
+
+    /// Lets the user remove the cover without cancelling readiness or changing visibility policy.
+    public void releaseCover() {
+        if (!boot.handoff.active()) return;
+        boot.handoff.release();
+        restoreStageBounds();
+        if (getScene() != null && getScene().getWindow() instanceof javafx.stage.Stage st) {
+            st.setAlwaysOnTop(false);
+            st.setIconified(true);
+        }
+    }
+
+    /// Restores the stage on early exit or failed preparation, including pending put-away.
+    private void cancelHandoff() {
+        boot.cancel();
+        restoreStageBounds();
+        windowNormal();
+    }
+
     /// Link Start: the windows put themselves away and the launcher stays over the game's window until the game shows
     /// its own visor (see SaoBoot); kept on top meanwhile so the game's first windows open behind it.
     private void linkStartOut() {
@@ -1734,7 +1858,9 @@ public final class SaoHelmetPage extends StackPane {
             powerDown();
             return;
         }
-        if (getScene() != null && getScene().getWindow() instanceof javafx.stage.Stage st) st.setAlwaysOnTop(true);
+        boot.pending();
+        boolean align = targetStageBounds().isPresent() && !boot.handoff.released();
+        if (getScene() != null && getScene().getWindow() instanceof javafx.stage.Stage st) st.setAlwaysOnTop(align);
         if (app == null) {
             boot.putAway();
             return;
@@ -1743,7 +1869,7 @@ public final class SaoHelmetPage extends StackPane {
         closeApp();
         PauseTransition p = new PauseTransition(Duration.millis(340));
         p.setOnFinished(e -> {
-            if (service.state().get() == SaoPackState.RUNNING) boot.putAway();
+            if (service.state().get() == SaoPackState.RUNNING && boot.handoff.active()) boot.putAway();
         });
         p.play();
     }
@@ -1760,6 +1886,7 @@ public final class SaoHelmetPage extends StackPane {
 
     /// The launcher has left the game's screen: dark until it comes back.
     private void handedOver() {
+        restoreStageBounds();
         poweredOn = false;
         black.setOpacity(1);
         frame.setImage(frameDark);
@@ -1784,9 +1911,11 @@ public final class SaoHelmetPage extends StackPane {
     /// Follows the engine: dark while the game runs, the display back on when it ends.
     private void onState(@Nullable SaoPackState a, SaoPackState b) {
         refreshState();
+        if (a == SaoPackState.WORKING && b == SaoPackState.READY) SaoPackApp.refreshChecks(service);
         if (a == SaoPackState.RUNNING && b != SaoPackState.RUNNING) {
+            cancelHandoff();
             PauseTransition p = new PauseTransition(Duration.millis(200));
-            p.setOnFinished(e -> powerOn());
+            p.setOnFinished(e -> { if (service.state().get() != SaoPackState.RUNNING && !boot.handoff.active()) powerOn(); });
             p.play();
         }
     }
@@ -2041,9 +2170,14 @@ public final class SaoHelmetPage extends StackPane {
             problem.setText("");
             autoProblem = null;
         }
-        start.setDisable(s == SaoPackState.RUNNING);
+        boolean missingLocation = service.readiness().get().action() == org.jackhuang.hmcl.sao.SaoReadiness.Action.NONE
+                && service.readiness().get().reason().contains("找不到");
+        boolean locationProblem = missingLocation || err != null && err.contains("空间不够");
+        locationRecovery.setText(missingLocation ? "重新选择游戏位置" : "换个盘");
+        locationRecovery.setVisible(locationProblem); locationRecovery.setManaged(locationProblem);
+        start.setDisable(missingLocation);
         // First run with no pack: the 安装整合包 window comes up by itself, once.
-        if (!firstRunShown && s != SaoPackState.CHECKING && SaoPackApp.notInstalled(service)) {
+        if (!missingLocation && !firstRunShown && s != SaoPackState.CHECKING && SaoPackApp.notInstalled(service)) {
             firstRunShown = true;
             Platform.runLater(() -> {
                 if (app == null && SaoPackApp.notInstalled(service)) openPack(SaoPackApp.Mode.PACK);
@@ -2070,9 +2204,9 @@ public final class SaoHelmetPage extends StackPane {
 
     /// Whether a launch has to wait: no pack, a launcher below the minimum, or a BLOCK check. Says why and opens
     /// the window that fixes it.
-    private boolean gated() {
+    private boolean gated(boolean offline) {
         SaoData.UpdateStatus u = service.updateStatus().get();
-        if (u.launcherBlocked()) {
+        if (!offline && u.launcherBlocked()) {
             problem.setText("! " + u.message());
             openPack(SaoPackApp.Mode.LAUNCHER);
             return true;
@@ -2161,6 +2295,8 @@ public final class SaoHelmetPage extends StackPane {
 
     /// Link Start, as the signed-in ARGUS ID.
     private void linkStart() {
+        @Nullable String clockProblem = org.jackhuang.hmcl.sao.SaoClockCheck.problem();
+        if (clockProblem != null) { problem.setText("! " + clockProblem); return; }
         SaoData.@Nullable OathAccount a = service.oathAccount().get();
         if (a == null) {
             problem.setText(autoLogging || microsoftSigningIn() ? "! 正在登录，稍等" : "! 先登录 ARGUS ID");
@@ -2188,16 +2324,24 @@ public final class SaoHelmetPage extends StackPane {
 
     /// Starts the game: at once when ready (the display powers down), or after the first install or an update, which
     /// keeps the display on with the progress until the engine reports the game running.
-    private void begin(Runnable launch) {
-        if (gated()) return;
+    private void begin(Runnable launch) { begin(launch, false); }
+
+    /// Offline entry retains local safety checks without requiring an online launcher upgrade.
+    private void begin(Runnable launch, boolean offline) {
+        if (gated(offline)) return;
         // James, 14 Nov: "按linkstart没有反应……我根本不知道". A click while something runs says what is running.
         SaoPackState now = service.state().get();
-        if (now == SaoPackState.RUNNING) { notice("! 游戏已经在运行"); return; }
+        if (now == SaoPackState.RUNNING) { launch.run(); return; }
         if (now == SaoPackState.WORKING || now == SaoPackState.CHECKING) {
             org.jackhuang.hmcl.sao.SaoInstallProgress ip = service.installProgress().get();
             String doing = now == SaoPackState.CHECKING ? "检查文件" : !ip.label().isBlank() ? ip.label() : service.stepLabel().get();
             notice("! 正在" + (doing.isBlank() ? "准备" : doing) + "，完成后再按 Link Start");
             return;
+        }
+        if (HANDOFF) {
+            boot.pending();
+            targetStageBounds();
+            moving = false;
         }
         // The display powers down only once the engine reports the game RUNNING: a gate the engine applies (launcher
         // minimum, account ticket) leaves the helmet on with its message.
@@ -2212,6 +2356,7 @@ public final class SaoHelmetPage extends StackPane {
                 } else if (b == SaoPackState.FAILED || b == SaoPackState.READY && a != SaoPackState.RUNNING) {
                     o.removeListener(this);
                     pendingLaunch = null;
+                    cancelHandoff();
                     // Refused for a newer pack with no Quark link known: the 整合包 window instead.
                     SaoReadiness r = service.readiness().get();
                     if (b == SaoPackState.FAILED && r.kind() == SaoReadiness.Kind.UPDATE && r.action() == SaoReadiness.Action.PACK_WINDOW)
@@ -2222,6 +2367,12 @@ public final class SaoHelmetPage extends StackPane {
         pendingLaunch = l;
         service.state().addListener(l);
         launch.run();
+        if (pendingLaunch == l && service.state().get() != SaoPackState.RUNNING
+                && service.state().get() != SaoPackState.WORKING) {
+            service.state().removeListener(l);
+            pendingLaunch = null;
+            cancelHandoff();
+        }
         if (service.state().get() == SaoPackState.RUNNING && pendingLaunch == l) {
             service.state().removeListener(l);
             pendingLaunch = null;
@@ -2250,7 +2401,7 @@ public final class SaoHelmetPage extends StackPane {
         characterLayer.addEventFilter(MouseEvent.MOUSE_PRESSED, e -> pressOnWindow = true);
         addEventFilter(MouseEvent.MOUSE_PRESSED, e -> pressOnWindow = false);
         addEventHandler(MouseEvent.MOUSE_PRESSED, e -> {
-            moving = !pressOnWindow && e.isPrimaryButtonDown() && getCursor() == null && getScene() != null
+            moving = !boot.handoff.active() && !pressOnWindow && e.isPrimaryButtonDown() && getCursor() == null && getScene() != null
                     && getScene().getWindow() instanceof javafx.stage.Stage st && !st.isFullScreen()
                     && !org.jackhuang.hmcl.ui.decorator.WindowState.isMaximized(st);
             if (!moving) return;
@@ -2259,7 +2410,7 @@ public final class SaoHelmetPage extends StackPane {
             moveFromY = win.getY() - e.getScreenY();
         });
         addEventHandler(MouseEvent.MOUSE_DRAGGED, e -> {
-            if (!moving || getScene() == null) return;
+            if (boot.handoff.active() || !moving || getScene() == null) return;
             javafx.stage.Window win = getScene().getWindow();
             win.setX(e.getScreenX() + moveFromX);
             win.setY(e.getScreenY() + moveFromY);

@@ -101,7 +101,7 @@ public final class TerracottaMetadata {
             ));
 
             return new TerracottaBundle(
-                    Metadata.DEPENDENCIES_DIRECTORY.resolve(options.replace("terracotta/${version}")).toAbsolutePath(),
+                    org.jackhuang.hmcl.sao.SaoGameLocation.currentRoot().resolve("dependencies").resolve(options.replace("terracotta/${version}")).toAbsolutePath(),
                     links, new FileDownloadTask.IntegrityCheck("SHA-512", pkg.hash),
                     files
             );
@@ -144,6 +144,16 @@ public final class TerracottaMetadata {
                     .collect(Collectors.toList());
             Collections.shuffle(packageLinks);
             PACKAGE_LINKS = Collections.unmodifiableList(packageLinks);
+        }
+    }
+
+    /// Resolves the provider again at explicit room start so its executable follows the current game-data pointer.
+    public static @Nullable AbstractTerracottaProvider providerForCurrentRoot() throws IOException {
+        try (InputStream input = java.util.Objects.requireNonNull(TerracottaMetadata.class.getResourceAsStream("/assets/terracotta.json"))) {
+            Config config = JsonUtils.fromNonNullJsonFully(input, Config.class);
+            Options options = new Options(config.latest, OperatingSystem.CURRENT_OS.getCheckedName() + "-" + Architecture.SYSTEM_ARCH.getCheckedName());
+            @Nullable TerracottaBundle bundle = config.resolve(options);
+            return bundle == null ? null : locateProvider(bundle, options);
         }
     }
 
@@ -192,7 +202,7 @@ public final class TerracottaMetadata {
     }
 
     private static @Nullable DirectoryStream<Path> collectLegacyVersionFiles() throws IOException {
-        Path terracottaDir = Metadata.DEPENDENCIES_DIRECTORY.resolve("terracotta");
+        Path terracottaDir = org.jackhuang.hmcl.sao.SaoGameLocation.currentRoot().resolve("dependencies").resolve("terracotta");
         if (Files.notExists(terracottaDir))
             return null;
 

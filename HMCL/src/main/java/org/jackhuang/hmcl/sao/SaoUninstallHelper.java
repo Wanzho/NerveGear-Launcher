@@ -50,7 +50,7 @@ final class SaoUninstallHelper {
     }
 
     /// Entries the portable Windows and Linux bundles ship beside `app/`; the folder itself may hold other files.
-    static final @Unmodifiable List<String> SHIPPED = List.of("NerveGear启动器.exe", "NerveGear-Launcher.sh", "icon.png",
+    static final @Unmodifiable List<String> SHIPPED = List.of(org.jackhuang.hmcl.Metadata.TITLE + ".exe", "NerveGear-Launcher.sh", "icon.png",
             "app", "runtime", "licenses", "README-zh.txt");
 
     /// The Windows installer's own uninstaller (packaging/windows-installer.nsi), beside the shipped entries. It is not

@@ -80,6 +80,16 @@ class SaoOfflineLaunchTest {
         assertNull(plan.options().getQuickPlayOption());
     }
 
+    /// SAO resources contain UTF-8 text, including when a player supplies a conflicting JVM encoding.
+    @Test void gamePlanForcesUtf8WithAndWithoutConflictingUserEncoding() throws Exception {
+        for (String arguments : List.of("-XX:+UseG1GC", "-XX:+UseG1GC -Dfile.encoding=GB18030")) {
+            SaoGameBridge.LaunchPlan plan = SaoGameBridge.launchPlan(SaoGameBridge.offlineAccount("Player_1"),
+                    manifest(), 2048, new SaoData.GameWindow(1280, 720, false), arguments,
+                    JavaRuntime.CURRENT_JAVA, temporary, false);
+            assertEquals(List.of("-XX:+UseG1GC", "-Dfile.encoding=UTF-8"), plan.options().getJavaArguments());
+        }
+    }
+
     /// An existing ticket is deleted without reading proof bytes; repeated cleanup never creates a new file.
     @Test void deletesStaleTicketAndDoesNotCreateOne() throws Exception {
         SaoGameBridge bridge = new SaoGameBridge(temporary, (label, progress) -> { });

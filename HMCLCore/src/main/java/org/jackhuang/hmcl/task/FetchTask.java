@@ -68,6 +68,82 @@ public abstract class FetchTask<T extends @UnknownNullability Object> extends Ta
         this.repository = repository;
     }
 
+    /// Active HTTP requests across the original stream, probe and all ranges.
+    private final Set<HttpURLConnection> activeRequests = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    /// Payload bytes in this attempt, observed by the watchdog independently of disk replay.
+    private final AtomicLong attemptBytes = new AtomicLong();
+    /// Monotonic observation window; zero between attempts, guarded by this task.
+    private long throughputStart, throughputBytes;
+    /// A slow attempt advances directly to the next health-ordered candidate.
+    private volatile boolean slowAttempt;
+
+    /// Production throughput observation window; subclasses can inject shorter fixture windows.
+    protected Duration slowDownloadWindow() { return Duration.ofSeconds(10); }
+    /// Production handoff threshold in bytes per second.
+    protected long minimumDownloadSpeed() { return 200 * 1024L; }
+    /// Observes a slow attempt before its sockets are disconnected.
+    protected void slowDownload(double seconds, long bytes) {
+        LOG.warning("Download below " + minimumDownloadSpeed() + " B/s for " + seconds
+                + " s (" + bytes + " bytes); switching to the next candidate");
+    }
+
+    /// Applies subclass policy and registers every connection, including range workers, for abort.
+    final void prepareDownloadConnection(HttpURLConnection connection) throws IOException, InterruptedException {
+        activeRequests.add(connection);
+        configureConnection(connection);
+    }
+
+    /// Starts a single aggregate payload window; parallel responses must not reset it.
+    final void observeDownloadResponse(UrlResponseInfo response) throws IOException {
+        receivedResponse(response);
+        synchronized (this) {
+            if (response.responseCode() / 100 == 2 && throughputStart == 0)
+                throughputStart = System.nanoTime();
+        }
+    }
+
+    /// Releases tracking as soon as a connection is no longer active.
+    final void forgetDownloadConnection(HttpURLConnection connection) { activeRequests.remove(connection); }
+
+    /// Detects silent and trickling bodies, using aggregate throughput for segmented files.
+    private void checkDownloadSpeed() {
+        @Unmodifiable List<HttpURLConnection> abort = List.of();
+        synchronized (this) {
+            if (!handOverWhenBenched || throughputStart == 0 || slowAttempt) return;
+            long elapsed = System.nanoTime() - throughputStart;
+            if (elapsed < slowDownloadWindow().toNanos()) return;
+            long received = attemptBytes.get() - throughputBytes;
+            double seconds = elapsed / 1_000_000_000.0;
+            if (received / seconds < minimumDownloadSpeed()) {
+                slowAttempt = true;
+                slowDownload(seconds, received);
+                abort = List.copyOf(activeRequests);
+            } else {
+                throughputStart = System.nanoTime();
+                throughputBytes = attemptBytes.get();
+            }
+        }
+        // Snapshot this attempt: disconnect() may block while the owner advances to another candidate.
+        abort.forEach(HttpURLConnection::disconnect);
+    }
+
+    /// Per-execution range spool, retained across candidates only with matching strong validators.
+    private @Nullable SegmentedDownload segments;
+
+    /// File tasks opt in; in-memory fetches keep their streaming path.
+    protected boolean supportsSegments() { return false; }
+
+    /// Receives payload bytes and current usable partial size, including retained ranges.
+    protected void downloadProgress(long received, long retained) throws IOException { }
+
+    /// Records network throughput once, independently of the later sequential digest pass.
+    final synchronized void recordDownload(long received, long retained, long total) throws IOException {
+        attemptBytes.addAndGet(received);
+        updateDownloadSpeed(received);
+        downloadProgress(received, retained);
+        if (total > 0) updateProgress(retained, total);
+    }
+
     /// Invoked before each download attempt, after any cache lookup.
     ///
     /// @param url the candidate URL before redirects
@@ -90,7 +166,7 @@ public abstract class FetchTask<T extends @UnknownNullability Object> extends Ta
     }
 
     /// True while a later candidate exists, so a host benched mid-retry hands over instead of retrying.
-    private boolean handOverWhenBenched;
+    private volatile boolean handOverWhenBenched;
 
     /// The host of a candidate, or null when it has none.
     static @Nullable String hostOf(WebURL url) {
@@ -129,7 +205,12 @@ public abstract class FetchTask<T extends @UnknownNullability Object> extends Ta
 
         if (SEMAPHORE != null)
             SEMAPHORE.acquire();
+        java.util.concurrent.ScheduledExecutorService watchdog = java.util.concurrent.Executors.newSingleThreadScheduledExecutor(action -> {
+            Thread thread = new Thread(action, "Download-Throughput"); thread.setDaemon(true); return thread;
+        });
+        watchdog.scheduleWithFixedDelay(this::checkDownloadSpeed, 50, 50, TimeUnit.MILLISECONDS);
         try {
+            segments = supportsSegments() ? new SegmentedDownload(this) : null;
             // 自动选择 (15 Nov): hosts that keep failing go to the back of the line; see DownloadHostHealth.
             DownloadHostHealth health = DownloadHostHealth.shared();
             List<DownloadCandidate> ordered = health.order(candidates.getCandidates(),
@@ -167,6 +248,18 @@ public abstract class FetchTask<T extends @UnknownNullability Object> extends Ta
             Thread.currentThread().interrupt();
             throw interrupted;
         } finally {
+            synchronized (this) { throughputStart = 0; }
+            watchdog.shutdownNow();
+            boolean interrupted = Thread.interrupted();
+            while (!watchdog.isTerminated()) {
+                try { watchdog.awaitTermination(100, TimeUnit.MILLISECONDS); }
+                catch (InterruptedException ignored) { interrupted = true; }
+            }
+            if (interrupted) Thread.currentThread().interrupt();
+            if (segments != null) {
+                IOUtils.closeQuietly(segments);
+                segments = null;
+            }
             if (SEMAPHORE != null)
                 SEMAPHORE.release();
         }
@@ -289,6 +382,7 @@ public abstract class FetchTask<T extends @UnknownNullability Object> extends Ta
         try (var counter = new CounterInputStream(inputStream);
              var input = contentEncoding.wrap(counter)) {
             long lastDownloaded = 0L;
+            long initial = resume == null ? 0 : resume.countUncompressed;
             byte[] buffer = new byte[IOUtils.DEFAULT_BUFFER_SIZE];
             while (true) {
                 if (isCancelled()) break;
@@ -306,12 +400,8 @@ public abstract class FetchTask<T extends @UnknownNullability Object> extends Ta
                 if (resume != null)
                     resume.countUncompressed += len;
 
-                if (contentLength >= 0) {
-                    // Update progress information per second
-                    updateProgress(counter.downloaded, contentLength);
-                }
-
-                updateDownloadSpeed(counter.downloaded - lastDownloaded);
+                recordDownload(counter.downloaded - lastDownloaded, initial + counter.downloaded,
+                        initial + contentLength);
                 lastDownloaded = counter.downloaded;
             }
 
@@ -359,6 +449,11 @@ public abstract class FetchTask<T extends @UnknownNullability Object> extends Ta
 
                 @Nullable List<WebURL> redirects = null;
                 try {
+                    synchronized (this) {
+                        throughputStart = throughputBytes = 0;
+                        attemptBytes.set(0);
+                        slowAttempt = false;
+                    }
                     beforeDownload(url);
                     updateProgress(0);
 
@@ -370,7 +465,7 @@ public abstract class FetchTask<T extends @UnknownNullability Object> extends Ta
                     WebURL currentURI = url;
 
                     LinkedHashMap<String, String> headers = new LinkedHashMap<>();
-                    headers.put("accept-encoding", "gzip");
+                    headers.put("accept-encoding", supportsSegments() ? "identity" : "gzip");
 
                     boolean resumeRequested = resumeContext != null && resumeContext.hasPartialContent();
                     if (useCachedResult && checkETag && !resumeRequested)
@@ -387,10 +482,10 @@ public abstract class FetchTask<T extends @UnknownNullability Object> extends Ta
                         boolean keepConnection = false;
                         try {
                             headers.forEach(connection::setRequestProperty);
-                            configureConnection(connection);
+                            prepareDownloadConnection(connection);
                             responseCode = connection.getResponseCode();
                             responseInfo = UrlResponseInfo.of(connection);
-                            receivedResponse(responseInfo);
+                            observeDownloadResponse(responseInfo);
 
                             bmclapiHash = responseInfo.headers().firstValue("x-bmclapi-hash").orElse(null);
                             if (DigestUtils.isSha1Digest(bmclapiHash)) {
@@ -472,6 +567,32 @@ public abstract class FetchTask<T extends @UnknownNullability Object> extends Ta
                         long contentLength = responseInfo.headers().firstValueAsLong("content-length").orElse(-1L);
                         var contentEncoding = ContentEncoding.fromHeaders(responseInfo.headers());
 
+                        if (!resumeRequested && responseCode == HttpURLConnection.HTTP_OK
+                                && contentEncoding == ContentEncoding.IDENTITY && segments != null
+                                && contentLength > SegmentedDownload.THRESHOLD) {
+                            @Nullable Path assembled = segments.fetch(responseInfo, connectTimeout, readTimeout);
+                            if (assembled != null) {
+                                synchronized (this) { throughputStart = 0; }
+                                discardContext(context);
+                                context = getContext(responseInfo, checkETag, bmclapiHash);
+                                // Digest and integrity handlers still see the complete file in byte order.
+                                try (InputStream assembledInput = java.nio.file.Files.newInputStream(assembled)) {
+                                    byte[] buffer = new byte[IOUtils.DEFAULT_BUFFER_SIZE];
+                                    int length;
+                                    while ((length = assembledInput.read(buffer)) != -1) {
+                                        if (isCancelled()) throw new InterruptedException();
+                                        context.write(buffer, 0, length);
+                                    }
+                                }
+                                context.withResult(true);
+                                Context finished = context;
+                                context = null;
+                                finished.close();
+                                DownloadHostHealth.shared().success(hostOf(url));
+                                return;
+                            }
+                        }
+
                         if (context == null) {
                             context = getContext(responseInfo, checkETag, bmclapiHash);
                             resumeContext = HttpResumeContext.of(responseInfo);
@@ -493,6 +614,7 @@ public abstract class FetchTask<T extends @UnknownNullability Object> extends Ta
                             resumeContext = HttpResumeContext.of(responseInfo);
                         }
 
+                        recordDownload(0, resumeRequested && resumeContext != null ? resumeContext.countUncompressed : 0, contentLength);
                         try {
                             inputStream = connection.getInputStream();
                             download(context,
@@ -501,6 +623,7 @@ public abstract class FetchTask<T extends @UnknownNullability Object> extends Ta
                                     contentEncoding);
                             inputStream = null;
                             responseBodyConsumed = true;
+                            synchronized (this) { throughputStart = 0; }
                         } catch (IOException | InterruptedException | RuntimeException | Error e) {
                             if (context.broken) {
                                 IOUtils.closeQuietly(context, e);
@@ -521,10 +644,17 @@ public abstract class FetchTask<T extends @UnknownNullability Object> extends Ta
                         context = null;
                         DownloadHostHealth.shared().success(hostOf(url));
                         return;
+                    } catch (java.net.SocketTimeoutException timeout) {
+                        // A read deadline can win the race against the watchdog's next 50 ms tick.
+                        checkDownloadSpeed();
+                        throw timeout;
                     } finally {
                         IOUtils.closeQuietly(inputStream);
-                        if (connection != null && !responseBodyConsumed)
-                            closeHttpConnection(connection);
+                        synchronized (this) { throughputStart = 0; }
+                        if (connection != null) {
+                            forgetDownloadConnection(connection);
+                            if (!responseBodyConsumed) closeHttpConnection(connection);
+                        }
                     }
                 } catch (InterruptedException e) {
                     throw e;
@@ -532,10 +662,11 @@ public abstract class FetchTask<T extends @UnknownNullability Object> extends Ta
                     LOG.warning("Failed to download " + url + ", not found" + (redirects == null ? "" : ", redirects: " + redirects), ex);
                     throw toDownloadException(url, ex, exceptions); // we will not try this URL again
                 } catch (ChecksumMismatchException corrupt) {
+                    if (segments != null) segments.invalidate();
                     // Retrying identical corrupt content wastes mirror bandwidth; immediately use the next host.
                     throw toDownloadException(url, corrupt, exceptions);
                 } catch (Exception ex) {
-                    if (!shouldRetry(ex)) throw toDownloadException(url, ex, exceptions);
+                    if (slowAttempt || !shouldRetry(ex)) throw toDownloadException(url, ex, exceptions);
                     if (exceptions == null)
                         exceptions = new ArrayList<>();
 
@@ -568,7 +699,8 @@ public abstract class FetchTask<T extends @UnknownNullability Object> extends Ta
     }
 
     /// Disconnects an HTTP URL connection whose response body will not be consumed.
-    private static void closeHttpConnection(HttpURLConnection connection) {
+    private void closeHttpConnection(HttpURLConnection connection) {
+        forgetDownloadConnection(connection);
         IOUtils.closeQuietly(connection.getErrorStream());
         connection.disconnect();
     }
@@ -729,7 +861,7 @@ public abstract class FetchTask<T extends @UnknownNullability Object> extends Ta
     }
 
 
-    public static int DEFAULT_CONCURRENCY = Math.min(Runtime.getRuntime().availableProcessors() * 4, 64);
+    public static int DEFAULT_CONCURRENCY = Math.min(Runtime.getRuntime().availableProcessors() * 4, 16);
     private static int downloadExecutorConcurrency = DEFAULT_CONCURRENCY;
 
     // For Java 21 or later, DOWNLOAD_EXECUTOR dispatches tasks to virtual threads, and concurrency is controlled by SEMAPHORE.

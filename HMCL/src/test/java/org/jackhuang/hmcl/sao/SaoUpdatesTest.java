@@ -287,6 +287,7 @@ class SaoUpdatesTest {
         try (SaoPackEngine engine = SaoReleaseTestSupport.engine(temporary, null, false)) {
             await(() -> engine.state().get() != SaoPackState.CHECKING);
             engine.applyUpdateZip(temporary.resolve("unknown.zip"));
+            await(() -> engine.lastError().get() != null);
             assertEquals(SaoPackState.NOT_INSTALLED, engine.state().get());
             assertTrue(Objects.requireNonNull(engine.lastError().get()).contains("暂无有效版本信息"));
             assertTrue(engine.launcherPermitted());

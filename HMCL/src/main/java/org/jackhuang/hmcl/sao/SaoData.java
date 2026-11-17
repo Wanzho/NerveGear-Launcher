@@ -72,12 +72,20 @@ public final class SaoData {
     /// @param server optional signed game target, subordinate to an explicit pack target
     /// @param accountApi optional signed HTTPS account API root
     /// @param maintenance optional maintenance notice; null means maintenance is off
+    /// @param patchOrigin optional signed HTTPS origin serving the quick-update objects
     @NotNullByDefault
     public record VersionMetadata(int schema, long sequence, String quark, PackRelease pack,
                                   @Unmodifiable List<QuickRelease> updates, LauncherRelease launcher,
-                                  @Nullable String server, @Nullable String accountApi, @Nullable Maintenance maintenance) {
+                                  @Nullable String server, @Nullable String accountApi, @Nullable Maintenance maintenance,
+                                  @Nullable String patchOrigin) {
         /// Isolates the immutable release inventory from its parser.
         public VersionMetadata { updates = List.copyOf(updates); }
+        /// Constructs a policy without an automatic patch origin.
+        public VersionMetadata(int schema, long sequence, String quark, PackRelease pack,
+                               @Unmodifiable List<QuickRelease> updates, LauncherRelease launcher,
+                               @Nullable String server, @Nullable String accountApi, @Nullable Maintenance maintenance) {
+            this(schema, sequence, quark, pack, updates, launcher, server, accountApi, maintenance, null);
+        }
         /// Constructs metadata predating optional production settings without changing its signed sequence.
         public VersionMetadata(int schema, long sequence, String quark, PackRelease pack,
                                @Unmodifiable List<QuickRelease> updates, LauncherRelease launcher) {
@@ -205,7 +213,7 @@ public final class SaoData {
     /// Why the last game run crashed.
     ///
     /// @param reason HMCL's crash analysis in one line, in the launcher's language
-    /// @param detail the matched part of the log or report
+    /// @param detail cause-first diagnostic summary without the mod inventory
     /// @param report the crash report or log file
     @NotNullByDefault
     public record Crash(String reason, String detail, Path report) {

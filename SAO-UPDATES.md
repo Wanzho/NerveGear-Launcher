@@ -254,3 +254,28 @@ The child uses the same `java.home` runtime. JVM module flags, headless settings
 8. 在保存最终 JSON 后，用上面的 `--sign-release <file> --key <private.pem>` 分别签名两个文件，生成 `version.json.sig` 与 `news.json.sig`。已有签名需要重签时显式加 `--force`；内容有任何改动都要先把 `sequence` 加 1，否则已收到旧版本的启动器会拒绝新文件。私钥始终留在本地安全目录，绝不能上传 Gitee 或写入源码、日志、公告。
 9. 对两个文件分别运行 `--verify-release`，确认输出 `OK` 和预期序号。签名后不要再格式化或编辑 JSON；如需修改，增加序号并重新签名。
 10. 把 JSON 和各自的 `.sig` 一起上传至同一个 Gitee raw 目录，共四个文件。上传过程中的不匹配会被客户端忽略，旧的有效缓存继续使用。不要发布示例零哈希、虚构历史版本或验证用合成更新包。
+
+
+## Approved reuse of other launcher files (0.1.2)
+
+Settings → 复用其他启动器文件 exposes bounded discovery of PCL/PCLCE registry folders,
+HMCL configuration folders, the official Minecraft folder and common portable locations.
+Discovery does not approve a directory. Select candidate switches (or add a folder manually)
+and press 使用所选目录. Empty selection disables foreign-directory reuse. Preferences are
+stored in the current game data root as `reuse-sources.json`; unavailable directories are skipped.
+
+Installation borrows matching assets, libraries and client JARs into NerveGear's own cache.
+Both source and copied bytes are checked against the requested SHA-1. Renamed version JARs
+are indexed once per approval change with bounded work. Symlink targets outside approved
+roots are rejected. No accounts, saves, launcher configuration or arbitrary mods are imported;
+missing/mismatching files follow the normal download path. Existing source data is never moved.
+This replaces the earlier invisible automatic borrowing with explicit source approval.
+
+## Singleplayer mod preference (0.1.3)
+
+Under 设置, enable 离线游玩允许修改模组 to start the installed instance with individually
+changed or removed mods. This switch defaults to off and only applies when choosing 离线游玩.
+The installation and game runtime checks still run. Link Start and official package imports
+keep their version and integrity rules, and offline play clears any stale server ticket.
+
+The default download setting is 16 simultaneous downloads. Previously saved values are retained.

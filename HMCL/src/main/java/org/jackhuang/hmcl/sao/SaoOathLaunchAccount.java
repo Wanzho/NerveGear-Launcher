@@ -75,7 +75,11 @@ final class SaoOathLaunchAccount extends AuthlibInjectorAccount {
             AuthInfo full = session.toAuthInfo();
             return new InjectedAuth(new AuthInfo(full.getUsername(), full.getUUID(), gameToken, full.getUserType(), full.getUserProperties()),
                     artifact, api, metadata);
-        } catch (SaoAccountException failure) { invalid.run(); throw new AuthenticationException(failure.getMessage()); }
+        } catch (SaoAccountException failure) {
+            // A transport outage or rate limit rejects this attempt, but does not revoke the issuing session.
+            if (!SaoOathAccounts.transientFailure(failure)) invalid.run();
+            throw new AuthenticationException(failure.getMessage());
+        }
     }
 
     /// Mints the game-scoped token for this launch from the launcher session. Only an explicit "endpoint missing" reply

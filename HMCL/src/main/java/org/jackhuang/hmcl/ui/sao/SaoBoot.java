@@ -32,8 +32,10 @@ import javafx.scene.transform.Scale;
 import javafx.scene.transform.Translate;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.Unmodifiable;
 
-import java.util.List;
+import org.jackhuang.hmcl.sao.SaoHelmetWait;
+import org.jackhuang.hmcl.sao.SaoCoverHandoff;
 
 /// The helmet's power-on and its hand-over to the game, as James approved them in the prototypes of 13 Nov
 /// (launcher-boot-anim-v2..v5: "其他的没问题", "别的东西定稿"). Times are the prototype's, in milliseconds; places are the
@@ -114,12 +116,15 @@ final class SaoBoot {
     private double progressTarget, progressShown;
     /// When the game's helmet showed (ms into the put-away), or < 0 while it has not.
     private double helmetAt = -1;
-    /// Runs once the launcher is gone (the engine's hide).
-    private @Nullable Runnable handedOver;
+    /// Pending/running completion ownership, shared with the page's drag and release APIs.
+    final SaoCoverHandoff handoff = new SaoCoverHandoff();
+    /// Pure readiness clock, independent of animation phase and ring snapshots.
+    private final SaoHelmetWait wait = new SaoHelmetWait();
+    /// Link Start timestamp, retained through delayed put-away.
+    private long waitStarted;
     /// The hand-over's fade of the launcher window, 0 to 1 (applied by the page to its stage).
     private final javafx.beans.property.DoubleProperty windowFade = new javafx.beans.property.SimpleDoubleProperty(0);
-    /// The log lines already read.
-    private int logRead;
+
 
     private final AnimationTimer timer = new AnimationTimer() {
         @Override
@@ -282,6 +287,7 @@ final class SaoBoot {
         lidHolder.getChildren().clear();
     }
 
+    /// Draws the approved power-on choreography at its existing timings.
     private void renderOpening(double t) {
         // 1. a point of light, drawn out into a hairline
         dot.setRadius(lerp(0, 17.3, eo(seg(t, 0, 140))) * (1 - seg(t, 300, 520)));
@@ -347,16 +353,22 @@ final class SaoBoot {
         glintBar.setTranslateX(lerp(-470, 1530, eio(gl)));
         glintBar.setOpacity(gl > 0 && gl < 1 ? 0.16 : 0);
         if (t >= OPEN_MS) {
-            for (SaoFloatWindow w : ws) {
-                w.glass.set(1);
-                w.recede.set(0);
-                w.edge.setOpacity(0);
-            }
-            stopAll();
-            @Nullable Runnable d = openDone;
-            openDone = null;
-            if (d != null) d.run();
+            finishOpening();
         }
+    }
+
+    /// Establishes exactly the normal opening end state before an interrupted opening puts windows away.
+    private void finishOpening() {
+        for (SaoFloatWindow w : page.windows()) {
+            w.glass.set(1);
+            w.recede.set(0);
+            w.edgeDrawn.set(1);
+            w.edge.setOpacity(0);
+        }
+        stopAll();
+        @Nullable Runnable done = openDone;
+        openDone = null;
+        if (done != null) done.run();
     }
 
     /// The black round the open eyes: the screen less an ellipse.
@@ -375,12 +387,12 @@ final class SaoBoot {
 
     /// Puts the windows away and waits for the game's helmet; the engine's hide then runs (see [SaoHandoff]).
     void putAway() {
+        if (!handoff.active()) pending();
+        if (phase == Phase.OPENING) finishOpening();
         stopAll();
-        progressTarget = 0;
         progressShown = 0;
         helmetAt = -1;
-        handedOver = null;
-        logRead = 0;
+
         windowFade.set(0);
         layer.setVisible(true);
         loading.setOpacity(0);
@@ -391,18 +403,21 @@ final class SaoBoot {
         timer.start();
     }
 
-    /// The engine's hide, held until the game is on screen.
-    void holdHide(Runnable hide) {
-        if (phase != Phase.PUTTING_AWAY) {
-            hide.run();
-            return;
-        }
-        handedOver = hide;
+    /// Marks put-away pending before launch, including an app-close delay or power-on interruption.
+    void pending() {
+        if (handoff.active()) return;
+        handoff.begin();
+        waitStarted = System.nanoTime();
+        wait.begin(0);
+        progressTarget = 0;
     }
 
-    /// The game ended before the hand-over: nothing is hidden, the page powers on again.
+    /// Holds lifecycle completion even while the app-close transition has not started put-away.
+    void holdHide(Runnable hide) { handoff.hold(hide); }
+
+    /// Cancels without invoking the held visibility action.
     void cancel() {
-        handedOver = null;
+        handoff.cancel();
         if (phase == Phase.PUTTING_AWAY) {
             stopAll();
             windowFade.set(0);
@@ -411,31 +426,29 @@ final class SaoBoot {
     }
 
     /// The game's start-up, as its log tells it. Each stage moves the row to its share; in between, it creeps on.
-    private static final String[][] STAGES = {
-            {"ModLauncher running", "0.03"},
-            {"Loading ImmediateWindowProvider", "0.06"},
-            {"Launching target", "0.15"},
-            {" mods:", "0.20"},
-            {"Backend library: LWJGL", "0.45"},
-            {"Reloading ResourceManager", "0.75"},
+    private static final String @Unmodifiable [] @Unmodifiable [] STAGES = {
+            {"ModLauncher running", "0.04"},
+            {"Loading ImmediateWindowProvider", "0.09"},
+            {"Launching target", "0.24"},
+            {"Backend library: LWJGL", "0.51"},
+            {"Reloading ResourceManager", "0.84"},
     };
 
-    /// The game's helmet is up: its own line, or FancyMenu registering the screen.
-    private static boolean helmetLine(String line) {
-        return line.contains("[sao-entrance] helmet") || line.contains("entrance.HelmetScreen");
-    }
-
-    /// Reads the game's log as it grows.
-    void readLog(List<String> lines) {
-        if (phase != Phase.PUTTING_AWAY) return;
-        if (lines.size() < logRead) logRead = 0;
-        for (int i = logRead; i < lines.size(); i++) {
-            String line = lines.get(i);
-            if (helmetLine(line) && helmetAt < 0) helmetAt = (System.nanoTime() - started) / 1e6;
-            for (String[] st : STAGES)
-                if (line.contains(st[0])) progressTarget = Math.max(progressTarget, Double.parseDouble(st[1]));
+    /// Streams every current-run sanitized line, even before put-away starts; empty marks log.clear().
+    void readLog(java.util.Optional<String> event, boolean legacy) {
+        wait.allowLegacy(legacy);
+        if (!handoff.active()) return;
+        double now = (System.nanoTime() - waitStarted) / 1e6;
+        if (event.isEmpty()) {
+            wait.begin(now);
+            progressTarget = 0;
+            helmetAt = -1;
+            return;
         }
-        logRead = lines.size();
+        String line = event.get();
+        wait.line(line, now);
+        for (String[] st : STAGES)
+            if (line.contains(st[0])) progressTarget = Math.max(progressTarget, Double.parseDouble(st[1]));
     }
 
     /// The share the next stage of the log will bring.
@@ -447,13 +460,12 @@ final class SaoBoot {
         return 0.97;
     }
 
-    /// Longest wait for the helmet before the launcher leaves anyway.
-    private static final double GIVE_UP_MS = 120_000;
     /// The launcher's fade off the game.
     private static final double FADE_MS = 450;
 
     private double lastU;
 
+    /// Draws the unchanged put-away/loading/fade choreography; readiness is supplied by the backend clock.
     private void renderPutAway(double u) {
         double dt = Math.max(0, u - lastU);
         lastU = u;
@@ -495,17 +507,15 @@ final class SaoBoot {
         halo.setOpacity(hb * 0.9);
         loadPct.setText(Math.round(pr * 100) + "%");
         // 3. the hand-over: once the game's helmet is up, the launcher fades off it, then the engine hides it
-        if (h < 0 && u > GIVE_UP_MS) {
+        if (h < 0 && wait.ready((System.nanoTime() - waitStarted) / 1e6, handoff.armed())) {
             helmetAt = u;
             h = u;
         }
         if (h >= 0) {
             windowFade.set(eio(seg(u, h + 120, h + 120 + FADE_MS)));
             if (u >= h + 120 + FADE_MS) {
-                @Nullable Runnable hide = handedOver;
-                handedOver = null;
                 stopAll();
-                if (hide != null) hide.run();
+                handoff.complete();
                 windowFade.set(0);
             }
         }

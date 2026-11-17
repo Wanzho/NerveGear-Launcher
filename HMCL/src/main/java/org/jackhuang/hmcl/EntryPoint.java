@@ -42,13 +42,14 @@ public final class EntryPoint {
     private EntryPoint() {
     }
 
+    /// Initializes launcher infrastructure; live launcher logs stay in Roaming while game data can move.
     public static void main(String[] args) {
         System.getProperties().putIfAbsent("java.net.useSystemProxies", "true");
         System.getProperties().putIfAbsent("javafx.autoproxy.disable", "true");
         System.getProperties().putIfAbsent("http.agent", "HMCL/" + Metadata.VERSION);
 
         createHMCLDirectories();
-        LOG.start(Metadata.HMCL_LOCAL_HOME.resolve("logs"));
+        LOG.start(Metadata.HMCL_USER_HOME.resolve("logs"));
 
         checkWine();
 

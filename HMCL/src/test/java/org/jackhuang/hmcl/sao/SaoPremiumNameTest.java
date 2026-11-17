@@ -86,6 +86,21 @@ class SaoPremiumNameTest {
         }
     }
 
+    /// A cosmetic outage cannot hide the authoritative rename refusal or invalidate a good login.
+    @Test void cosmeticOutageDoesNotBlockAccountState() throws Exception {
+        try (Fixture server = new Fixture(false)) {
+            server.skinFailure = true;
+            try (SaoOathAccounts accounts = accounts(server, new AtomicInteger(), new AtomicReference<>())) {
+                accounts.login("HeldFixture", secret(), false).get(10, TimeUnit.SECONDS);
+                assertTrue(Objects.requireNonNull(accounts.account().get()).canJoin());
+                server.mustRename = true;
+                SaoAccountException refused = assertThrows(SaoAccountException.class, accounts::prepareLaunchAccount);
+                assertEquals("mustRename", refused.code());
+                assertNotNull(accounts.account().get());
+            }
+        }
+    }
+
     /// Creates an account controller whose launch callback can never create a game process.
     private SaoOathAccounts accounts(Fixture server, AtomicInteger launches, AtomicReference<@Nullable String> error) throws Exception {
         return new SaoOathAccounts(temporary, server::root, () -> "zh_cn", new SaoOathCredentialStore(temporary, false),
@@ -107,6 +122,8 @@ class SaoPremiumNameTest {
         final AtomicInteger refreshes = new AtomicInteger();
         /// Authoritative management state, changed by the test or normal rename operation.
         volatile boolean mustRename;
+        /// Simulates a failed optional profile service while account verification works.
+        volatile boolean skinFailure;
         /// Current unique synthetic nickname.
         volatile String name = "HeldFixture";
 
@@ -128,6 +145,7 @@ class SaoPremiumNameTest {
                     case "/sao/card" -> { reply.addProperty("id", ID); reply.addProperty("name", name); reply.addProperty("level", -1); reply.addProperty("col", -1); }
                     default -> { reply.addProperty("id", ID); reply.addProperty("name", name); }
                 }
+                if (skinFailure && path.startsWith("/sessionserver/session/minecraft/profile/")) { status = 503; reply = new JsonObject(); }
                 byte[] bytes = reply.toString().getBytes(StandardCharsets.UTF_8);
                 exchange.getResponseHeaders().set("Content-Type", "application/json");
                 exchange.sendResponseHeaders(status, bytes.length);

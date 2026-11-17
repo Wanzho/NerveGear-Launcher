@@ -13,6 +13,8 @@ import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
 import javafx.scene.control.Slider;
+import javafx.scene.control.ScrollPane;
+import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
 import javafx.scene.control.ToggleButton;
 import javafx.scene.control.ToggleGroup;
@@ -182,6 +184,113 @@ final class SaoApps {
     // ------------------------------------------------------------------ settings
 
     /// Settings: memory, the game window, JVM arguments, repair and the game folder.
+    /// Shared arbitrary-folder picker and secondary drive shortcuts; all scans and copies run in the backend.
+    private static VBox gameLocation(SaoLauncherService service) {
+        Text current = dim(service.gameDataRoot().toString(), 11);
+        current.setWrappingWidth(305);
+        Text status = dim("", 11); status.setWrappingWidth(305);
+        TextField target = field("例如 D:\\Games\\SAO 或 E:\\游戏\\刀剑");
+        Button pick = button("选择文件夹");
+        Button move = button("使用此位置");
+        move.setDisable(true);
+        target.textProperty().addListener((o, a, b) -> move.setDisable(b.isBlank()));
+        pick.setOnAction(event -> {
+            javafx.stage.DirectoryChooser chooser = new javafx.stage.DirectoryChooser();
+            chooser.setTitle("选择游戏数据文件夹（文件直接放在此文件夹内）");
+            @Nullable java.io.File folder = chooser.showDialog(pick.getScene().getWindow());
+            if (folder != null) target.setText(folder.toPath().toString());
+        });
+        Runnable refresh = () -> service.gameLocationInfo().thenAccept(info -> javafx.application.Platform.runLater(() -> current.setText(info)));
+        refresh.run();
+        service.stepLabel().addListener((o, a, b) -> { if (b.startsWith("正在搬到")) status.setText(b); });
+        move.setOnAction(event -> {
+            try {
+                Path folder = Path.of(target.getText().strip());
+                move.setDisable(true); pick.setDisable(true); target.setDisable(true);
+                status.setText("正在检查位置；已有游戏会复制并校验，可能需要几分钟");
+                service.chooseGameLocation(folder).whenComplete((unused, failure) -> javafx.application.Platform.runLater(() -> {
+                    move.setDisable(false); pick.setDisable(false); target.setDisable(false);
+                    status.setText(failure == null ? "游戏位置已切换" : failure.getMessage()); refresh.run();
+                }));
+            } catch (java.nio.file.InvalidPathException invalid) { status.setText("文件夹路径无效：" + invalid.getReason()); }
+        });
+        VBox drives = new VBox(4);
+        service.gameDrives().thenAccept(values -> javafx.application.Platform.runLater(() -> {
+            for (var drive : values) {
+                String name = drive.folder().getRoot().toString().replace(":\\", " 盘");
+                Button button = button(name);
+                button.setDisable(drive.problem() != null);
+                button.setOnAction(event -> target.setText(drive.folder().toString()));
+                Text info = dim(String.format(java.util.Locale.ROOT, "剩余 %.1f GB", drive.free() / 1073741824.0)
+                        + (drive.problem() == null ? "" : " · " + drive.problem()), 10.5);
+                info.setWrappingWidth(225); drives.getChildren().add(row(button, info));
+            }
+        }));
+        Text help = dim("可选任意文件夹，支持中文；少数旧模组可能有编码问题，遇到时可改短英文路径。空目录搬家；已有数据接管，原数据保留。", 10.5);
+        help.setWrappingWidth(305);
+        return new VBox(5, key("游戏位置"), current, target, row(pick, move), help, status, drives);
+    }
+
+    /// Shows discovered paths without approving them; saving checked rows is the explicit copy permission.
+    static VBox reusableGames(SaoLauncherService service) {
+        Button search = button("自动查找");
+        Button browse = button("选择文件夹");
+        Button use = button("使用所选目录");
+        Text status = dim("正在读取已选目录…", 11); status.setWrappingWidth(305);
+        VBox choices = new VBox(4);
+        java.util.Map<Path, ToggleButton> rows = new java.util.LinkedHashMap<>();
+        java.util.function.BiConsumer<Path, Boolean> add = (path, approved) -> {
+            Path normalized = path.toAbsolutePath().normalize();
+            if (rows.containsKey(normalized)) return;
+            ToggleButton check = toggle(approved);
+            check.setAccessibleText("复用 " + normalized);
+            Text label = dim(normalized.toString(), 11); label.setWrappingWidth(245);
+            rows.put(normalized, check); choices.getChildren().add(row(check, label));
+        };
+        java.util.function.Consumer<Boolean> busy = value -> {
+            search.setDisable(value); browse.setDisable(value); use.setDisable(value); choices.setDisable(value);
+        };
+        busy.accept(true);
+        service.reuseSources().whenComplete((paths, failure) -> javafx.application.Platform.runLater(() -> {
+            busy.accept(false);
+            if (failure != null) { status.setText("无法读取目录，请重试"); return; }
+            for (Path path : paths) add.accept(path, true);
+            status.setText(paths.isEmpty() ? "可查找 PCL、HMCL 和官方启动器已有文件" : "已选择 " + paths.size() + " 个目录");
+        }));
+        search.setOnAction(event -> {
+            busy.accept(true); status.setText("正在查找常用位置…");
+            service.findExistingGames().whenComplete((paths, failure) -> javafx.application.Platform.runLater(() -> {
+                busy.accept(false);
+                if (failure != null) { status.setText("查找失败，可手动选择游戏文件夹"); return; }
+                for (Path path : paths) add.accept(path, false);
+                status.setText(paths.isEmpty() ? "未找到，可手动选择 .minecraft 或启动器文件夹" : "找到 " + paths.size() + " 个候选目录，请勾选后确认");
+            }));
+        });
+        browse.setOnAction(event -> {
+            javafx.stage.DirectoryChooser chooser = new javafx.stage.DirectoryChooser();
+            chooser.setTitle("选择其他启动器的游戏文件夹");
+            @Nullable File folder = chooser.showDialog(browse.getScene().getWindow());
+            if (folder != null) { add.accept(folder.toPath(), true); status.setText("点击使用所选目录确认"); }
+        });
+        use.setOnAction(event -> {
+            List<Path> selected = rows.entrySet().stream().filter(entry -> entry.getValue().isSelected()).map(java.util.Map.Entry::getKey).toList();
+            busy.accept(true); status.setText("正在检查目录…");
+            service.setReuseSources(selected).whenComplete((ignored, failure) -> javafx.application.Platform.runLater(() -> {
+                busy.accept(false);
+                if (failure == null) status.setText(selected.isEmpty() ? "已关闭其他目录复用" : "已保存；安装时自动校验并复制可用文件");
+                else {
+                    Throwable cause = failure instanceof java.util.concurrent.CompletionException && failure.getCause() != null ? failure.getCause() : failure;
+                    status.setText(java.util.Objects.toString(cause.getMessage(), "目录不可用，请重新选择"));
+                }
+            }));
+        });
+        ScrollPane list = scroll(choices); list.setPrefViewportHeight(100); list.setMaxHeight(130);
+        Text help = dim("仅复用匹配的游戏本体、资源和运行库；缺少的文件照常下载。原目录、账号和存档不变。取消全部勾选并确认可关闭。", 10.5);
+        help.setWrappingWidth(305);
+        return new VBox(5, key("复用其他启动器文件"), row(search, browse), list, use, help, status);
+    }
+
+    /// Builds launcher preferences, including the shared game-location editor.
     static SaoFloatWindow settings(SaoLauncherService s, Runnable close) {
         int max = Math.max(4096, s.systemMemoryMiB());
         Slider memory = new Slider(2048, max, Math.min(max, s.memoryMiB()));
@@ -322,6 +431,13 @@ final class SaoApps {
             behaviourRow.getChildren().add(c);
         }
         keepOne(behaviours);
+        ToggleButton modifiedMods = toggle(s.allowModifiedModsOffline());
+        modifiedMods.selectedProperty().addListener((o, a, b) -> s.setAllowModifiedModsOffline(b));
+        Text modHelp = dim("仅在「离线游玩」时允许使用自行增删或替换的模组。进服时仍会校验。", 10.5);
+        modHelp.setWrappingWidth(305);
+        VBox localPlay = new VBox(5, row(key("离线游玩允许修改模组"), modifiedMods), modHelp);
+        localPlay.setVisible(!Metadata.SAO_BETA);
+        localPlay.managedProperty().bind(localPlay.visibleProperty());
         @Nullable String installedPack = s.installedVersion().get();
         VBox right = column(318,
                 row(key("画质"), suggested), presetRow,
@@ -331,11 +447,17 @@ final class SaoApps {
                 rule(),
                 key(installedPack != null ? "整合包 v" + installedPack : "整合包 · 未安装"),
                 new HBox(8, repair, folder),
+                localPlay,
+                SaoDialogs.exportButton(s),
+                rule(),
+                gameLocation(s),
+                rule(),
+                reusableGames(s),
                 rule(),
                 uninstall,
                 grow(),
                 where);
-        HBox main = columns(left, right);
+        HBox main = columns(left, column(318, scroll(right)));
         VBox confirm = SaoMotion.reveal(uninstallConfirm(s));
         SaoMotion.reveal(main);
         confirm.setVisible(false);
@@ -685,21 +807,34 @@ final class SaoApps {
 
     /// Logs: HMCL's crash analysis on top when the last run crashed, then the game's log.
     static SaoFloatWindow logs(SaoLauncherService s, Runnable close) {
-        VBox crashBox = new VBox();
+        VBox crashBox = new VBox(4);
+        crashBox.setMinHeight(0);
+        crashBox.setMaxHeight(206);
         follow(s.lastCrash(), () -> {
             @Nullable SaoData.Crash c = s.lastCrash().get();
             crashBox.getChildren().clear();
+            crashBox.setVisible(c != null);
+            crashBox.setManaged(c != null);
             if (c == null) return;
-            Text why = ink(c.reason(), 14);
-            why.getStyleClass().setAll("vr-warn");
-            why.setWrappingWidth(380);
-            Text detail = dim(c.detail(), 11.5);
-            detail.setWrappingWidth(380);
-            Button report = button("查看报告");
+            String summary = c.detail().isBlank() ? c.reason() : c.detail() + "\n\n" + c.reason();
+            TextArea detail = new TextArea(summary);
+            detail.setEditable(false);
+            detail.setWrapText(true);
+            detail.setFont(Font.font("Monospaced", 11.5));
+            detail.getStyleClass().addAll("vr-field", "vr-crash-summary");
+            detail.setMinHeight(90);
+            detail.setPrefHeight(126);
+            detail.setMaxWidth(Double.MAX_VALUE);
+            detail.positionCaret(0);
+            Button copy = button("复制崩溃原因");
+            copy.setOnAction(e -> {
+                ClipboardContent content = new ClipboardContent();
+                content.putString(summary);
+                Clipboard.getSystemClipboard().setContent(content);
+            });
+            Button report = button("打开崩溃报告");
             report.setOnAction(e -> s.openFile(c.report()));
-            // 一键反馈: logs and the crash report in one package for the QQ group, through the engine's
-            // buildFeedbackZip() once it is there (SaoDialogs.feedback is the hook); hidden until then.
-            Button feedback = SaoUiKit.accent("一键反馈");
+            Button feedback = SaoUiKit.accent("一键导出日志");
             Text packed = dim("", 11.5);
             packed.setWrappingWidth(380);
             feedback.setOnAction(e -> {
@@ -708,20 +843,23 @@ final class SaoApps {
                 packed.setText("打包中");
                 SaoDialogs.feedback(s, err -> {
                     feedback.setDisable(false);
-                    if (err == null) packed.setText("已打包");
+                    if (err == null) { packed.setText("日志已保存到桌面，直接发到群里就行"); SaoHelmetPage.exportToast(packed.getText()); }
                     else {
                         packed.getStyleClass().setAll("vr-warn");
                         packed.setText("! 打包失败 · " + err);
                     }
                 });
             });
-            VBox text = new VBox(3, key("崩溃原因"), why);
-            // James, 14 Nov: most players can't update a driver or pick a GPU themselves, so the card does it.
+            VBox text = new VBox(3, detail);
             if (c.graphics()) text.getChildren().add(graphicsFixes(s, packed));
-            text.getChildren().addAll(detail, packed);
-            HBox h = tile(icon(SVG.WARNING, 26), text, grow(), feedback, report);
-            h.getStyleClass().add("vr-tile-warn");
-            crashBox.getChildren().add(h);
+            text.getChildren().add(packed);
+            ScrollPane crashScroll = scroll(text);
+            crashScroll.setMinHeight(70);
+            crashScroll.setPrefHeight(142);
+            crashScroll.setMaxHeight(150);
+            VBox.setVgrow(crashScroll, Priority.NEVER);
+            HBox actions = new HBox(6, copy, report, feedback);
+            crashBox.getChildren().addAll(key("崩溃原因"), crashScroll, actions);
         });
         VBox lines = new VBox(1);
         Runnable fill = () -> {
@@ -739,14 +877,9 @@ final class SaoApps {
         fill.run();
         Node logView = s.gameLog().isEmpty() ? empty(SVG.SCRIPT, "游戏运行后这里会显示日志") : scroll(lines);
         logView.getStyleClass().add("vr-console");
-        Button export = button("导出日志");
-        export.setOnAction(e -> {
-            FileChooser c = new FileChooser();
-            c.setTitle("导出日志");
-            c.setInitialFileName("sao-logs.zip");
-            @Nullable File f = c.showSaveDialog(Controllers.getStage());
-            if (f != null) s.exportLogs(f.toPath());
-        });
+        if (logView instanceof Region region) region.setMinHeight(45);
+        VBox.setVgrow(logView, Priority.ALWAYS);
+        Button export = SaoDialogs.exportButton(s);
         Button open = button("打开日志文件夹");
         open.setOnAction(e -> s.openFolder(SaoData.Folder.LOGS));
         return new SaoFloatWindow("日志", W, H, close).add(crashBox, logView,
@@ -870,7 +1003,20 @@ final class SaoApps {
         };
         s.installProgress().addListener((o, a, b) -> sum.run());
         sum.run();
-        return new SaoFloatWindow("下载", W, H, close).add(scroll(new VBox(6, summary, list)));
+        Text location = dim("安装位置：" + s.gameDataRoot(), 11.5);
+        s.gameLocationInfo().thenAccept(info -> javafx.application.Platform.runLater(() ->
+                location.setText("安装位置：" + info.replaceFirst("（游戏数据 [^，]+，", "（"))));
+        Button change = button("换个盘");
+        VBox picker = gameLocation(s);
+        picker.setVisible(false); picker.setManaged(false);
+        change.setOnAction(event -> { picker.setVisible(true); picker.setManaged(true); });
+        Runnable showChange = () -> {
+            @Nullable String error = s.lastError().get();
+            boolean needed = error != null && (error.contains("空间不够") || error.contains("找不到") || error.contains("游戏位置"));
+            change.setVisible(needed); change.setManaged(needed);
+        };
+        s.lastError().addListener((o, a, b) -> showChange.run()); showChange.run();
+        return new SaoFloatWindow("下载", W, H, close).add(scroll(new VBox(6, location, change, picker, summary, list)));
     }
 
     // ------------------------------------------------------------------ about

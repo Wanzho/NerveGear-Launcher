@@ -29,6 +29,46 @@ public final class SaoDialogs {
     private SaoDialogs() {
     }
 
+    /// Asks before ending an instance process; dismisses itself if the process exits naturally.
+    public static java.util.concurrent.CompletableFuture<Boolean> endGame(boolean held,
+            java.util.function.BooleanSupplier alive) {
+        var result = new java.util.concurrent.CompletableFuture<Boolean>();
+        if (Boolean.getBoolean("java.awt.headless")) { result.complete(false); return result; }
+        javafx.application.Platform.runLater(() -> {
+            if (!alive.getAsBoolean()) { result.complete(true); return; }
+            var end = new javafx.scene.control.ButtonType(held ? "结束游戏" : "结束并继续",
+                    javafx.scene.control.ButtonBar.ButtonData.OK_DONE);
+            var cancel = new javafx.scene.control.ButtonType("取消", javafx.scene.control.ButtonBar.ButtonData.CANCEL_CLOSE);
+            Alert alert = style(new Alert(Alert.AlertType.CONFIRMATION, held
+                    ? "游戏还在运行（可能卡在后台），请先关掉游戏"
+                    : "上次的游戏还在后台运行（可能卡住了），要结束它吗？", end, cancel));
+            var timer = new javafx.animation.Timeline(new javafx.animation.KeyFrame(javafx.util.Duration.millis(250), e -> {
+                if (!alive.getAsBoolean()) { result.complete(true); alert.close(); }
+            }));
+            timer.setCycleCount(javafx.animation.Animation.INDEFINITE);
+            alert.setOnHidden(e -> { timer.stop(); result.complete(alert.getResult() == end); });
+            alert.show(); timer.play();
+        });
+        return result;
+    }
+
+    /// Leaves an actionable path when the operating-system handler cannot open a local object.
+    public static void folderFailure(Path path) {
+        if (Boolean.getBoolean("java.awt.headless")) return;
+        javafx.application.Platform.runLater(() -> {
+            var copy = new javafx.scene.control.ButtonType("复制路径", javafx.scene.control.ButtonBar.ButtonData.OK_DONE);
+            Alert alert = style(new Alert(Alert.AlertType.INFORMATION,
+                    "无法打开文件夹，请将路径粘贴到文件管理器：\n" + path, copy, javafx.scene.control.ButtonType.CLOSE));
+            alert.setOnHidden(e -> {
+                if (alert.getResult() == copy) {
+                    var content = new javafx.scene.input.ClipboardContent(); content.putString(path.toString());
+                    javafx.scene.input.Clipboard.getSystemClipboard().setContent(content);
+                }
+            });
+            alert.show();
+        });
+    }
+
     /// The look the screen is in, kept by the helmet page; before it exists, the system's look (or the time).
     private static @Nullable Boolean dark;
 
@@ -59,6 +99,13 @@ public final class SaoDialogs {
         alert.setHeaderText(null);
         alert.setGraphic(null);
         stylePane(alert.getDialogPane());
+        if (alert.getAlertType() == Alert.AlertType.ERROR) {
+            @Nullable SaoLauncherService service = SaoHelmetPage.diagnosticService();
+            if (service != null) {
+                alert.getDialogPane().setExpandableContent(exportButton(service));
+                alert.getDialogPane().setExpanded(true);
+            }
+        }
         alert.setOnShowing(e -> alert.getDialogPane().getScene().setFill(javafx.scene.paint.Color.TRANSPARENT));
         return alert;
     }
@@ -127,6 +174,50 @@ public final class SaoDialogs {
             LOG.warning("SAO: feedback zip failed", t);
             done.accept(t.getMessage() != null && !t.getMessage().isBlank() ? t.getMessage() : t.getClass().getSimpleName());
         }));
+    }
+
+    /// Adds diagnostics to HMCL error panes while preserving their existing actions.
+    public static void addDiagnosticAction(javafx.scene.layout.HBox actions) {
+        @Nullable SaoLauncherService service = SaoHelmetPage.diagnosticService();
+        if (service != null) actions.getChildren().add(exportButton(service));
+    }
+
+    /// Visible single-click diagnostic action shared by settings and failure windows.
+    static javafx.scene.control.Button exportButton(SaoLauncherService service) {
+        javafx.scene.control.Button button = SaoUiKit.button("一键导出日志");
+        button.setOnAction(e -> {
+            button.setDisable(true);
+            button.setText("正在导出…");
+            feedback(service, (@Nullable String error) -> {
+                button.setDisable(false);
+                button.setText("一键导出日志");
+                SaoHelmetPage.exportToast(error == null ? "日志已保存到桌面，直接发到群里就行" : "导出失败：" + error);
+            });
+        });
+        return button;
+    }
+
+    /// Failure details always expose the same no-dialog export action.
+    static void failure(SaoLauncherService service, String message) {
+        Alert alert = style(new Alert(Alert.AlertType.ERROR));
+        alert.setContentText(message);
+        alert.getDialogPane().setExpandableContent(exportButton(service));
+        alert.getDialogPane().setExpanded(true);
+        alert.show();
+    }
+
+    /// Consumes the previous abnormal-run notice once, without entering any account flow.
+    static void previousCrash(SaoLauncherService service) {
+        if (!service.consumePreviousCrash()) return;
+        Alert alert = style(new Alert(Alert.AlertType.CONFIRMATION));
+        alert.setContentText("上次启动器意外关闭了，要导出日志吗？");
+        javafx.scene.control.ButtonType export = new javafx.scene.control.ButtonType("一键导出日志");
+        alert.getButtonTypes().setAll(export, new javafx.scene.control.ButtonType("不用"));
+        alert.setOnHidden(e -> {
+            if (alert.getResult() == export) feedback(service, (@Nullable String error) ->
+                    SaoHelmetPage.exportToast(error == null ? "日志已保存到桌面，直接发到群里就行" : "导出失败：" + error));
+        });
+        alert.show();
     }
 
     /// Reveals the backend's committed feedback archive while retaining the older path-only service seam.

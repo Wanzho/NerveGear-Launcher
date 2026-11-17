@@ -18,6 +18,29 @@ import static org.junit.jupiter.api.Assertions.*;
 /// Loopback transport boundaries: locale, safe public errors, response bounds, and refused credential redirects.
 @NotNullByDefault
 class SaoAccountHttpTest {
+    /// Launch-stage diagnostics expose fixed names, never caller-supplied path components.
+    @Test void launchTimingStagesAreFixedAndDistinct() {
+        assertEquals("session-validate", SaoAccountClient.timingStep("/authserver/validate"));
+        assertEquals("session-refresh", SaoAccountClient.timingStep("/authserver/refresh"));
+        assertEquals("game-token", SaoAccountClient.timingStep("/sao/game-token"));
+        assertEquals("launch-ticket", SaoAccountClient.timingStep("/sao/launch"));
+        assertEquals("account-http", SaoAccountClient.timingStep("/secret-profile-value"));
+    }
+
+    /// Cause chains yield fixed categories without exposing arbitrary server or credential-bearing text.
+    @Test void transportDiagnosticsAreFixedAndBounded() {
+        String secret = "private-credential-must-not-appear";
+        assertEquals("dns", SaoAccountClient.networkFailureKind(new java.io.IOException(secret, new java.net.UnknownHostException(secret))));
+        assertEquals("tls", SaoAccountClient.networkFailureKind(new javax.net.ssl.SSLHandshakeException(secret)));
+        assertEquals("connect-timeout", SaoAccountClient.networkFailureKind(new java.net.http.HttpConnectTimeoutException(secret)));
+        assertEquals("request-timeout", SaoAccountClient.networkFailureKind(new java.net.http.HttpTimeoutException(secret)));
+        assertEquals("connect", SaoAccountClient.networkFailureKind(new java.net.ConnectException(secret)));
+        assertEquals("transport", SaoAccountClient.networkFailureKind(new java.io.IOException(secret)));
+        Throwable first = new java.io.IOException(secret), second = new java.io.IOException(secret);
+        first.initCause(second); second.initCause(first);
+        assertEquals("transport", SaoAccountClient.networkFailureKind(first));
+    }
+
     /// Every locale is normalized and submitted in both JSON and Accept-Language without changing endpoint origin.
     @Test void localeBodyAndHeader() throws Exception {
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -115,6 +138,67 @@ class SaoAccountHttpTest {
                 if (item.equals("renameLimit")) assertEquals("今天已经改了 3 次，明天再来", error.getMessage());
             }
         } finally { server.stop(0); }
+    }
+
+    /// Headers alone cannot satisfy the request deadline while a response body remains stalled.
+    @Test void stalledBodyHasTotalDeadline() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        var headers = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        var executor = java.util.concurrent.Executors.newSingleThreadExecutor();
+        AtomicInteger requests = new AtomicInteger();
+        server.createContext("/", exchange -> {
+            requests.incrementAndGet();
+            exchange.sendResponseHeaders(200, 32);
+            exchange.getResponseBody().write('{'); exchange.getResponseBody().flush(); headers.countDown();
+            try { release.await(30, java.util.concurrent.TimeUnit.SECONDS); }
+            catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
+            finally { exchange.close(); }
+        });
+        server.start();
+        try {
+            SaoAccountClient client = new SaoAccountClient(() -> root(server), () -> "en_us");
+            var operation = executor.submit(() -> client.json("POST", "sao/launch", new JsonObject(), null));
+            assertTrue(headers.await(5, java.util.concurrent.TimeUnit.SECONDS));
+            var failure = assertThrows(java.util.concurrent.ExecutionException.class,
+                    () -> operation.get(23, java.util.concurrent.TimeUnit.SECONDS));
+            assertInstanceOf(SaoAccountException.class, failure.getCause());
+            assertEquals("network", ((SaoAccountException) failure.getCause()).code());
+            assertEquals(1, requests.get(), "A timed-out POST must never be retried automatically");
+        } finally { release.countDown(); server.stop(0); executor.shutdownNow(); }
+    }
+
+    /// Cancelling after headers releases the reader and removes its pending body deadline.
+    @Test void interruptedBodyReleasesReaderAndDeadline() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        var headers = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        var finished = new java.util.concurrent.CountDownLatch(1);
+        var executor = java.util.concurrent.Executors.newSingleThreadExecutor();
+        AtomicReference<String> code = new AtomicReference<>("");
+        server.createContext("/", exchange -> {
+            exchange.sendResponseHeaders(200, 32); exchange.getResponseBody().write('{');
+            exchange.getResponseBody().flush(); headers.countDown();
+            try { release.await(10, java.util.concurrent.TimeUnit.SECONDS); }
+            catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
+            finally { exchange.close(); }
+        });
+        server.start();
+        try {
+            SaoAccountClient client = new SaoAccountClient(() -> root(server), () -> "en_us");
+            var operation = executor.submit(() -> {
+                try { client.json("GET", "sao/account", null, null); }
+                catch (SaoAccountException failure) { code.set(failure.code()); }
+                finally { finished.countDown(); }
+            });
+            assertTrue(headers.await(5, java.util.concurrent.TimeUnit.SECONDS));
+            operation.cancel(true);
+            assertTrue(finished.await(3, java.util.concurrent.TimeUnit.SECONDS), "Body reader must unblock on cancellation");
+            assertEquals("cancelled", code.get());
+            var field = SaoAccountClient.class.getDeclaredField("bodyDeadlines"); field.setAccessible(true);
+            var timer = (java.util.concurrent.ScheduledThreadPoolExecutor) field.get(null);
+            assertTrue(timer.getQueue().isEmpty(), "Finished requests must not retain streams in timer tasks");
+        } finally { release.countDown(); server.stop(0); executor.shutdownNow(); }
     }
 
     /// Resolves only an ephemeral local test socket.

@@ -17,17 +17,17 @@ import java.util.function.*;
 @NotNullByDefault
 final class SaoExtras implements AutoCloseable {
     /// Launcher storage and fixed instance bridge.
-    private final Path root;
+    private volatile Path root;
     /// Shared HMCL runtime inventory; never downloads Java during a check.
-    private final SaoGameBridge game;
+    private volatile SaoGameBridge game;
     /// Atomic launcher preferences, separate from game options and account data.
     private final SaoSettings settings;
     /// Reuses the bounded metadata transport and last-good cache.
     private final SaoOnlineData online;
     /// Installed manifest reader, sharing the engine's transactional receipt logic.
-    private final SaoPackInstaller installer;
+    private volatile SaoPackInstaller installer;
     /// Reuses the current sanitized process ring.
-    private final SaoGameLogs logs;
+    private volatile SaoGameLogs logs;
     /// Current installed/embedded source, resolved lazily after engine startup.
     private final Supplier<@Nullable SaoPackArchive> source;
     /// Launcher's embedded pack release label.
@@ -59,7 +59,12 @@ final class SaoExtras implements AutoCloseable {
     SaoExtras(Path root, SaoGameBridge game, SaoSettings settings, SaoOnlineData online, SaoGameLogs logs, SaoPackInstaller installer,
               Supplier<@Nullable SaoPackArchive> source, Supplier<String> embeddedVersion, BooleanSupplier running, boolean production) {
         this(root, game, settings, online, logs, installer, source, embeddedVersion, running, production,
-                SaoDownloads.directories().get(0));
+                feedbackDestination(root));
+    }
+
+    /// Uses the actual Desktop when available, otherwise the launcher data root.
+    private static Path feedbackDestination(Path root) {
+        return SaoExportDestination.desktop(root);
     }
 
     /// Supplies a disposable feedback destination in hermetic service tests.
@@ -161,7 +166,7 @@ final class SaoExtras implements AutoCloseable {
     void checkInstallCapacity(@Nullable SaoPackArchive candidate) throws IOException {
         Path instance = game.instanceDir();
         if (!SaoSystemChecks.writable(instance)) throw new IOException("实例位置不可写，请检查权限");
-        if (SaoSystemChecks.freeBytes(instance) < installBytes(candidate)) throw new IOException("磁盘空间不足，暂不能安装");
+        SaoDiskSpace.require(instance, installBytes(candidate), SaoDiskSpace.SYSTEM);
     }
 
     /// Uses the active manifest's byte inventory and ZIP size, with the inspected 0.8 payload as startup fallback.
@@ -198,13 +203,17 @@ final class SaoExtras implements AutoCloseable {
                     .append("\nSelected game Java: ").append(settings.text("java", "自动"));
             for (JavaRuntime runtime : game.availableJava()) summary.append("\nCompatible Java 17: ")
                     .append(runtime.getVersion()).append(' ').append(runtime.getPlatform()).append(' ').append(runtime.getBinary());
+            @Unmodifiable List<Path> diagnosticRoots = production
+                    ? List.of(root, Metadata.HMCL_USER_HOME, java.util.Objects.requireNonNullElse(root.getParent(), root)) : List.of(root);
+            summary.append("\nInstall path: ").append(root.getParent()).append("\nData paths: ").append(diagnosticRoots)
+                    .append("\nFree disk bytes: ").append(Files.getFileStore(root).getUsableSpace());
             List<Path> launcherLogs = new ArrayList<>();
             @Nullable Path current = org.jackhuang.hmcl.util.logging.Logger.LOG.getLogFile();
             if (current != null) {
                 launcherLogs.add(current); launcherLogs.addAll(org.jackhuang.hmcl.util.logging.Logger.LOG.findRecentLogFiles(3));
             }
             return new SaoFeedbackZip(root, game.instanceDir(), feedbackDownloads,
-                    new SaoFeedbackSanitizer(System.getProperty("user.home", ""), System.getProperty("user.name", "")))
+                    new SaoFeedbackSanitizer(System.getProperty("user.home", ""), System.getProperty("user.name", "")), diagnosticRoots)
                     .build(summary.toString(), launcherLogs, logs.snapshot());
         });
     }
@@ -225,10 +234,10 @@ final class SaoExtras implements AutoCloseable {
     }
 
     /// Completes on the same publication thread as existing service methods, with deterministic headless fallback.
-    private <T> CompletableFuture<T> async(Work<T> work) {
+    private synchronized <T> CompletableFuture<T> async(Work<T> work) {
         CompletableFuture<T> future = new CompletableFuture<>(); pending.add(future);
         future.whenComplete((value, failure) -> pending.remove(future));
-        if (closed.get()) { future.completeExceptionally(new IllegalStateException("启动器已关闭")); return future; }
+        if (closed.get() || moving) { future.completeExceptionally(new IllegalStateException("启动器已关闭")); return future; }
         try {
             worker.execute(() -> {
                 try {
@@ -244,6 +253,23 @@ final class SaoExtras implements AutoCloseable {
     /// Uses JavaFX when initialized, otherwise stays headless with no toolkit startup.
     private static void publish(Runnable action) {
         try { Platform.runLater(action); } catch (IllegalStateException headless) { action.run(); }
+    }
+
+    /// Prevents new independent support tasks during a root transaction.
+    private volatile boolean moving;
+
+    /// Drains existing support work before the engine inventories game files.
+    synchronized void pauseForMove() throws Exception {
+        moving = true;
+        worker.submit(() -> { }).get(30, TimeUnit.SECONDS);
+    }
+
+    /// Resumes support operations on whichever root the transaction selected.
+    void resumeAfterMove() { moving = false; }
+
+    /// Updates only path-bound helpers, preserving observable lists and preference state.
+    void rebind(Path root, SaoGameBridge game, SaoGameLogs logs, SaoPackInstaller installer) {
+        this.root = root; this.game = game; this.logs = logs; this.installer = installer;
     }
 
     /// Stops support work and completes all queued frontend requests exceptionally.

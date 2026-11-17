@@ -433,6 +433,10 @@ public final class GameDirectoriesTest {
             assertSame(gameDirectory, repository.getGameDirectory());
             assertEquals(gameDirectory.getPath().toPath(), repository.getBaseDirectory());
 
+            // Finish init's asynchronous refresh before testing a subsequent path change.
+            assertTimeoutPreemptively(java.time.Duration.ofSeconds(10), () -> {
+                while (!repository.isLoaded()) Thread.sleep(5);
+            });
             PortablePath newPath = PortablePath.of("local/Renamed");
             gameDirectory.setPath(newPath);
             assertEquals(newPath.toPath(), repository.getBaseDirectory());

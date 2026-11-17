@@ -269,7 +269,7 @@ def mac_app(target, host, home, dist, work, jar, icns, evidence, lock, skip_sign
     info = {"CFBundleExecutable": "NerveGear-Launcher", "CFBundleIdentifier": "com.saooath.launcher",
             "CFBundleName": PRODUCT, "CFBundleDisplayName": PRODUCT,
             "CFBundleIconFile": "launcher.icns", "CFBundlePackageType": "APPL",
-            "CFBundleShortVersionString": "0.1.0", "CFBundleVersion": "1",
+            "CFBundleShortVersionString": RELEASE_VERSION, "CFBundleVersion": RELEASE_VERSION,
             "LSMinimumSystemVersion": "11.0", "NSHighResolutionCapable": True,
             "NSHumanReadableCopyright": "Copyright 2013-2025 huangyuhui and HMCL contributors; SAO fork contributors"}
     (contents / "Info.plist").write_bytes(plistlib.dumps(info))
@@ -279,7 +279,7 @@ def mac_app(target, host, home, dist, work, jar, icns, evidence, lock, skip_sign
     else:
         sign_app(app, evidence / (target + "-codesign.txt"))
     check_space(work)
-    image = dist / f"NerveGear-Launcher-0.1.0-{target}.dmg"
+    image = dist / f"NerveGear-Launcher-{RELEASE_VERSION}-{target}.dmg"
     if image.exists():
         image.unlink()
     run([sys.executable, HERE / "build_dmg.py", app, image, work],
@@ -303,7 +303,7 @@ def portable(target, host, home, dist, work, jar, ico, evidence, lock):
         executable.write_bytes(template)
         replace_icon(executable, ico)
         (root / "app" / (WINDOWS_NAME + ".cfg")).write_text(
-            "[Application]\napp.name=NerveGear启动器\napp.version=0.1.0\n"
+            f"[Application]\napp.name=NerveGear启动器\napp.version={RELEASE_VERSION}\n"
             "app.mainclass=org.jackhuang.hmcl.sao.SaoLauncherBootstrap\n"
             "app.classpath=$APPDIR/launcher.jar\n\n[JavaOptions]\n"
             "java-options=--add-modules=" + ADD_MODULES + "\n", encoding="utf-8")
@@ -311,7 +311,7 @@ def portable(target, host, home, dist, work, jar, ico, evidence, lock):
         for obsolete in (root / "NerveGear-Launcher.exe", root / "app/NerveGear-Launcher.cfg"):
             if obsolete.exists():
                 obsolete.unlink()
-        archive = dist / "NerveGear-Launcher-0.1.0-windows-x64.zip"
+        archive = dist / f"NerveGear-Launcher-{RELEASE_VERSION}-windows-x64.zip"
         with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=1) as output:
             for path in sorted(root.rglob("*")):
                 if path.is_file():
@@ -324,12 +324,12 @@ def portable(target, host, home, dist, work, jar, ico, evidence, lock):
                           + " -cp \"$ROOT/app/launcher.jar\" org.jackhuang.hmcl.sao.SaoLauncherBootstrap \"$@\"\n")
         script.chmod(0o755)
         shutil.copy2(HERE / "icon.png", root / "icon.png")
-        with tarfile.open(dist / "NerveGear-Launcher-0.1.0-linux-x64.tar.gz", "w:gz", compresslevel=1) as output:
+        with tarfile.open(dist / f"NerveGear-Launcher-{RELEASE_VERSION}-linux-x64.tar.gz", "w:gz", compresslevel=1) as output:
             output.add(root, arcname=root.name)
     return root / "runtime", root / "app/launcher.jar", root
 
 
-INSTALLER_NAME = "NerveGear启动器-安装-0.1.0.exe"
+RELEASE_VERSION = "unset"
 
 
 def windows_installer(root, dist, ico, evidence):
@@ -338,11 +338,11 @@ def windows_installer(root, dist, ico, evidence):
     if makensis is None:
         raise RuntimeError("The Windows installer needs NSIS 3.13: brew install makensis")
     size_kb = sum(path.stat().st_size for path in root.rglob("*") if path.is_file()) // 1024 + 1
-    output = dist / INSTALLER_NAME
+    output = dist / f"NerveGear启动器-安装-{RELEASE_VERSION}.exe"
     log = evidence / "windows-installer-makensis.log"
     # -WX: any NSIS warning fails the build.
     run([makensis, "-V4", "-WX", "-INPUTCHARSET", "UTF8", "-DPAYLOAD=" + str(root), "-DICON=" + str(ico),
-         "-DOUTFILE=" + str(output), "-DVERSION=0.1.0", "-DSIZE_KB=" + str(size_kb), HERE / "windows-installer.nsi"], log=log)
+         "-DOUTFILE=" + str(output), "-DVERSION=" + RELEASE_VERSION, "-DSIZE_KB=" + str(size_kb), HERE / "windows-installer.nsi"], log=log)
     if re.search(r"\b[1-9][0-9]* warnings?:", log.read_text(encoding="utf-8", errors="replace")):
         raise RuntimeError("makensis reported a warning; see " + str(log))
     return output
@@ -398,7 +398,19 @@ def finalize(dist, output):
     (output / "artifacts.json").write_text(json.dumps({"commit": commit, "files": records}, indent=2) + "\n")
 
 
+def release_version(jar):
+    """Use the actual JAR identity for every native artifact and installer version."""
+    import re
+    with zipfile.ZipFile(jar) as archive:
+        props = archive.read("assets/hmcl.properties").decode("utf-8")
+    match = re.search(r"^hmcl.version=([0-9]+(?:\.[0-9]+){1,3})$", props, re.MULTILINE)
+    if not match:
+        raise RuntimeError("JAR has no supported release version")
+    return match.group(1)
+
+
 def main():
+    global RELEASE_VERSION
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=Path.home() / "Developer/sao-launcher-runs/gitee3")
     parser.add_argument("--embed-pack", action="store_true", help="Embed a full pack for offline test builds only")
@@ -425,6 +437,7 @@ def main():
     homes = obtain_toolchains(cache, lock)
     host = homes["macos-arm64"]
     jar = build_jar(args, work, host)
+    RELEASE_VERSION = release_version(jar)
     verify_pack_mode(jar, args.embed_pack)
     ico, icns = make_icons(work)
     linked_copy(jar, dist / jar.name)

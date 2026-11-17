@@ -516,7 +516,7 @@ public final class LauncherSettings extends ObservableSetting implements JsonSch
 
     /// The configured number of download threads.
     @SerializedName("downloadThreads")
-    private final IntegerProperty downloadThreads = new SimpleIntegerProperty(64);
+    private final IntegerProperty downloadThreads = new SimpleIntegerProperty(16);
 
     /// Returns the download thread count property.
     public IntegerProperty downloadThreadsProperty() {

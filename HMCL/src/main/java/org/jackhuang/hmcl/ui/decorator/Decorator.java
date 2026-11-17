@@ -468,6 +468,7 @@ public final class Decorator {
     ///
     /// @param event the title-bar click event
     private void onTitleBarDoubleClick(MouseEvent event) {
+        if (org.jackhuang.hmcl.ui.sao.SaoHelmetPage.handoverLocked()) return;
         @Nullable Stage currentStage = stage;
         if (nativeDecorationEnabled
                 || currentStage == null
@@ -485,6 +486,7 @@ public final class Decorator {
     ///
     /// @param event the title-bar drag event
     private void onTitleBarDragged(MouseEvent event) {
+        if (org.jackhuang.hmcl.ui.sao.SaoHelmetPage.handoverLocked()) return;
         @Nullable Stage currentStage = stage;
         if (nativeDecorationEnabled || currentStage == null || dragging || !WindowState.isMaximized(currentStage)) {
             return;
@@ -642,6 +644,7 @@ public final class Decorator {
     ///
     /// @param event the primary-button drag event
     private void onMouseDragged(MouseEvent event) {
+        if (org.jackhuang.hmcl.ui.sao.SaoHelmetPage.handoverLocked()) return;
         @Nullable Stage currentStage = stage;
         if (nativeDecorationEnabled || currentStage == null
                 || currentStage.isIconified()

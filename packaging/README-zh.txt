@@ -1,4 +1,4 @@
-NerveGear启动器 / NerveGear Launcher 0.1.0
+NerveGear启动器 / NerveGear Launcher
 
 Windows x64 安装版：双击安装程序，自动安装、创建开始菜单和桌面快捷方式并启动。升级前请关闭启动器；原有数据保留。
 Windows x64 便携版：完整解压 ZIP 后，双击“NerveGear启动器.exe”。请保留同目录的 app、runtime 文件夹。

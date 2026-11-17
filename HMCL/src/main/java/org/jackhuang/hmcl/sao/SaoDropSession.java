@@ -35,7 +35,10 @@ final class SaoDropSession implements AutoCloseable {
     }
 
     /// Matches and snapshots one quick archive, then checks its exact advertised hop before retaining it.
-    boolean acceptQuick(Path file) throws IOException {
+    boolean acceptQuick(Path file) throws IOException { return acceptQuick(file, candidate -> { }); }
+
+    /// Checks the resulting full inventory on the instance drive before making a private quick-update snapshot.
+    boolean acceptQuick(Path file, SaoPackInstaller.CapacityCheck capacity) throws IOException {
         if (fullRequired || !Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) return false;
         long size = Files.size(file);
         @Nullable String hash = null;
@@ -44,6 +47,8 @@ final class SaoDropSession implements AutoCloseable {
             if (hash == null) hash = SaoUpdates.sha256(file);
             if (!hash.equals(release.sha256())) continue;
             if (present.containsKey(release.to())) return true;
+            SaoQuickUpdate candidate = SaoQuickUpdate.open(file);
+            capacity.check(new SaoPackArchive(file, candidate.after()));
             Path snapshot = SaoUpdates.snapshot(file, release.size(), release.sha256(), cache);
             boolean retained = false;
             try {

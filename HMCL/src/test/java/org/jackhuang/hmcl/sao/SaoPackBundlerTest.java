@@ -104,7 +104,7 @@ class SaoPackBundlerTest {
         JsonArray files = new JsonArray();
         for (String name : List.of("allowed", "remote")) {
             JsonObject file = new JsonObject(); file.addProperty("path", "mods/" + name + ".jar"); file.addProperty("fileSize", 3);
-            JsonObject hashes = new JsonObject(); hashes.addProperty("sha1", SHA1); hashes.addProperty("sha512", "unchanged-extra-hash"); file.add("hashes", hashes);
+            JsonObject hashes = new JsonObject(); hashes.addProperty("sha1", SHA1); hashes.addProperty("sha512", "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f"); file.add("hashes", hashes);
             JsonArray urls = new JsonArray(); urls.add("https://mediafilez.forgecdn.net/files/1/2/" + name + ".jar"); file.add("downloads", urls);
             files.add(file);
         }

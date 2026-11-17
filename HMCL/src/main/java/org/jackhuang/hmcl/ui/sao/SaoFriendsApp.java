@@ -69,6 +69,16 @@ final class SaoFriendsApp {
     private @Nullable String open;
     /// Removes the open chat's message listener; null when no chat is shown.
     private @Nullable Runnable detach;
+    /// Closed windows must not receive list updates or delayed service completions.
+    private boolean disposed;
+    /// Changes whenever navigation invalidates the current page or lookup.
+    private long pageEpoch;
+    /// Owned subscriptions are removed together when the floating window closes.
+    private final ListChangeListener<SaoData.Friend> friendsChanged = c -> fillList();
+    /// Conversation metadata subscription owned by this window.
+    private final ListChangeListener<SaoData.Chat> chatsChanged = c -> fillList();
+    /// Friend request subscription owned by this window.
+    private final ListChangeListener<SaoData.FriendRequest> requestsChanged = c -> fillRequests();
 
     private SaoFriendsApp(SaoLauncherService s) {
         this.s = s;
@@ -82,7 +92,7 @@ final class SaoFriendsApp {
     private SaoFloatWindow window(Runnable close) {
         keepOne(tabs);
         // Closing the window stops following its chat.
-        right.sceneProperty().addListener((o, a, b) -> { if (b == null) closeChat(); });
+        right.sceneProperty().addListener((o, a, b) -> { if (a != null && b == null) dispose(); });
         (tabFirst == 1 ? groupsTab : friendsTab).setSelected(true);
         tabs.selectedToggleProperty().addListener((o, a, b) -> fillList());
         Button add = round(SVG.ADD, 26, 14);
@@ -107,6 +117,7 @@ final class SaoFriendsApp {
             }
             ask.setDisable(true);
             s.addFriend(n).whenComplete((v, err) -> Platform.runLater(() -> {
+                if (disposed) return;
                 ask.setDisable(false);
                 if (err != null) {
                     warnText(note, SaoSkinApp.message(err));
@@ -139,9 +150,9 @@ final class SaoFriendsApp {
         HBox body = new HBox(14, left, line, right);
         VBox.setVgrow(body, Priority.ALWAYS);
 
-        s.friends().addListener((ListChangeListener<SaoData.Friend>) c -> fillList());
-        s.chats().addListener((ListChangeListener<SaoData.Chat>) c -> fillList());
-        s.friendRequests().addListener((ListChangeListener<SaoData.FriendRequest>) c -> fillRequests());
+        s.friends().addListener(friendsChanged);
+        s.chats().addListener(chatsChanged);
+        s.friendRequests().addListener(requestsChanged);
         fillRequests();
         fillList();
         if (newGroupFirst) showNewGroup();
@@ -151,7 +162,7 @@ final class SaoFriendsApp {
         tabFirst = 0;
         addFirst = false;
         newGroupFirst = false;
-        return new SaoFloatWindow("好友", SaoApps.W, SaoApps.H, close).add(body);
+        return new SaoFloatWindow("好友", SaoApps.W, SaoApps.H, () -> { dispose(); close.run(); }).add(body);
     }
 
     // ------------------------------------------------------------------ left
@@ -285,24 +296,59 @@ final class SaoFriendsApp {
     // ------------------------------------------------------------------ right
 
     /// Stops following the open chat, so a closed or switched chat is no longer marked read.
+    /// Releases all service subscriptions; repeated close notifications are harmless.
+    private void dispose() {
+        if (disposed) return;
+        disposed = true;
+        closeChat();
+        s.friends().removeListener(friendsChanged);
+        s.chats().removeListener(chatsChanged);
+        s.friendRequests().removeListener(requestsChanged);
+    }
+
     private void closeChat() {
+        pageEpoch++;
         if (detach != null) detach.run();
         detach = null;
         open = null;
     }
 
     private void showNothing() {
+        if (disposed) return;
         closeChat();
         SaoMotion.swap(right, empty(SVG.CHAT, "选一个好友或群聊"));
     }
 
     private void openFriend(String name) {
+        if (disposed) return;
+        long requested = ++pageEpoch;
         s.directChat(name).whenComplete((id, err) -> Platform.runLater(() -> {
-            if (id != null) openChat(id);
+            if (disposed || requested != pageEpoch) return;
+            if (err != null) {
+                closeChat();
+                SaoMotion.swap(right, empty(SVG.CHAT, SaoSkinApp.message(err)));
+            } else if (id != null) openChat(id);
+        }));
+    }
+
+    /// A stale completion cannot dismiss a newer page, and a refusal stays visible in the existing error line.
+    private void chatAction(String id, long epoch, Text failed, Button button,
+                            java.util.function.Supplier<java.util.concurrent.CompletableFuture<Void>> action) {
+        failed.setText("");
+        button.setDisable(true);
+        java.util.concurrent.CompletableFuture<Void> result;
+        try { result = action.get(); }
+        catch (RuntimeException error) { result = java.util.concurrent.CompletableFuture.failedFuture(error); }
+        result.whenComplete((v, error) -> Platform.runLater(() -> {
+            if (disposed || pageEpoch != epoch || !id.equals(open)) return;
+            button.setDisable(false);
+            if (error == null) showNothing();
+            else warnText(failed, SaoSkinApp.message(error));
         }));
     }
 
     private void openChat(String id) {
+        if (disposed) return;
         @Nullable SaoData.Chat c = null;
         for (SaoData.Chat x : s.chats()) if (x.id().equals(id)) c = x;
         if (c == null) {
@@ -316,6 +362,8 @@ final class SaoFriendsApp {
         s.markRead(id);
         fillList();
         SaoData.Chat chat = c;
+        long epoch = pageEpoch;
+        Text failed = dim("", 12);
 
         // The head: who, where they are (or the members), and what can be done.
         Text title = sao(chat.title(), 18, true);
@@ -330,14 +378,14 @@ final class SaoFriendsApp {
         if (chat.group()) {
             Button leave = button("退出群聊");
             leave.getStyleClass().addAll("vr-button-tight", "vr-danger");
-            leave.setOnAction(e -> s.leaveGroup(chat.id()).whenComplete((v, err) -> Platform.runLater(this::showNothing)));
+            leave.setOnAction(e -> chatAction(chat.id(), epoch, failed, leave, () -> s.leaveGroup(chat.id())));
             actions.getChildren().add(leave);
         } else {
             Button remove = button("删除好友"), block = button("屏蔽");
             for (Button b : new Button[]{remove, block}) b.getStyleClass().add("vr-button-tight");
             block.getStyleClass().add("vr-danger");
-            remove.setOnAction(e -> s.removeFriend(chat.title()).whenComplete((v, err) -> Platform.runLater(this::showNothing)));
-            block.setOnAction(e -> s.blockPlayer(chat.title()).whenComplete((v, err) -> Platform.runLater(this::showNothing)));
+            remove.setOnAction(e -> chatAction(chat.id(), epoch, failed, remove, () -> s.removeFriend(chat.title())));
+            block.setOnAction(e -> chatAction(chat.id(), epoch, failed, block, () -> s.blockPlayer(chat.title())));
             actions.getChildren().addAll(remove, block);
         }
         Button more = round(SVG.MORE_HORIZ, 26, 14);
@@ -354,7 +402,25 @@ final class SaoFriendsApp {
         col.setPadding(new Insets(4, 6, 4, 0));
         ScrollPane sp = scroll(col);
         VBox.setVgrow(sp, Priority.ALWAYS);
+        long[] firstShown = {0};
+        boolean[] firstFill = {true};
+        long[] nextOlderRequest = {0};
+        sp.setOnScroll(event -> {
+            long now = System.nanoTime();
+            if (event.getDeltaY() > 0 && sp.getVvalue() <= 0.001 && !disposed
+                    && pageEpoch == epoch && now >= nextOlderRequest[0]) {
+                nextOlderRequest[0] = now + 500_000_000L;
+                s.loadOlderMessages(chat.id());
+            }
+        });
         Runnable fill = () -> {
+            double oldHeight = col.getHeight(), viewport = sp.getViewportBounds().getHeight();
+            double offset = sp.getVvalue() * Math.max(0, oldHeight - viewport);
+            long first = msgs.isEmpty() ? 0 : msgs.get(0).id();
+            boolean prepended = firstShown[0] > 0 && first > 0 && first < firstShown[0];
+            boolean followBottom = firstFill[0] || !prepended && sp.getVvalue() >= 0.98;
+            firstShown[0] = first;
+            firstFill[0] = false;
             List<Node> rows = new ArrayList<>();
             long last = 0;
             for (SaoData.ChatMessage m : msgs) {
@@ -364,7 +430,15 @@ final class SaoFriendsApp {
             }
             if (rows.isEmpty()) rows.add(dim("还没有消息，打个招呼吧", 12));
             SaoMotion.list(col, rows);
-            Platform.runLater(() -> sp.setVvalue(1));
+            Platform.runLater(() -> {
+                if (disposed || pageEpoch != epoch || !chat.id().equals(open)) return;
+                sp.applyCss();
+                sp.layout();
+                double height = col.getHeight();
+                double extent = Math.max(0, height - sp.getViewportBounds().getHeight());
+                sp.setVvalue(followBottom ? 1 : extent == 0 ? 0
+                        : Math.max(0, Math.min(1, (offset + (prepended ? height - oldHeight : 0)) / extent)));
+            });
         };
         ListChangeListener<SaoData.ChatMessage> follow = ch -> {
             fill.run();
@@ -378,7 +452,6 @@ final class SaoFriendsApp {
         TextField say = field(chat.group() ? "发到 " + chat.title() : "发给 " + chat.title());
         HBox.setHgrow(say, Priority.ALWAYS);
         Button go = accent("发送");
-        Text failed = dim("", 12);
         Runnable send = () -> {
             String t = say.getText().strip();
             if (t.isEmpty()) return;
@@ -386,7 +459,7 @@ final class SaoFriendsApp {
             failed.setText("");
             // A message that did not go out comes back to the field instead of vanishing.
             s.sendMessage(chat.id(), t).whenComplete((ok, failure) -> Platform.runLater(() -> {
-                if (failure == null) return;
+                if (disposed || pageEpoch != epoch || failure == null) return;
                 if (say.getText().isEmpty()) say.setText(t);
                 failed.setText("! 发送失败");
             }));
@@ -457,7 +530,9 @@ final class SaoFriendsApp {
     // ------------------------------------------------------------------ new group
 
     private void showNewGroup() {
+        if (disposed) return;
         closeChat();
+        long epoch = pageEpoch;
         if (!groupsTab.isSelected()) groupsTab.setSelected(true);
         Text title = sao("新建群聊", 18, true);
         TextField name = field("群名");
@@ -486,6 +561,7 @@ final class SaoFriendsApp {
             }
             make.setDisable(true);
             s.createGroup(n, who).whenComplete((id, err) -> Platform.runLater(() -> {
+                if (disposed || pageEpoch != epoch) return;
                 make.setDisable(false);
                 if (err != null) warnText(problem, SaoSkinApp.message(err));
                 else openChat(id);

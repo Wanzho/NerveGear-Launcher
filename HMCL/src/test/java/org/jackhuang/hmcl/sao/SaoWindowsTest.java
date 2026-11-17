@@ -28,6 +28,15 @@ import static org.junit.jupiter.api.Assertions.*;
 /// These tests never initialize a JavaFX toolkit, start a game, install a runtime or download a package.
 @NotNullByDefault
 class SaoWindowsTest {
+    /// New defaults reserve system memory, while a saved value larger than the machine is rejected clearly.
+    @Test void defaultAndMigratedMemoryRespectMachineCapacity() throws Exception {
+        assertEquals(4096, SaoPackEngine.defaultMemoryMiB(6144));
+        assertEquals(8192, SaoPackEngine.defaultMemoryMiB(16384));
+        assertEquals(2048, SaoPackEngine.defaultMemoryMiB(3072));
+        assertEquals(4096, SaoPackEngine.checkedMemoryMiB(4096, 6144));
+        IOException failure = assertThrows(IOException.class, () -> SaoPackEngine.checkedMemoryMiB(8192, 6144));
+        assertTrue(failure.getMessage().contains("内存"));
+    }
     /// Disposable launcher roots and fixture exports.
     @TempDir Path temporary;
 
@@ -35,8 +44,10 @@ class SaoWindowsTest {
     @Test void everyWindowMethodIsImplementedAndViewsRemainStable() throws Exception {
         try (SaoPackEngine engine = engine()) {
             await(() -> engine.state().get() != SaoPackState.CHECKING);
+            // These defaults compose the engine's persisted preference methods instead of providing a test stub.
+            Set<String> implementedDefaults = Set.of("allowModifiedModsOffline", "setAllowModifiedModsOffline");
             for (var method : SaoLauncherService.class.getMethods()) {
-                if (method.isDefault()) assertEquals(SaoPackEngine.class,
+                if (method.isDefault() && !implementedDefaults.contains(method.getName())) assertEquals(SaoPackEngine.class,
                         SaoPackEngine.class.getMethod(method.getName(), method.getParameterTypes()).getDeclaringClass(), method.getName());
             }
             assertSame(engine.news(), engine.news()); assertSame(engine.worlds(), engine.worlds());
@@ -47,9 +58,7 @@ class SaoWindowsTest {
             assertNull(engine.serverStatus().get());
             engine.refreshOnline(); engine.refreshOnline();
             assertNull(engine.serverStatus().get());
-            assertEquals(1, engine.news().size());
-            assertEquals(SaoData.NewsKind.UPDATE, engine.news().get(0).kind());
-            assertEquals("", engine.news().get(0).body());
+            assertTrue(engine.news().isEmpty(), "Thin launchers do not publish an empty embedded-pack notice");
         }
     }
 
@@ -58,6 +67,7 @@ class SaoWindowsTest {
         Path root = temporary.resolve("settings-launcher");
         try (SaoPackEngine engine = new SaoPackEngine(root, null, false)) {
             await(() -> engine.state().get() != SaoPackState.CHECKING);
+            assertEquals(16, engine.downloadThreads());
             engine.setMemoryMiB(2048); engine.setAutoMemory(true);
             engine.setGameWindow(new SaoData.GameWindow(1600, 900, true));
             engine.setJvmArgs("-Dfixture='two words' -XX:+UseG1GC");
@@ -330,7 +340,7 @@ class SaoWindowsTest {
         files.requiredResources(release(Map.of("options.txt", "resourcePacks:[\"file/Required.zip\"]\n"), Map.of()));
         Files.writeString(instance.resolve("options.txt"), "music:0.2\nresourcePacks:[\"vanilla\",\"file/Required.zip\",\"file/Existing.zip\"]\nincompatibleResourcePacks:[]\nkey_key.forward:key.keyboard.w\n");
         SaoData.Pack required = pack(files, "Required");
-        assertThrows(IOException.class, () -> files.setResource(required, false));
+        assertTrue(pack(files, "Required").enabled());
         files.setResource(pack(files, "New"), true);
         assertTrue(Files.readString(instance.resolve("options.txt")).contains("[\"vanilla\",\"file/Required.zip\",\"file/Existing.zip\",\"file/New.zip\"]"));
         files.setResource(pack(files, "Existing"), false);
@@ -345,6 +355,37 @@ class SaoWindowsTest {
         files.requiredResources(null);
         files.setResource(required, false);
         assertFalse(pack(files, "Required").enabled());
+    }
+
+    /// Real UTF-8 distribution names merge in priority order while unrelated CRLF bytes and player slots survive.
+    @Test void chineseDistributionDefaultsPreserveBytesAndPersistOptOut() throws Exception {
+        SaoGameBridge bridge = bridge();
+        SaoInstanceFiles files = new SaoInstanceFiles(bridge.instanceDir(), bridge);
+        Path instance = bridge.instanceDir(); Files.createDirectories(instance.resolve("resourcepacks"));
+        String cfpa = "file/Minecraft-Mod-Language-Modpack-Converted-1.20.1.zip";
+        String sao = "file/SAO中文补全.zip";
+        String defaults = "resourcePacks:[\"" + cfpa + "\",\"" + sao + "\"]\n";
+        SaoPackArchive pack = release(Map.of("options.txt", defaults), Map.of());
+        files.requiredResources(pack);
+        String original = "lang:zh_cn\r\nsoundDevice:设备\r\nunknown:keep\nlast:no-newline";
+        Path options = instance.resolve("options.txt"); Files.writeString(options, original);
+        files.enforceRequiredResources();
+        assertEquals(original + "\r\n" + defaults.replace("\n", "\r\n"), Files.readString(options));
+        String custom = "prefix:原样\r\nresourcePacks:[\"vanilla\",\"" + sao
+                + "\",\"file/玩家自选.zip\",\"" + cfpa + "\"]\r\nlast:untouched";
+        Files.writeString(options, custom); files.enforceRequiredResources();
+        assertEquals("prefix:原样\r\nresourcePacks:[\"vanilla\",\"" + cfpa
+                + "\",\"file/玩家自选.zip\",\"" + sao + "\"]\r\nlast:untouched", Files.readString(options));
+        Files.write(instance.resolve("resourcepacks/SAO中文补全.zip"), new byte[0]);
+        files.setResource(new SaoData.Pack("SAO中文补全", instance.resolve("resourcepacks/SAO中文补全.zip"), "", true, null), false);
+        SaoInstanceFiles restarted = new SaoInstanceFiles(instance, bridge); restarted.requiredResources(pack);
+        restarted.enforceRequiredResources();
+        String after = Files.readString(options);
+        assertFalse(after.contains(sao)); assertTrue(after.contains(cfpa));
+        assertFalse(after.contains("SAO像素幻想重绘")); assertFalse(after.contains("SAO技能图标重绘"));
+        assertTrue(after.startsWith("prefix:原样\r\n")); assertTrue(after.endsWith("\r\nlast:untouched"));
+        restarted.setResource(new SaoData.Pack("SAO中文补全", instance.resolve("resourcepacks/SAO中文补全.zip"), "", false, null), true);
+        restarted.enforceRequiredResources(); assertTrue(Files.readString(options).contains(sao));
     }
 
     /// Linked config/options paths cannot redirect a pack setting into another instance or outside file.
@@ -478,13 +519,13 @@ class SaoWindowsTest {
             ((AtomicBoolean) field.get(engine)).set(true);
             SaoData.World selected = new SaoData.World("Fixture", engine.instanceDir().resolve("saves/fixture"), 0, 0, null, "");
             Path export = temporary.resolve("refused-export.zip");
-            engine.backupWorld(selected);
+            assertThrows(ExecutionException.class, () -> engine.backupWorld(selected).get(5, TimeUnit.SECONDS));
             assertTrue(Objects.requireNonNull(engine.lastError().get()).contains("游戏运行中"));
-            engine.exportWorld(selected, export);
+            assertThrows(ExecutionException.class, () -> engine.exportWorld(selected, export).get(5, TimeUnit.SECONDS));
             assertFalse(Files.exists(export));
-            engine.restoreBackup(new SaoData.Backup(engine.instanceDir().resolve("backups/fixture.zip"), selected.folder(), 0, 0));
+            assertThrows(ExecutionException.class, () -> engine.restoreBackup(new SaoData.Backup(engine.instanceDir().resolve("backups/fixture.zip"), selected.folder(), 0, 0)).get(5, TimeUnit.SECONDS));
             assertFalse(Files.exists(selected.folder()));
-            engine.setShader(null);
+            assertThrows(ExecutionException.class, () -> engine.setShader(null).get(5, TimeUnit.SECONDS));
             assertNotNull(engine.lastError().get());
             assertTrue(engine.lastError().get().contains("游戏运行中"));
             engine.setSkin(null, false);

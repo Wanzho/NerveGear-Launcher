@@ -44,6 +44,18 @@ class SaoPackArchiveTest {
         assertEquals("https://example.invalid/remote.jar", external.downloads().get(0));
     }
 
+    /// Oversized metadata is refused before parsing, including when the compressed file is small.
+    @Test void rejectsOversizedIndex() throws Exception {
+        Path zip = temporary.resolve("oversized.zip");
+        try (ZipOutputStream output = new ZipOutputStream(Files.newOutputStream(zip))) {
+            output.putNextEntry(new ZipEntry("modrinth.index.json"));
+            byte[] block = new byte[1024 * 1024];
+            for (int i = 0; i < 33; i++) output.write(block);
+        }
+        var failure = assertThrows(java.io.IOException.class, () -> SaoPackArchive.open(zip));
+        assertEquals("Pack index exceeds size limit", failure.getMessage());
+    }
+
     /// Writes the original overrides + modrinth.index layout with distinct export and display versions.
     private Path archive(String name, String version) throws Exception {
         String index = "{\"name\":\"" + name + "\",\"versionId\":\"" + version + "\","

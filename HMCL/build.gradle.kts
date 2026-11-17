@@ -32,10 +32,12 @@ val projectConfig = PropertiesUtils.load(rootProject.file("config/project.proper
 val isOfficial = JenkinsUtils.IS_ON_CI || GitHubActionUtils.IS_ON_OFFICIAL_REPO
 
 val versionType = "stable"
+val saoBeta = providers.gradleProperty("saoBeta").map { it.toBooleanStrict() }.getOrElse(false)
+val launcherArtifactName = if (saoBeta) "NerveGear-Launcher-Beta" else "NerveGear-Launcher"
 val microsoftAuthId = System.getenv("MICROSOFT_AUTH_ID") ?: ""
 val curseForgeApiKey = System.getenv("CURSEFORGE_API_KEY") ?: ""
 val launcherExe = System.getenv("HMCL_LAUNCHER_EXE") ?: ""
-version = providers.gradleProperty("saoVersion").getOrElse("0.1.0").also {
+version = providers.gradleProperty("saoVersion").getOrElse("0.1.3").also {
     // The launcher compares versions numerically (self-update, launcher.min); a suffix such as -rc1 would break that.
     require(it.matches(Regex("[0-9]+(\\.[0-9]+)*"))) { "saoVersion must be numeric, like 0.3.0" }
 }
@@ -164,6 +166,7 @@ tasks.compileTestJava {
 
 val hmclProperties = buildList {
     add("hmcl.version" to project.version.toString())
+    add("hmcl.sao.beta" to saoBeta.toString())
     add("hmcl.add-opens" to addOpens.joinToString(" "))
     System.getenv("GITHUB_SHA")?.let {
         add("hmcl.version.hash" to it)
@@ -192,7 +195,7 @@ val createPropertiesFile = tasks.register("createPropertiesFile") {
 }
 
 tasks.jar {
-    archiveBaseName.set("NerveGear-Launcher")
+    archiveBaseName.set(launcherArtifactName)
     enabled = false
     dependsOn(tasks["shadowJar"])
 }
@@ -203,7 +206,7 @@ tasks.shadowJar {
     dependsOn(createPropertiesFile)
 
     archiveClassifier.set(null as String?)
-    archiveBaseName.set("NerveGear-Launcher")
+    archiveBaseName.set(launcherArtifactName)
 
     exclude("**/package-info.class")
     exclude("META-INF/maven/**")
@@ -646,4 +649,17 @@ tasks.register<JavaExec>("saoShots") {
     mainClass.set("org.jackhuang.hmcl.ui.sao.SaoScreenShotTool")
     args(layout.buildDirectory.dir("sao-shots").get().asFile.absolutePath)
     jvmArgs("-Dglass.taskbarApplication=false", "-Dsao.mute=true", "-Djava.awt.headless=true")
+}
+
+// JavaFX startup is process-global; isolate GUI fixtures from synchronous headless backend fixtures.
+tasks.withType<Test>().configureEach {
+    forkEvery = 1
+}
+
+// macOS aliases /var to /private/var; fixtures must not look like linked player directories.
+tasks.withType<Test>().configureEach {
+    val fixtureTmp = rootProject.projectDir.parentFile.resolve(rootProject.projectDir.name + "-test-fixtures").canonicalFile
+    doFirst { fixtureTmp.mkdirs() }
+    systemProperty("java.io.tmpdir", fixtureTmp.absolutePath)
+    systemProperty("sao.test.fixtureRoot", fixtureTmp.absolutePath)
 }

@@ -2,6 +2,7 @@
 package org.jackhuang.hmcl.sao;
 
 import com.google.gson.*;
+import org.jackhuang.hmcl.Metadata;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.Test;
@@ -156,10 +157,11 @@ class SaoSelfUpdateTest {
 
     /// The same drag entry used by pack imports stages a verified JAR and enforces the minimum gate.
     @Test void engineDropStagesJarAndBelowMinimumRequestsCompleteLauncher() throws Exception {
-        Path candidate = jar("candidate.jar", "0.1.1");
+        String futureVersion = Metadata.VERSION + ".1";
+        Path candidate = jar("candidate.jar", futureVersion);
         for (boolean blocked : List.of(false, true)) {
             Path root = Files.createDirectories(temporary.resolve(blocked ? "blocked" : "optional"));
-            SaoData.VersionMetadata metadata = metadata(candidate, "0.1.1", blocked ? "0.1.1" : "0.1.0", false);
+            SaoData.VersionMetadata metadata = metadata(candidate, futureVersion, blocked ? futureVersion : "0.1.0", false);
             JsonObject document = new Gson().toJsonTree(metadata).getAsJsonObject();
             JsonObject launcher = document.getAsJsonObject("launcher"); launcher.remove("artifact");
             launcher.addProperty("file", candidate.getFileName().toString()); launcher.addProperty("size", Files.size(candidate)); launcher.addProperty("sha256", SaoUpdates.sha256(candidate));
@@ -173,7 +175,7 @@ class SaoSelfUpdateTest {
                     assertTrue(Objects.requireNonNull(engine.lastError().get()).contains("完整启动器"));
                 } else {
                     result.get(10, java.util.concurrent.TimeUnit.SECONDS);
-                    assertTrue(engine.launcherUpdate().get().restartRequired()); assertEquals("0.1.1", engine.launcherUpdate().get().version());
+                    assertTrue(engine.launcherUpdate().get().restartRequired()); assertEquals(futureVersion, engine.launcherUpdate().get().version());
                     assertFalse(engine.updateStatus().get().launcherBlocked());
                 }
             }

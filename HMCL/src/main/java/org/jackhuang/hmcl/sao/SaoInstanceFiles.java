@@ -24,8 +24,14 @@ final class SaoInstanceFiles {
     private final SaoGameBridge bridge;
     /// Filesystem rename operation, replaceable only by deterministic rollback-failure fixtures.
     private final MoveOperation mover;
-    /// Required packs seeded by the distribution's options, retained independently of player toggles.
+    /// Ordered distribution defaults; explicit launcher opt-outs take precedence.
     private final Set<String> requiredResources = new LinkedHashSet<>();
+
+    /// Persistent explicit player opt-outs, independent of Minecraft options.
+    private @Nullable SaoSettings settings;
+
+    /// Binds launcher preferences before any resource selection can be changed.
+    void settings(SaoSettings value) { settings = value; }
 
     /// Uses the same fixed directory as the launch bridge.
     SaoInstanceFiles(Path instance, SaoGameBridge bridge) { this(instance, bridge, (source, destination) -> Files.move(source, destination)); }
@@ -268,38 +274,55 @@ final class SaoInstanceFiles {
         } finally { Files.deleteIfExists(temporary); }
     }
 
-    /// Changes one resource ID, preserving every other option, required ID, and existing application order.
+    /// Changes one resource ID and persists explicit opt-outs before editing player options.
     void setResource(SaoData.Pack selected, boolean enabled) throws IOException {
         Path file = checkedChild(folder(SaoData.Folder.RESOURCES), selected.file());
         if (!Files.exists(file)) throw new IOException("Resource pack is missing");
         String id = "file/" + file.getFileName();
-        if (!enabled && requiredResources.contains(id)) throw new IOException("整合包必需的资源包不能关闭");
+        if (settings == null) settings = new SaoSettings(instance.getParent());
+        settings.put("resourceDisabled." + id, !enabled);
         List<String> active = new ArrayList<>(enabledResources());
         if (enabled && !active.contains(id)) active.add(id);
         if (!enabled) active.removeIf(id::equals);
-        for (String required : requiredResources) if (!active.contains(required)) active.add(required);
         writeResources(active);
     }
 
-    /// Re-enables absent distribution requirements immediately before launch, retaining every other selected ID's order.
+    /// Merges distribution defaults after installation, preserving opt-outs and every unrelated option byte.
     void enforceRequiredResources() throws IOException {
+        if (settings == null) settings = new SaoSettings(instance.getParent());
         List<String> active = new ArrayList<>(enabledResources());
-        boolean changed = false;
-        for (String required : requiredResources) if (!active.contains(required)) { active.add(required); changed = true; }
-        if (changed) writeResources(active);
+        @Unmodifiable List<String> defaults = requiredResources.stream()
+                .filter(id -> !settings.flag("resourceDisabled." + id, false)).toList();
+        @Unmodifiable List<String> merged = mergeResources(active, defaults);
+        if (!active.equals(merged)) writeResources(merged);
     }
 
-    /// Rewrites only the resource selection line and commits options atomically.
+    /// Keeps player-added entries in their slots; sorts only distribution slots and appends missing slots.
+    static @Unmodifiable List<String> mergeResources(List<String> active, List<String> defaults) {
+        List<String> result = new ArrayList<>(active);
+        List<Integer> slots = new ArrayList<>();
+        for (int i = 0; i < result.size(); i++) if (defaults.contains(result.get(i))) slots.add(i);
+        for (int i = slots.size(); i < defaults.size(); i++) { slots.add(result.size()); result.add(""); }
+        for (int i = 0; i < defaults.size(); i++) result.set(slots.get(i), defaults.get(i));
+        return List.copyOf(result);
+    }
+
+    /// Replaces only the selection line; CRLF, mixed endings and an absent final newline remain intact.
     private void writeResources(List<String> active) throws IOException {
         Path options = SaoPackFiles.resolve(instance, "options.txt");
-        List<String> lines = Files.exists(options) ? new ArrayList<>(Files.readAllLines(options)) : new ArrayList<>();
+        String original = Files.exists(options) ? Files.readString(options) : "";
         String replacement = "resourcePacks:" + new Gson().toJson(active);
-        int index = -1;
-        for (int i = 0; i < lines.size(); i++) if (lines.get(i).startsWith("resourcePacks:")) { index = i; break; }
-        if (index < 0) lines.add(replacement); else lines.set(index, replacement);
+        var matcher = java.util.regex.Pattern.compile("(?m)^resourcePacks:[^\\r\\n]*").matcher(original);
+        String edited;
+        if (matcher.find()) edited = original.substring(0, matcher.start()) + replacement + original.substring(matcher.end());
+        else {
+            String newline = original.contains("\r\n") ? "\r\n" : "\n";
+            edited = original + (original.isEmpty() || original.endsWith("\n") || original.endsWith("\r") ? "" : newline)
+                    + replacement + newline;
+        }
         Files.createDirectories(instance);
         Path temporary = Files.createTempFile(instance, "options-", ".tmp");
-        try { Files.write(temporary, lines); SaoPackFiles.atomicMove(temporary, options); }
+        try { Files.writeString(temporary, edited); SaoPackFiles.atomicMove(temporary, options); }
         finally { Files.deleteIfExists(temporary); }
     }
 

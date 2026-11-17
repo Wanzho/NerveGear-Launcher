@@ -26,7 +26,7 @@ final class SaoForkShellTest {
         assertEquals("NerveGear启动器", Metadata.NAME);
         assertEquals("NerveGear Launcher", Metadata.FULL_NAME);
         assertEquals("NerveGear Launcher v" + Metadata.VERSION, Metadata.FULL_TITLE);
-        assertEquals("0.1.0", Metadata.VERSION);
+        assertEquals("0.1.2", Metadata.VERSION);
         assertEquals("org.saooath.launcher", Metadata.WINDOWS_APP_USER_MODEL_ID);
         assertEquals(".sao-oath-launcher", Metadata.HMCL_LOCAL_HOME.getFileName().toString());
         assertEquals(".sao-oath-launcher", Metadata.HMCL_USER_HOME.getFileName().toString());

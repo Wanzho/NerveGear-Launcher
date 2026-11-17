@@ -69,7 +69,7 @@ public final class TerracottaBundle {
     /// Fetches a checksum-verified bundle into the launcher's dependency directory for scoped uninstall cleanup.
     public Task<Path> download(AbstractTerracottaProvider.DownloadContext context) {
         return Task.supplyAsync(() -> {
-            Path transfers = org.jackhuang.hmcl.Metadata.DEPENDENCIES_DIRECTORY.resolve("terracotta-transfers");
+            Path transfers = org.jackhuang.hmcl.sao.SaoGameLocation.currentRoot().resolve("dependencies").resolve("terracotta-transfers");
             Files.createDirectories(transfers);
             return Files.createTempFile(transfers, "terracotta-", ".tar.gz");
         })

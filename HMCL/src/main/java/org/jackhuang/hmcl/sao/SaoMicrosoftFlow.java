@@ -4,6 +4,7 @@ package org.jackhuang.hmcl.sao;
 import javafx.beans.property.ReadOnlyObjectProperty;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
+import java.util.function.Supplier;
 
 /// Screen-independent Microsoft login. Methods may be called from any thread; states publish on FX.
 @NotNullByDefault
@@ -30,8 +31,8 @@ public interface SaoMicrosoftFlow {
     @FunctionalInterface
     @NotNullByDefault
     interface Presenter {
-        /// Displays the supplied running flow without starting another authentication attempt.
-        void present(SaoMicrosoftFlow flow);
+        /// Uses the supplied factory for every attempt and cancels the caller when the window closes.
+        void present(Supplier<SaoMicrosoftFlow> start, Runnable cancel);
     }
 
     /// Installs the page hook, or null to restore the stock CreateAccountPane fallback.

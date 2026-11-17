@@ -17,7 +17,7 @@ public final class MacBootstrapProbe {
         Path bundled = Path.of(args[0]);
         String nativePath = args[1];
         System.setProperty("sao.nativeLauncher", nativePath);
-        SaoSelfUpdate.Selection selected = new SaoSelfUpdate.Selection(bundled, "0.1.0", "probe-token");
+        SaoSelfUpdate.Selection selected = new SaoSelfUpdate.Selection(bundled, "0.1.1", "probe-token");
         @Unmodifiable List<String> command = SaoLauncherBootstrap.command(selected, bundled,
                 new String[]{"argument with spaces", "中文"});
         if (!command.get(0).equals(nativePath) || !command.get(1).equals("--sao-jvm"))

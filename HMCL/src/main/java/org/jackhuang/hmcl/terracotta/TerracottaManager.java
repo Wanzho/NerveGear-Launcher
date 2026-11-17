@@ -31,7 +31,6 @@ import java.util.function.Consumer;
 import java.util.function.BiConsumer;
 import java.util.Map;
 import java.util.List;
-import org.jackhuang.hmcl.task.TaskListener;
 
 /// HMCL Terracotta transport, started only by the dedicated SAO host/join actions.
 /// Reading state or constructing the launcher never initializes providers, downloads, scans, or child processes.
@@ -76,7 +75,7 @@ public final class TerracottaManager {
 
     /// Starts a room and forwards real package-transfer progress to the launcher's downloads window.
     public static synchronized void startRoom(@Nullable String code, Consumer<SaoData.Room> changed, Consumer<String> error,
-                                              BiConsumer<Task<?>, Boolean> downloads) {
+                                              BiConsumer<Task<?>, org.jackhuang.hmcl.sao.SaoDownloadTasks.Status> downloads) {
         if (controller != null) { error.accept("请先离开当前联机房间"); return; }
         long requested = ++generation;
         controller = sessionFactory.create(code, value -> {
@@ -105,7 +104,7 @@ public final class TerracottaManager {
         /// Starts only after a host/join action has reserved this session.
         void start();
         /// Observes package transfers; lifecycle fixtures without downloads can keep the default no-op.
-        default void observeDownloads(BiConsumer<Task<?>, Boolean> observer) { }
+        default void observeDownloads(BiConsumer<Task<?>, org.jackhuang.hmcl.sao.SaoDownloadTasks.Status> observer) { }
         /// Cancels pending work and terminates the session's process.
         void close();
     }
@@ -163,7 +162,7 @@ public final class TerracottaManager {
         /// Owns installer start/cancel ordering; created only after an explicit host/join request.
         private final SaoTaskRunner taskRunner = new SaoTaskRunner();
         /// Live bundle transfer observer, installed before this session starts.
-        private BiConsumer<Task<?>, Boolean> downloads = (task, done) -> { };
+        private BiConsumer<Task<?>, org.jackhuang.hmcl.sao.SaoDownloadTasks.Status> downloads = (task, done) -> { };
         /// Explicit cancellation fence checked before downloads, child startup and each poll.
         private volatile boolean closed;
         /// Temporary local control-port transfer directory, removed after shutdown.
@@ -177,7 +176,7 @@ public final class TerracottaManager {
         }
 
         /// Connects this session's actual HMCL download graph to the engine's immutable task rows.
-        @Override public void observeDownloads(BiConsumer<Task<?>, Boolean> observer) { downloads = observer; }
+        @Override public void observeDownloads(BiConsumer<Task<?>, org.jackhuang.hmcl.sao.SaoDownloadTasks.Status> observer) { downloads = observer; }
 
         /// Starts the serialized session worker after publishing the initial room record.
         @Override public void start() {
@@ -197,7 +196,7 @@ public final class TerracottaManager {
         /// Prepares the checksum-verified HMCL bundle, starts the child, requests host/join and polls its state.
         private void run() throws Exception {
             checkOpen();
-            @Nullable AbstractTerracottaProvider provider = TerracottaMetadata.PROVIDER;
+            @Nullable AbstractTerracottaProvider provider = TerracottaMetadata.providerForCurrentRoot();
             if (provider == null) throw new IOException("Terracotta is unavailable on this platform");
             if (provider.status() != AbstractTerracottaProvider.Status.READY) {
                 Path bundle = java.util.Objects.requireNonNull(execute(provider.download(new AbstractTerracottaProvider.DownloadContext() {
@@ -210,7 +209,7 @@ public final class TerracottaManager {
                 finally { Files.deleteIfExists(bundle); }
             }
             checkOpen();
-            Path transfers = org.jackhuang.hmcl.Metadata.HMCL_LOCAL_HOME.resolve("terracotta-transfers");
+            Path transfers = org.jackhuang.hmcl.sao.SaoGameLocation.currentRoot().resolve("terracotta-transfers");
             Files.createDirectories(transfers);
             Path directory = Files.createTempDirectory(transfers, "sao-terracotta-"); transfer = directory;
             Path portFile = directory.resolve("http");
@@ -225,7 +224,8 @@ public final class TerracottaManager {
             long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20);
             while (!Files.isRegularFile(portFile)) {
                 checkOpen();
-                if (!started.isAlive() || System.nanoTime() >= deadline) throw new IOException("Terracotta did not publish its control port");
+                if ((!started.isAlive() && started.exitValue() != 0) || System.nanoTime() >= deadline)
+                    throw new IOException("Terracotta did not publish its control port");
                 Thread.sleep(50);
             }
             int port = JsonParser.parseString(Files.readString(portFile)).getAsJsonObject().get("port").getAsInt();
@@ -238,7 +238,10 @@ public final class TerracottaManager {
             get(port, code == null ? "/state/scanning?" + query : "/state/guesting?" + query);
             int misses = 0;
             while (!closed) {
-                if (!started.isAlive()) throw new IOException("Terracotta process exited");
+                // Secondary invocations hand off to the existing daemon and exit successfully.
+                // The bounded control requests below, not that wrapper lifetime, determine connectivity.
+                if (!started.isAlive() && started.exitValue() != 0)
+                    throw new IOException("Terracotta process failed: " + started.exitValue());
                 String body;
                 // A slow poll (busy or briefly sleeping host) must not end the room; give up after five misses in a row.
                 try { body = get(port, "/state"); misses = 0; }
@@ -267,22 +270,9 @@ public final class TerracottaManager {
         /// Runs HMCL's verified package download/installer with cancellation ownership.
         private <T> @Nullable T execute(Task<T> operation) throws Exception {
             checkOpen();
-            Map<Task<?>, javafx.beans.value.ChangeListener<Number>> listeners = new java.util.concurrent.ConcurrentHashMap<>();
-            TaskListener observer = new TaskListener() {
-                /// Observes only actual HMCL FetchTask instances, including Terracotta's verified bundle transfer.
-                @Override public void onRunning(Task<?> running) {
-                    if (!(running instanceof org.jackhuang.hmcl.task.FetchTask)) return;
-                    javafx.beans.value.ChangeListener<Number> listener = (property, oldValue, newValue) -> downloads.accept(running, false);
-                    listeners.put(running, listener); running.progressProperty().addListener(listener); downloads.accept(running, false);
-                }
-                /// Removes progress listeners when a real transfer finishes or fails.
-                @Override public void onFinished(Task<?> finished) {
-                    @Nullable javafx.beans.value.ChangeListener<Number> listener = listeners.remove(finished);
-                    if (listener != null) { finished.progressProperty().removeListener(listener); downloads.accept(finished, true); }
-                }
-            };
-            try { return taskRunner.run(operation, observer); }
-            finally { listeners.forEach((running, listener) -> running.progressProperty().removeListener(listener)); }
+            try (var observer = new org.jackhuang.hmcl.sao.SaoDownloadTasks.Observer(downloads)) {
+                return taskRunner.run(operation, observer);
+            }
         }
 
         /// Converts a query value without invoking a shell or exposing account objects.

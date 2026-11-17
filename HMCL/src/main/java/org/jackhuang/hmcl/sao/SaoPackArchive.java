@@ -24,17 +24,71 @@ import java.util.zip.ZipFile;
 /// @param manifest validated inventory used for every extraction and download
 @NotNullByDefault
 public record SaoPackArchive(Path zip, SaoPackManifest manifest) {
+    private static final int MAX_INDEX_BYTES = 32 * 1024 * 1024;
+    private static final int MAX_ENTRIES = 100_000;
+    private static final long MAX_PACK_BYTES = 8L * 1024 * 1024 * 1024;
+
     /// Opens an update manifest, or derives the complete inventory of an original Modrinth pack.
     public static SaoPackArchive open(Path zip) throws IOException {
+        return open(zip, false);
+    }
+
+    /// Verifies the embedded bytes of a locally imported full pack before it can become a repair source.
+    static SaoPackArchive openForImport(Path zip) throws IOException {
+        return open(zip, true);
+    }
+
+    /// Explicit inventories are validated against their payload when the input is a local import.
+    private static SaoPackArchive open(Path zip, boolean verifyPayload) throws IOException {
         try (ZipFile archive = new ZipFile(zip.toFile(), StandardCharsets.UTF_8)) {
+            if (archive.size() > MAX_ENTRIES) throw new IOException("Pack contains too many archive members");
             @Nullable ZipEntry explicit = archive.getEntry(SaoPackManifest.NAME);
             if (explicit != null) {
-                try (Reader reader = new InputStreamReader(archive.getInputStream(explicit), StandardCharsets.UTF_8)) {
-                    return new SaoPackArchive(zip, SaoPackManifest.read(reader));
-                }
+                SaoPackManifest manifest = SaoPackManifest.read(readIndex(archive, explicit));
+                checkInventorySize(manifest.files());
+                if (verifyPayload) verifyPayload(archive, manifest);
+                return new SaoPackArchive(zip, manifest);
             }
             return new SaoPackArchive(zip, deriveManifest(archive));
         }
+    }
+
+    /// Checks embedded entries even when the current installation would skip copying unchanged files.
+    private static void verifyPayload(ZipFile archive, SaoPackManifest manifest) throws IOException {
+        for (var file : manifest.files()) {
+            @Nullable String member = file.entry();
+            if (member == null) continue;
+            @Nullable ZipEntry entry = archive.getEntry(member);
+            if (entry == null || entry.isDirectory() || entry.getSize() != file.size())
+                throw new IOException("Pack member missing or wrong size: " + file.path());
+            try (var input = archive.getInputStream(entry)) {
+                if (!file.sha1().equals(sha1(input, file.size())))
+                    throw new IOException("Pack checksum mismatch: " + file.path());
+            }
+            if (file.sha512() != null) {
+                try (var input = archive.getInputStream(entry)) {
+                    if (!file.sha512().equals(digest(input, file.size(), "SHA-512")))
+                        throw new IOException("Pack checksum mismatch: " + file.path());
+                }
+            }
+        }
+    }
+
+    /// Validates both declared and actual index size before handing the text to the parser.
+    private static Reader readIndex(ZipFile archive, ZipEntry entry) throws IOException {
+        if (entry.getSize() < 0 || entry.getSize() > MAX_INDEX_BYTES)
+            throw new IOException("Pack index exceeds size limit");
+        try (InputStream input = archive.getInputStream(entry)) {
+            byte[] bytes = input.readNBytes(MAX_INDEX_BYTES + 1);
+            if (bytes.length != entry.getSize()) throw new IOException("Invalid pack index size");
+            return new StringReader(new String(bytes, StandardCharsets.UTF_8));
+        }
+    }
+
+    private static void checkInventorySize(Collection<SaoPackManifest.PackFile> files) throws IOException {
+        long size = 0;
+        for (var file : files) size += file.size();
+        if (size > MAX_PACK_BYTES) throw new IOException("Pack content exceeds size limit");
     }
 
     /// Uses a preprocessed embedded inventory and materializes its archive under the launcher's own cache.
@@ -69,7 +123,7 @@ public record SaoPackArchive(Path zip, SaoPackManifest manifest) {
         @Nullable ZipEntry indexEntry = archive.getEntry("modrinth.index.json");
         if (indexEntry == null) throw new IOException("Pack requires sao-manifest.json or modrinth.index.json");
         JsonObject index;
-        try (Reader reader = new InputStreamReader(archive.getInputStream(indexEntry), StandardCharsets.UTF_8)) {
+        try (Reader reader = readIndex(archive, indexEntry)) {
             index = JsonParser.parseReader(reader).getAsJsonObject();
         } catch (RuntimeException e) {
             throw new IOException("Invalid Modrinth index", e);
@@ -82,6 +136,8 @@ public record SaoPackArchive(Path zip, SaoPackManifest manifest) {
                     || !SaoPackManifest.NEOFORGE.equals(neoforge))
                 throw new IOException("Pack requires exactly Minecraft 1.20.1 + NeoForge 47.1.106");
             Map<String, SaoPackManifest.PackFile> files = new TreeMap<>();
+            if (index.getAsJsonArray("files").size() > MAX_ENTRIES)
+                throw new IOException("Pack lists too many dependencies");
             for (JsonElement element : index.getAsJsonArray("files")) {
                 JsonObject file = element.getAsJsonObject();
                 // Modrinth marks some files server-only; this launcher builds a client instance.
@@ -91,10 +147,12 @@ public record SaoPackArchive(Path zip, SaoPackManifest manifest) {
                 List<String> downloads = new ArrayList<>();
                 for (JsonElement url : file.getAsJsonArray("downloads")) downloads.add(url.getAsString());
                 if (files.put(path, new SaoPackManifest.PackFile(path, file.getAsJsonObject("hashes").get("sha1").getAsString(),
-                        file.get("fileSize").getAsLong(), null, downloads)) != null)
+                        file.get("fileSize").getAsLong(), null, downloads,
+                        file.getAsJsonObject("hashes").has("sha512") ? file.getAsJsonObject("hashes").get("sha512").getAsString() : null)) != null)
                     throw new IOException("Duplicate dependency path: " + path);
             }
             Set<String> entries = new HashSet<>();
+            long expanded = 0;
             Enumeration<? extends ZipEntry> enumeration = archive.entries();
             while (enumeration.hasMoreElements()) {
                 ZipEntry entry = enumeration.nextElement();
@@ -103,14 +161,17 @@ public record SaoPackArchive(Path zip, SaoPackManifest manifest) {
                 String path = entry.getName().substring("overrides/".length());
                 if (entry.getSize() < 0 || entry.getSize() > SaoPackManifest.MAX_FILE_SIZE)
                     throw new IOException("Invalid archive member size: " + path);
+                expanded += entry.getSize();
+                if (expanded > MAX_PACK_BYTES) throw new IOException("Pack content exceeds size limit");
                 String hash;
-                try (InputStream input = archive.getInputStream(entry)) { hash = sha1(input); }
+                try (InputStream input = archive.getInputStream(entry)) { hash = sha1(input, entry.getSize()); }
                 // Overrides intentionally take precedence over Modrinth dependency entries.
                 files.put(path, new SaoPackManifest.PackFile(path, hash, entry.getSize(), entry.getName(), List.of()));
             }
             String name = index.get("name").getAsString();
             java.util.regex.Matcher namedVersion = java.util.regex.Pattern.compile("(?i)OATH\\s*(\\d+(?:\\.\\d+)+)").matcher(name);
             String version = namedVersion.find() ? namedVersion.group(1) : index.get("versionId").getAsString();
+            checkInventorySize(files.values());
             return new SaoPackManifest(version, minecraft, neoforge, "", List.copyOf(files.values()), List.of());
         } catch (RuntimeException e) {
             throw new IOException("Invalid pack metadata: " + e.getMessage(), e);
@@ -119,14 +180,29 @@ public record SaoPackArchive(Path zip, SaoPackManifest manifest) {
 
     /// Computes a streaming SHA-1 without retaining file payloads in memory; caller closes the stream.
     public static String sha1(InputStream input) throws IOException {
+        return sha1(input, -1);
+    }
+
+    private static String sha1(InputStream input, long expectedSize) throws IOException {
+        return digest(input, expectedSize, "SHA-1");
+    }
+
+    /// Computes an archive member's digest and checks its actual expanded byte count.
+    private static String digest(InputStream input, long expectedSize, String algorithm) throws IOException {
         try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-1");
+            MessageDigest digest = MessageDigest.getInstance(algorithm);
             byte[] buffer = new byte[65536];
             int count;
-            while ((count = input.read(buffer)) >= 0) digest.update(buffer, 0, count);
+            long size = 0;
+            while ((count = input.read(buffer)) >= 0) {
+                size += count;
+                if (expectedSize >= 0 && size > expectedSize) throw new IOException("Pack member exceeds its declared size");
+                digest.update(buffer, 0, count);
+            }
+            if (expectedSize >= 0 && size != expectedSize) throw new IOException("Pack member has the wrong size");
             return HexFormat.of().formatHex(digest.digest());
         } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("Java runtime has no SHA-1", e);
+            throw new IllegalStateException("Java runtime has no " + algorithm, e);
         }
     }
 }

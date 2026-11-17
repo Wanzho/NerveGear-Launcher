@@ -58,7 +58,8 @@ final class SaoOnlineData implements AutoCloseable {
             CompletableFuture<HttpResponse<byte[]>> pending = http.sendAsync(request, info -> new NewsSubscriber(limit));
             try {
                 HttpResponse<byte[]> response = pending.get(request.timeout().orElseThrow().toNanos(), TimeUnit.NANOSECONDS);
-                return new Response(response.statusCode(), response.headers().firstValue("location").orElse(null), response.body());
+                return new Response(response.statusCode(), response.headers().firstValue("location").orElse(null), response.body(),
+                        response.headers().firstValue("Date").orElse(null));
             } finally { pending.cancel(true); }
         };
     }
@@ -97,8 +98,12 @@ final class SaoOnlineData implements AutoCloseable {
     /// @param status HTTP response status
     /// @param location optional Location header
     /// @param body bounded response bytes
+    /// @param date optional server Date evidence from this existing response
     @NotNullByDefault
-    record Response(int status, @Nullable String location, byte[] body) { }
+    record Response(int status, @Nullable String location, byte[] body, @Nullable String date) {
+        /// Preserves fixtures with no Date evidence; missing headers never imply a synchronized clock.
+        Response(int status, @Nullable String location, byte[] body) { this(status, location, body, null); }
+    }
 
     /// Single-request transport seam, with redirect validation performed by the caller.
     @NotNullByDefault
@@ -160,6 +165,23 @@ final class SaoOnlineData implements AutoCloseable {
         versionSequence = parsed.sequence(); return parsed;
     }
 
+    /// Accepts a bundled signed policy using the same durable anti-rollback transaction as an online response.
+    /// A newer already accepted policy remains authoritative over an older bundle.
+    SaoData.VersionMetadata importOfflineVersion(Path directory) throws IOException {
+        Path document = directory.resolve("policy/version.json"), signature = directory.resolve("policy/version.json.sig");
+        if (Files.size(document) > SaoUpdates.MAX_VERSION_BYTES || Files.size(signature) > SaoReleaseSignatures.MAX_SIGNATURE_BYTES)
+            throw new IOException("Bundled release policy is too large");
+        byte @Unmodifiable [] bytes = Files.readAllBytes(document), signed = Files.readAllBytes(signature);
+        try { releases.accept(SaoReleaseState.Kind.VERSION, bytes, signed); }
+        catch (IOException rejected) {
+            @Nullable SaoData.VersionMetadata current = cachedVersion();
+            if (current != null) return current;
+            throw rejected;
+        }
+        SaoData.VersionMetadata parsed = SaoUpdates.parse(SaoReleaseSignatures.utf8(bytes));
+        versionSequence = parsed.sequence(); return parsed;
+    }
+
     /// Returns immutable accepted state without disk, network or toolkit work.
     SaoData.ReleaseVerification verification() { return new SaoData.ReleaseVerification(versionSequence, newsSequence); }
 
@@ -205,9 +227,11 @@ final class SaoOnlineData implements AutoCloseable {
         // Gitee's 302 carries a small HTML body (~400 bytes) that is larger than a 128-byte signature: read the first hop
         // with room for it; the final document is still held to its own limit below (14 Nov: every .sig was refused).
         Response response = exchange.send(request(uri, deadline), Math.max(limit, REDIRECT_BODY_LIMIT));
+        SaoClockCheck.SYSTEM.observe(response.date());
         if (redirect(response.status())) {
             uri = redirected(uri, response.location());
             response = exchange.send(request(uri, deadline), limit);
+            SaoClockCheck.SYSTEM.observe(response.date());
         }
         if (response.status() != 200) throw new IOException("Metadata HTTP " + response.status());
         if (System.nanoTime() >= deadline) throw new IOException("Metadata request timed out");

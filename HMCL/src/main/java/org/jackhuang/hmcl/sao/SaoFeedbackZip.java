@@ -26,21 +26,33 @@ final class SaoFeedbackZip {
     /// Content and identity scrubber, applied to every text entry including generated summaries.
     private final SaoFeedbackSanitizer sanitizer;
 
+    /// Explicit additional diagnostic roots; fixtures never inspect real user data.
+    private final @Unmodifiable List<Path> diagnosticRoots;
+
     /// Supplies controlled paths; production passes the real Downloads folder, tests use a temporary directory.
     SaoFeedbackZip(Path root, Path instance, Path downloads, SaoFeedbackSanitizer sanitizer) {
-        this.root = root; this.instance = instance; this.downloads = downloads; this.sanitizer = sanitizer;
+        this(root, instance, downloads, sanitizer, List.of(root));
     }
 
-    /// Adds current logs, newest three crash reports, newest three hs_err files per owned root, and HMCL logs.
+    /// Supplies local, Roaming and install roots without opening account files.
+    SaoFeedbackZip(Path root, Path instance, Path downloads, SaoFeedbackSanitizer sanitizer, List<Path> diagnosticRoots) {
+        this.root = root; this.instance = instance; this.downloads = downloads; this.sanitizer = sanitizer;
+        this.diagnosticRoots = List.copyOf(diagnosticRoots);
+    }
+
+    /// Adds current logs, newest five crash reports, hs_err files per owned root, and HMCL logs.
     /// Source files are never modified; partial output is deleted and no file manager is opened.
     SaoData.FeedbackZip build(String summary, List<Path> launcherLogs, List<String> captured) throws IOException {
         Files.createDirectories(downloads);
         if (Files.isSymbolicLink(downloads)) throw new IOException("反馈目录不能是符号链接");
         Path temporary = Files.createTempFile(downloads, ".sao-feedback-", ".tmp");
-        Path destination = temporary.resolveSibling("SAO-feedback-" + UUID.randomUUID() + ".zip");
+        String stamp = java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"));
+        Path destination = temporary.resolveSibling("NerveGear日志-" + stamp + ".zip");
+        for (int suffix = 1; Files.exists(destination); suffix++) destination = temporary.resolveSibling("NerveGear日志-" + stamp + "-" + suffix + ".zip");
         try {
             try (ZipOutputStream zip = new ZipOutputStream(Files.newOutputStream(temporary))) {
                 long total = add(zip, "system-summary.txt", summary);
+                total += add(zip, "info.txt", summary);
                 total += write(zip, "mods-sha1.txt", modList(), MAX_TEXT);
                 total += add(zip, "captured-game.log", capturedText(captured));
                 Map<String, Path> sources = new LinkedHashMap<>();
@@ -49,10 +61,11 @@ final class SaoFeedbackZip {
                     if (Files.isRegularFile(source, LinkOption.NOFOLLOW_LINKS)) sources.put(path, source);
                 }
                 int i = 0;
-                for (Path crash : newest(instance, "crash-reports", "crash-.*\\.txt", 3)) sources.put("crash-reports/crash-" + (++i) + ".txt", crash);
+                for (Path crash : newest(instance, "crash-reports", "crash-.*\\.txt", 5)) sources.put("crash-reports/crash-" + (++i) + ".txt", crash);
                 i = 0;
-                for (Path base : new LinkedHashSet<>(List.of(instance, root))) {
-                    for (Path error : newest(base, "", "hs_err_pid[0-9]+\\.log", 3)) sources.put("hs_err/hs_err-" + (++i) + ".log", error);
+                Set<Path> nativeRoots = new LinkedHashSet<>(diagnosticRoots); nativeRoots.add(instance);
+                for (Path base : nativeRoots) {
+                    for (Path error : newest(base, "", "hs_err_pid[0-9]+\\.log", Integer.MAX_VALUE)) sources.put("hs_err/hs_err-" + (++i) + ".log", error);
                 }
                 i = 0;
                 for (Path log : launcherLogs) {
@@ -63,11 +76,26 @@ final class SaoFeedbackZip {
                     if (!basename.matches(".*\\.log(?:\\.(?:xz|gz))?")) continue;
                     sources.put("launcher/launcher-" + (++i) + ".log", log);
                 }
+                int rootNumber = 0;
+                for (Path base : diagnosticRoots) {
+                    String prefix = "data-" + (++rootNumber) + "/";
+                    int logNumber = 0;
+                    for (Path log : newest(base, "logs", ".*\\.log(?:\\.(?:xz|gz))?", 20))
+                        sources.put(prefix + "logs/launcher-" + (++logNumber) + ".log", log);
+                    for (String name : List.of("pack-cache/active.json", "launcher-running.marker")) {
+                        Path file = SaoPackFiles.resolve(base, name);
+                        if (Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) sources.put(prefix + name, file);
+                    }
+                }
+                SaoPackFiles.resolve(instance, "diagnostic-path-check");
+                Path receipt = instance.resolve(SaoPackInstaller.RECEIPT);
+                if (Files.isRegularFile(receipt, LinkOption.NOFOLLOW_LINKS)) sources.put("pack/installed-inventory.json", receipt);
                 List<String> omitted = new ArrayList<>();
                 for (var entry : sources.entrySet()) {
                     if (total >= MAX_TOTAL) { omitted.add(entry.getKey() + ": 超出反馈大小上限"); continue; }
                     String text;
-                    try { text = read(entry.getValue(), (int) Math.min(MAX_TEXT, MAX_TOTAL - total)); }
+                    try { text = entry.getKey().equals("logs/debug.log") ? tail(entry.getValue(), 5 * 1024 * 1024)
+                            : read(entry.getValue(), (int) Math.min(MAX_TEXT, MAX_TOTAL - total)); }
                     catch (IOException unavailable) { omitted.add(entry.getKey() + ": 文件不可读"); continue; }
                     total += add(zip, entry.getKey(), text, (int) Math.min(MAX_TEXT, MAX_TOTAL - total));
                 }
@@ -132,6 +160,18 @@ final class SaoFeedbackZip {
     private static long modified(Path path) {
         try { return Files.getLastModifiedTime(path, LinkOption.NOFOLLOW_LINKS).toMillis(); }
         catch (IOException disappeared) { return 0; }
+    }
+
+    /// Keeps the latest debug output; drops the partial first line so a sliced credential line cannot escape scrubbing.
+    private static String tail(Path file, int maximum) throws IOException {
+        try (var channel = java.nio.channels.FileChannel.open(file)) {
+            long start = Math.max(0, channel.size() - maximum);
+            channel.position(start);
+            java.nio.ByteBuffer bytes = java.nio.ByteBuffer.allocate(maximum);
+            while (bytes.hasRemaining() && channel.read(bytes) > 0) { }
+            String text = new String(bytes.array(), 0, bytes.position(), StandardCharsets.UTF_8);
+            return start == 0 ? text : text.indexOf('\n') < 0 ? "" : text.substring(text.indexOf('\n') + 1);
+        }
     }
 
     /// Inflates HMCL's archived logs and Minecraft gzip logs under the same decoded-byte limit.

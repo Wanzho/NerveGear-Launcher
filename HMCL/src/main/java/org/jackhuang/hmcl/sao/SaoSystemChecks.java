@@ -40,10 +40,9 @@ final class SaoSystemChecks {
         return new Hardware(memory, cpu == null ? "unknown" : cpu.getName(), gpu, discrete);
     }
 
-    /// Reserves a second copy for transactional pack replacement and 2 GiB for Java/game libraries and headroom.
+    /// Reserves three copies of the larger payload/archive size and 2 GiB for installation headroom.
     static long requiredBytes(long managedBytes, long archiveBytes) {
-        try { return Math.addExact(Math.addExact(Math.multiplyExact(managedBytes, 2), archiveBytes), 2 * GIB); }
-        catch (ArithmeticException overflow) { return Long.MAX_VALUE; }
+        return SaoDiskSpace.packRequired(Math.max(managedBytes, archiveBytes));
     }
 
     /// Checks the filesystem containing the nearest existing ancestor of the future instance path.

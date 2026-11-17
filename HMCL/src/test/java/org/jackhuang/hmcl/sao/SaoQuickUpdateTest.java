@@ -100,6 +100,97 @@ class SaoQuickUpdateTest {
         assertEquals("0.8.1", Objects.requireNonNull(installer.installed()).version());
     }
 
+    /// Actual shipped script outputs may change size or be absent, without hiding an installed game or breaking quick chains.
+    @Test void generatedDiagnosticsDoNotInvalidateInstall() throws Exception {
+        List<String> diagnostics = List.of(
+                "kubejs/config/sao_arena_task_mobs_status080.json",
+                "kubejs/config/sao_combat_tuning076_status.json",
+                "kubejs/config/sao_mutant_natural_spawns_status080.json",
+                "kubejs/config/sao_oath_runtime_check.json",
+                "kubejs/config/sao_spawn_diagnostic080.json",
+                "kubejs/data/sao_battle_report_listener_status.json",
+                "kubejs/data/sao_boss_hp_hotfix074_status.json",
+                "kubejs/data/sao_companion_quest_status.json",
+                "kubejs/data/sao_core_patch_status.json",
+                "kubejs/data/sao_defeated_cleanup_status.json",
+                "kubejs/data/sao_downed_safety_status.json",
+                "kubejs/data/sao_farm_shop074_status.json",
+                "kubejs/data/sao_home_safety_status.json",
+                "kubejs/data/sao_live_boss_diagnostic.json",
+                "kubejs/data/sao_mage_aim_status.json",
+                "kubejs/data/sao_native_material_recipe_check073.json",
+                "kubejs/data/sao_pet_friendship_status.json",
+                "kubejs/data/sao_pet_spawn_diagnostic.json",
+                "kubejs/data/sao_quest_kill_history_status.json",
+                "kubejs/data/sao_spawn_density_status.json",
+                "kubejs/data/sao_spawn_safety_status.json",
+                "kubejs/data/sao_uncrafting_ban_status.json",
+                "kubejs/data/sao_wither_hotfix_status074.json");
+        Map<String, String> seeds = new TreeMap<>(); seeds.put("mods/a.jar", "old");
+        for (String path : diagnostics) seeds.put(path, "{}");
+        Path old = pack("0.8", "diagnostics-old.zip", seeds, false);
+        Map<String, String> newer = new TreeMap<>(seeds); newer.put("mods/a.jar", "new");
+        Path next = pack("0.8.1", "diagnostics-next.zip", newer, false);
+        var edge = delta(old, next, "diagnostics-delta.zip");
+        Path instance = temporary.resolve("diagnostics-instance"); SaoPackInstaller installer = installer(instance);
+        installer.apply(SaoPackArchive.open(old), false);
+        for (String path : diagnostics) Files.writeString(instance.resolve(path), "{\"checked\":1234567890}");
+        assertTrue(SaoReadinessCheck.filesPresent(installer.installed(), instance), "Changed runtime reports must retain READY");
+        for (int i = 0; i < diagnostics.size(); i += 2) Files.delete(instance.resolve(diagnostics.get(i)));
+        assertTrue(SaoReadinessCheck.filesPresent(installer.installed(), instance), "Missing generated reports can be recreated");
+        assertThrows(IOException.class, () -> installer.applyQuick(List.of(temporary.resolve(edge.file())), null, temporary.resolve("diagnostics-no-pristine")));
+        installer.applyQuick(List.of(temporary.resolve(edge.file())), SaoPackArchive.open(old), temporary.resolve("diagnostics-cache"));
+        assertEquals("new", Files.readString(instance.resolve("mods/a.jar")));
+        for (int i = 0; i < diagnostics.size(); i++) {
+            Path file = instance.resolve(diagnostics.get(i));
+            if (i % 2 == 0) assertFalse(Files.exists(file));
+            else assertEquals("{\"checked\":1234567890}", Files.readString(file));
+        }
+        assertTrue(SaoReadinessCheck.filesPresent(installer.installed(), instance));
+    }
+
+    /// A diagnostic exemption never follows symbolic links or permits directory substitution.
+    @Test void diagnosticLinksRemainRejected() throws Exception {
+        String path = "kubejs/data/sao_spawn_density_status.json";
+        Path old = pack("0.8", "diagnostic-link-old.zip", Map.of(path, "{}"), false);
+        Path next = pack("0.8.1", "diagnostic-link-next.zip", Map.of(path, "{}", "mods/a.jar", "new"), false);
+        var edge = delta(old, next, "diagnostic-link-delta.zip");
+        Path instance = temporary.resolve("diagnostic-link-instance"); SaoPackInstaller installer = installer(instance);
+        installer.apply(SaoPackArchive.open(old), false);
+        Path target = temporary.resolve("outside-report.json"); Files.writeString(target, "untouched");
+        Files.delete(instance.resolve(path)); Files.createSymbolicLink(instance.resolve(path), target);
+        assertFalse(SaoReadinessCheck.filesPresent(installer.installed(), instance));
+        assertThrows(IOException.class, () -> installer.applyQuick(List.of(temporary.resolve(edge.file())), SaoPackArchive.open(old), temporary.resolve("diagnostic-link-cache")));
+        assertEquals("untouched", Files.readString(target));
+    }
+
+    /// Battle history is durable player data, not a disposable report or a managed seed after play.
+    @Test void battleHistorySurvivesRepairFullAndQuickUpdate() throws Exception {
+        String path = "kubejs/data/sao_battle_records.json";
+        Path old = pack("0.8", "history-old.zip", Map.of(path, "{}", "mods/a.jar", "old"), false);
+        Path next = pack("0.8.1", "history-next.zip", Map.of(path, "{\"seed\":1}", "mods/a.jar", "new"), false);
+        var edge = delta(old, next, "history-delta.zip");
+        for (boolean quick : List.of(false, true)) {
+            Path instance = temporary.resolve("history-instance-" + quick); SaoPackInstaller installer = installer(instance);
+            installer.apply(SaoPackArchive.open(old), false);
+            String history = "{\"fights\":[{\"fixture\":true}]}";
+            Files.writeString(instance.resolve(path), history);
+            assertTrue(SaoReadinessCheck.filesPresent(installer.installed(), instance));
+            installer.apply(SaoPackArchive.open(old), true);
+            assertEquals(history, Files.readString(instance.resolve(path)));
+            if (quick) installer.applyQuick(List.of(temporary.resolve(edge.file())), SaoPackArchive.open(old), temporary.resolve("history-cache"));
+            else installer.apply(SaoPackArchive.open(next), false);
+            assertEquals(history, Files.readString(instance.resolve(path)));
+            Files.delete(instance.resolve(path));
+            assertTrue(SaoReadinessCheck.filesPresent(installer.installed(), instance));
+            Path outside = temporary.resolve("outside-history-" + quick); Files.writeString(outside, "outside");
+            Files.createSymbolicLink(instance.resolve(path), outside);
+            assertFalse(SaoReadinessCheck.filesPresent(installer.installed(), instance));
+            assertThrows(IOException.class, () -> installer.apply(SaoPackArchive.open(next), true));
+            assertEquals("outside", Files.readString(outside));
+        }
+    }
+
     /// Replaced and removed settings use author intent and retain the exact game-written bytes after successful commit.
     @Test void changedAndRemovedSettingsKeepDurableTransactionBackups() throws Exception {
         Path old = pack("0.8", "settings-old.zip", Map.of("mods/a.jar", "jar", "config/change.toml", "seed", "config/remove.toml", "seed"), false);
@@ -203,7 +294,8 @@ class SaoQuickUpdateTest {
     @Test void executableAndAuthoredDataChangesRequireFullPack() throws Exception {
         for (String path : List.of("mods/keybind-helper.jar", "config/keybind-helper.jar", "kubejs/server_scripts/main.js",
                 "kubejs/data/test/recipes/example.json", "kubejs/assets/test/models/example.json", "kubejs/config/sao_balance.json",
-                "config/ftbquests/quests/data.snbt", "config/roadweaver/presets/test.json", "config/.entrance-render-defaults")) {
+                "kubejs/data/sao_spawn_density_status_copy.json", "kubejs/data/sub/sao_spawn_density_status.json",
+                "kubejs/data/sao_spawn_density_status.json.jar", "kubejs/data/sao_battle_records_copy.json", "config/ftbquests/quests/data.snbt", "config/roadweaver/presets/test.json", "config/.entrance-render-defaults")) {
             String id = Integer.toString(path.hashCode());
             Path old = pack("0.8", "strict-old-" + id + ".zip", Map.of(path, "old"), false);
             Path next = pack("0.8.1", "strict-next-" + id + ".zip", Map.of(path, "author"), false);
@@ -449,6 +541,30 @@ class SaoQuickUpdateTest {
             assertTrue(engine.downloadPrompt().get().fullPackRequired());
             assertEquals("请把在夸克里下载的模组文件拖进来", engine.downloadPrompt().get().message());
             assertEquals("edited", Files.readString(instance.resolve("mods/a.jar"))); assertEquals("0.8", Objects.requireNonNull(installer(instance).installed()).version());
+        }
+    }
+
+    /// A valid signed quick archive for another base requests the full pack without changing installed files.
+    @Test void wrongBaseSignedDropRequestsFullPack() throws Exception {
+        Path old = pack("0.8", "old.zip", Map.of("mods/a.jar", "old", "options.txt", "player"), false);
+        Path base = pack("0.8.1", "base.zip", Map.of("mods/a.jar", "base"), false);
+        Path next = pack("0.8.2", "next.zip", Map.of("mods/a.jar", "new"), false);
+        var edge = delta(base, next, "delta.zip"); Path root = temporary.resolve("launcher");
+        Path instance;
+        try (SaoPackEngine engine = SaoReleaseTestSupport.engine(root, SaoPackArchive.open(old), false)) {
+            await(() -> engine.state().get() != SaoPackState.CHECKING); instance = engine.instanceDir();
+        }
+        installer(instance).apply(SaoPackArchive.open(old), false);
+        String receipt = Files.readString(instance.resolve(SaoPackInstaller.RECEIPT));
+        SaoReleaseTestSupport.cacheVersion(root, new Gson().toJson(policy(next, List.of(edge))));
+        try (SaoPackEngine engine = SaoReleaseTestSupport.engine(root, SaoPackArchive.open(old), false)) {
+            await(() -> engine.state().get() != SaoPackState.CHECKING);
+            assertThrows(ExecutionException.class, () -> engine.acceptDroppedFiles(List.of(temporary.resolve(edge.file()))).get(10, TimeUnit.SECONDS));
+            assertTrue(engine.downloadPrompt().get().fullPackRequired());
+            assertTrue(Objects.requireNonNull(engine.lastError().get()).contains(SaoQuickUpdate.FULL_REQUIRED));
+            assertEquals(receipt, Files.readString(instance.resolve(SaoPackInstaller.RECEIPT)));
+            assertEquals("old", Files.readString(instance.resolve("mods/a.jar")));
+            assertEquals("player", Files.readString(instance.resolve("options.txt")));
         }
     }
 

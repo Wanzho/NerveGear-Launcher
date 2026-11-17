@@ -401,3 +401,7 @@
 .theme-sao-dark .vr-tile-warn .vr-ink { -fx-fill: #ffd9a3; }
 .theme-sao .vr-tile-warn .vr-icon { -fx-fill: #d9822b; }
 .theme-sao-dark .vr-tile-warn .vr-icon { -fx-fill: #f5a95a; }
+
+/* Selectable crash evidence inherits the current field palette without the TextArea's white viewport. */
+.vr-crash-summary .content { -fx-background-color: transparent; }
+.vr-crash-summary .scroll-pane, .vr-crash-summary .viewport { -fx-background-color: transparent; }

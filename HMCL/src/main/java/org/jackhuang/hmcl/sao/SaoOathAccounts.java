@@ -106,7 +106,7 @@ final class SaoOathAccounts implements AutoCloseable {
     /// Root enclosing only this launcher's credentials, texture cache and libraries.
     private final Path root;
     /// Launcher data root that owns the game instance; launch tickets are hardened from here down.
-    private final Path launcherRoot;
+    private volatile Path launcherRoot;
     /// Explicit protected storage implementation, replaceable in isolated tests.
     private final SaoOathCredentials credentials;
     /// Original local Microsoft session acquisition.
@@ -601,6 +601,9 @@ final class SaoOathAccounts implements AutoCloseable {
     /// Root from which launch-ticket ancestors are hardened; it must contain the game instance.
     Path ticketRoot() { return launcherRoot; }
 
+    /// Changes the ticket location only while the engine has frozen account operations for migration.
+    void relocateTickets(Path root) { launcherRoot = root; }
+
     /// Refreshes the session and hands a launch account to the engine; the future fails with the shown reason.
     CompletableFuture<Void> linkStart() {
         @Nullable CompletableFuture<Void> admission = linkFuture;
@@ -801,8 +804,17 @@ final class SaoOathAccounts implements AutoCloseable {
             microsoftSkinPending = false;
             checkGeneration(expected);
             // Synchronization writes make skin lookup dependent; otherwise its request overlaps the other reads.
-            if (skinRead == null || synchronize) refreshSkin(active);
-            else applySkin(active, SaoLoginSteps.await(skinRead));
+            try {
+                if (skinRead == null || synchronize) refreshSkin(active);
+                else applySkin(active, SaoLoginSteps.await(skinRead));
+            } catch (SaoAccountException cosmeticFailure) {
+                // Account state above remains authoritative. A transient profile/image outage must not
+                // prevent admission; retain the last known skin without uploading or changing its source.
+                checkGeneration(expected);
+                if (!transientFailure(cosmeticFailure)) throw cosmeticFailure;
+                System.getLogger(SaoOathAccounts.class.getName()).log(System.Logger.Level.INFO,
+                        "Optional account appearance unavailable; preserving previous appearance");
+            }
             refreshCardNow(active, () -> SaoLoginSteps.await(cardRead));
             checkGeneration(expected);
         } catch (Exception failure) { if (!transientFailure(failure)) clear(); throw failure; }
@@ -996,6 +1008,7 @@ final class SaoOathAccounts implements AutoCloseable {
 
     /// Ensures no bearer is ever reused after an API configuration change or local signout.
     private Session requireSession() throws SaoAccountException {
+        SaoClockCheck.SYSTEM.requireCorrect();
         @Nullable Session active = session;
         if (closed.get() || active == null || !active.root().equals(client.root())) {
             clear(); throw new SaoAccountException("请先登录 ARGUS ID", "signedOut");

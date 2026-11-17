@@ -47,9 +47,9 @@ class SaoExtrasFeedbackTest {
         assertEquals(Files.size(result.path()), result.size()); assertEquals(downloads, result.path().getParent());
         Map<String, String> entries = unzip(result.path());
         assertTrue(entries.keySet().containsAll(List.of("system-summary.txt", "mods-sha1.txt", "logs/latest.log", "logs/debug.log", "options.txt", "captured-game.log", "launcher/launcher-1.log", "hs_err/hs_err-1.log")));
-        assertEquals(3, entries.keySet().stream().filter(key -> key.startsWith("crash-reports/")).count());
+        assertEquals(5, entries.keySet().stream().filter(key -> key.startsWith("crash-reports/")).count());
         assertTrue(entries.values().stream().anyMatch(text -> text.contains("crash-ordinal=5")));
-        assertFalse(entries.values().stream().anyMatch(text -> text.contains("crash-ordinal=1")));
+        assertTrue(entries.values().stream().anyMatch(text -> text.contains("crash-ordinal=1")));
         for (String text : entries.values()) {
             for (String secret : List.of("PASS_SENTINEL", "TOKEN_SENTINEL", "TICKET_SENTINEL", "BEARER_SENTINEL", "COOKIE_SENTINEL", "LOGIN_SENTINEL", "MULTILINE_SENTINEL", "PEM_SENTINEL",
                     "a.person@example.org", "192.168.5.7", "2001:db8", "10.0.0.1", "fe80::", "FixtureUser", "/Users/", "ACCOUNT_FILE_SENTINEL", "UNSELECTED_LOG_SENTINEL", "PREFERENCES_SENTINEL", "eyJhbGci"))
@@ -62,6 +62,24 @@ class SaoExtrasFeedbackTest {
         }
         assertEquals(PRIVATE + "ordinary-setting:keep\n", Files.readString(instance.resolve("logs/latest.log")));
         try (var files = Files.list(downloads)) { assertEquals(List.of(result.path()), files.toList()); }
+    }
+
+    /// Both storage roots and the installed inventory are included while credential files and command tokens are excluded.
+    @Test void oneClickIncludesBothRootsAndInventory() throws Exception {
+        Path local = temporary.resolve("local"), roaming = temporary.resolve("roaming"), game = temporary.resolve("game");
+        Files.createDirectories(local.resolve("logs")); Files.createDirectories(roaming.resolve("logs")); Files.createDirectories(game);
+        Files.writeString(local.resolve("logs/a.log"), "local diagnostic\n--accessToken LOCAL_SECRET\n");
+        Files.writeString(roaming.resolve("logs/b.log"), "roaming diagnostic\n--accessToken ROAM_SECRET\n");
+        Files.writeString(local.resolve("user-accounts.json"), "ACCOUNT_SECRET");
+        Files.writeString(game.resolve(".sao-launch-ticket.json"), "TICKET_SECRET");
+        Files.writeString(game.resolve(SaoPackInstaller.RECEIPT), "{\"version\":\"0.8.1\"}");
+        var zip = new SaoFeedbackZip(local, game, temporary.resolve("Desktop"), new SaoFeedbackSanitizer("", ""), List.of(local, roaming))
+                .build("Launcher: fixture", List.of(), List.of());
+        Map<String, String> entries = unzip(zip.path());
+        assertTrue(zip.path().getFileName().toString().startsWith("NerveGear日志-"));
+        assertTrue(entries.keySet().containsAll(List.of("info.txt", "pack/installed-inventory.json", "data-1/logs/launcher-1.log", "data-2/logs/launcher-1.log")));
+        String all = entries.toString();
+        for (String secret : List.of("LOCAL_SECRET", "ROAM_SECRET", "ACCOUNT_SECRET", "TICKET_SECRET", "user-accounts", ".sao-launch-ticket", "--accessToken")) assertFalse(all.contains(secret));
     }
 
     /// Windows paths, uppercase identities, masked mail and sensitive lines are also removed from live log display.
@@ -86,9 +104,13 @@ class SaoExtrasFeedbackTest {
         assertFalse(String.join("\n", logs.snapshot()).contains("STREAM_TOKEN_SENTINEL"));
         assertFalse(String.join("\n", logs.snapshot()).contains("STREAM_OBJECT_SENTINEL"));
         assertTrue(logs.snapshot().contains("public line"));
+        logs.append("--accessToken"); logs.append("SEPARATE_ARG_SENTINEL"); logs.append("public after argument");
+        assertFalse(String.join("\n", logs.snapshot()).contains("SEPARATE_ARG_SENTINEL"));
+        assertTrue(logs.snapshot().contains("public after argument"));
         logs.append("password:"); logs.clear(); logs.append("new run public line");
         assertEquals(List.of("new run public line"), logs.snapshot());
         assertEquals("[authentication data omitted]", SaoGameLogs.sanitize("AWS_ACCESS_KEY_ID=API_KEY_SENTINEL"));
+        assertFalse(SaoGameLogs.sanitize("MICROSOFT_AUTH_ID=APP_ID_SENTINEL").contains("APP_ID_SENTINEL"));
     }
 
     /// JSON/URL escaping cannot conceal credential labels, emails, IPs or the home path from the privacy filter.
@@ -140,7 +162,7 @@ class SaoExtrasFeedbackTest {
         Path instance = temporary.resolve("instance"), downloads = temporary.resolve("Downloads");
         var builder = new SaoFeedbackZip(temporary, instance, downloads, new SaoFeedbackSanitizer("", ""));
         var entries = unzip(builder.build("OS: fixture", List.of(), List.of()).path());
-        assertEquals(Set.of("system-summary.txt", "mods-sha1.txt", "captured-game.log", "export-notes.txt"), entries.keySet());
+        assertEquals(Set.of("system-summary.txt", "info.txt", "mods-sha1.txt", "captured-game.log", "export-notes.txt"), entries.keySet());
     }
 
     /// Hash values are generated public identities, not OS usernames even when both happen to share hex characters.

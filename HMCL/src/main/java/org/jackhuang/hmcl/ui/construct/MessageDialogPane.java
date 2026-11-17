@@ -67,6 +67,7 @@ public final class MessageDialogPane extends HBox {
 
     private @Nullable ButtonBase cancelButton;
 
+    /// Builds a message pane; SAO errors include a one-click diagnostic export action.
     public MessageDialogPane(@NotNull String text, @Nullable String title, @NotNull MessageType type) {
         this.setSpacing(16);
         this.getStyleClass().add("jfx-dialog-layout");
@@ -107,6 +108,8 @@ public final class MessageDialogPane extends HBox {
         }
 
         this.getChildren().setAll(graphic, vbox);
+        if (type == MessageType.ERROR && org.jackhuang.hmcl.ui.sao.SaoUi.enabled())
+            org.jackhuang.hmcl.ui.sao.SaoDialogs.addDiagnosticAction(actions);
 
         onEscPressed(this, () -> {
             if (cancelButton != null) {

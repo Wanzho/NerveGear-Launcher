@@ -27,6 +27,44 @@ import java.util.concurrent.CompletableFuture;
 /// Skin validation/storage and small settings accessors are synchronous.
 @NotNullByDefault
 public interface SaoLauncherService {
+    /// Transient contention, displayed only while the backend still reports the running task.
+    @NotNullByDefault
+    final class OperationBusyException extends java.io.IOException {
+        /// Carries the localized active-task explanation to asynchronous callers.
+        public OperationBusyException(String message) { super(message); }
+    }
+
+
+    /// Current game-data root; production overrides the fixture fallback.
+    default Path gameDataRoot() { return instanceDir(); }
+
+    /// Asynchronous measured folder size and free-space label.
+    default CompletableFuture<String> gameLocationInfo() { return CompletableFuture.completedFuture(gameDataRoot().toString()); }
+
+    /// Optional local-drive shortcuts beneath the arbitrary folder picker.
+    default CompletableFuture<@org.jetbrains.annotations.Unmodifiable List<SaoGameLocation.Drive>> gameDrives() {
+        return CompletableFuture.completedFuture(List.of());
+    }
+
+    /// Copies and verifies an empty destination, or adopts an existing READY NerveGear data folder.
+    default CompletableFuture<Void> chooseGameLocation(Path folder) {
+        return CompletableFuture.failedFuture(new UnsupportedOperationException("此预览不支持移动游戏"));
+    }
+
+    /// Discovers candidates without importing files or approving them.
+    default CompletableFuture<@org.jetbrains.annotations.Unmodifiable List<Path>> findExistingGames() {
+        return CompletableFuture.completedFuture(List.of());
+    }
+
+    /// Reads the approved reusable folders for the current game location.
+    default CompletableFuture<@org.jetbrains.annotations.Unmodifiable List<Path>> reuseSources() {
+        return CompletableFuture.completedFuture(List.of());
+    }
+
+    /// Explicitly approves folders for verified copies on future download requests; empty disables reuse.
+    default CompletableFuture<Void> setReuseSources(List<Path> folders) {
+        return CompletableFuture.failedFuture(new UnsupportedOperationException("此预览不支持复用文件"));
+    }
 
     /// Starts headless Microsoft OAuth and immediately opens the browser; the page owns presentation.
     default SaoMicrosoftFlow microsoftSignIn() { return SaoMicrosoftFlows.start(); }
@@ -52,6 +90,12 @@ public interface SaoLauncherService {
 
     /// The pack version installed now (for example "0.8"), or null when not installed.
     ReadOnlyObjectProperty<@Nullable String> installedVersion();
+
+    /// Whether the current pack was imported locally without official release verification.
+    default boolean localPack() { return false; }
+
+    /// Whether this installation came from a manually selected, unregistered Beta patch.
+    default boolean betaPatchedPack() { return false; }
 
     /// The pack version embedded in this launcher.
     String embeddedVersion();
@@ -79,13 +123,23 @@ public interface SaoLauncherService {
     ///        or null to type it in game; never written to disk in plain text, never in process arguments
     void linkStart(Account account, char @Nullable [] authPassword);
 
-    /// 离线游玩: the same readiness check as Link Start (not ready: no launch, the reason in [#lastError()]),
+    /// 离线游玩: checks the locally installed pack and runtime using the current singleplayer preferences,
     /// then starts the game with an offline account of this name, without ARGUS ID, without a
     /// launch ticket and without joining the 誓约 server. Ignored unless the state is NOT_INSTALLED, UPDATE_READY or
     /// READY.
     ///
     /// @param name 3 to 16 letters, digits or underscores
     default void linkStartOffline(String name) {
+    }
+
+    /// Whether the offline launch route may start with individually modified or missing mods.
+    default boolean allowModifiedModsOffline() {
+        return Boolean.parseBoolean(preference("allowModifiedModsOffline", "false"));
+    }
+
+    /// Saves the local singleplayer option. Online launch and official imports do not read it.
+    default void setAllowModifiedModsOffline(boolean allow) {
+        setPreference("allowModifiedModsOffline", Boolean.toString(allow));
     }
 
     /// Checks every pack file against the manifest and fixes what is missing or changed,
@@ -107,6 +161,12 @@ public interface SaoLauncherService {
     default ReadOnlyObjectProperty<SaoData.ReleaseVerification> releaseVerification() {
         return new SimpleObjectProperty<>(new SaoData.ReleaseVerification(null, null));
     }
+
+    /// Whether an installed offline bundle has a redundant extracted copy that can be deleted.
+    default boolean offlineBundleCleanupAvailable() { return false; }
+
+    /// Deletes only completed extracted copies, preserving the player's original downloaded ZIP.
+    default CompletableFuture<Void> deleteOfflineBundleCopies() { return CompletableFuture.completedFuture(null); }
 
     /// Downloads-prompt state; a candidate still requires explicit applyDownloadedPack and checksum verification.
     default ReadOnlyObjectProperty<SaoData.DownloadPrompt> downloadPrompt() {
@@ -179,6 +239,10 @@ public interface SaoLauncherService {
     /// Builds a scrubbed feedback ZIP asynchronously in Downloads; failures complete exceptionally.
     /// Never opens a file manager itself. The result includes the actual committed file size.
     default CompletableFuture<SaoData.FeedbackZip> buildFeedbackZip() { return unsupported(); }
+
+    /// Returns and consumes the previous unclean launcher exit notice.
+    default boolean consumePreviousCrash() { return false; }
+
 
     /// Stable, read-only, last-good community actions; defaults are 爱发电, the shared 夸克网盘 and QQ群.
     /// Render non-null copy values as numbers with a copy button; only non-null URLs are browser actions.
@@ -286,7 +350,7 @@ public interface SaoLauncherService {
         return FXCollections.emptyObservableList();
     }
 
-    /// Turns a resource pack on or off (written to options.txt; the pack's own required packs stay on).
+    /// Turns a resource pack on or off, persisting explicit opt-outs from distribution defaults.
     default java.util.concurrent.CompletableFuture<Void> setResourcePackEnabled(SaoData.Pack pack, boolean enabled) {
         return java.util.concurrent.CompletableFuture.completedFuture(null);
     }
@@ -303,6 +367,13 @@ public interface SaoLauncherService {
     default ObservableList<Path> screenshots() {
         return FXCollections.emptyObservableList();
     }
+
+    /// Whether an inspected old entrance mod permits the delayed FancyMenu registration fallback.
+    default boolean legacyHelmetSignal() { return false; }
+
+    /// Receives every sanitized current-run line on the UI thread; empty means a new run cleared the log.
+    /// Historical snapshots are deliberately excluded. Implementations without a process emit nothing.
+    default void observeGameLog(java.util.function.Consumer<java.util.Optional<String>> listener) {}
 
     /// The running or last game's log, one line per item, capped at a few thousand lines.
     default ObservableList<String> gameLog() {

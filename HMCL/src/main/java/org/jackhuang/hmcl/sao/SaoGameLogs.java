@@ -24,6 +24,12 @@ final class SaoGameLogs {
     /// Bounded sanitized lines, guarded by this object.
     private final ArrayDeque<String> lines = new ArrayDeque<>();
 
+    /// Current-run events delivered under the ring lock, before any coalesced snapshot.
+    private java.util.function.Consumer<java.util.Optional<String>> observer = event -> {};
+
+    /// Installs the engine's ordered event publisher; historical loading never emits events.
+    synchronized void observe(java.util.function.Consumer<java.util.Optional<String>> listener) { observer = listener; }
+
     /// Stateful redaction keeps multiline credentials private even when callbacks arrive one line at a time.
     private SaoFeedbackSanitizer.Stream liveSanitizer = sanitizer().stream();
 
@@ -41,13 +47,18 @@ final class SaoGameLogs {
     }
 
     /// Starts a fresh run; older on-disk logs remain eligible for an explicit support export.
-    synchronized void clear() { lines.clear(); liveSanitizer = sanitizer().stream(); }
+    synchronized void clear() { lines.clear(); liveSanitizer = sanitizer().stream(); observer.accept(java.util.Optional.empty()); }
 
     /// Adds complete lines and caps the ring even when one process callback contains multiple line breaks.
-    synchronized void append(String text) {
+    synchronized void append(String text) { append(text, true); }
+
+    /// Historical disk loading never emits current-run readiness events.
+    private synchronized void append(String text, boolean live) {
         for (String line : text.split("\\R", -1)) {
             String sanitized = liveSanitizer.line(line);
-            lines.addLast(sanitized.length() > 32768 ? sanitized.substring(0, 32768) : sanitized);
+            String visible = sanitized.length() > 32768 ? sanitized.substring(0, 32768) : sanitized;
+            lines.addLast(visible);
+            if (live) observer.accept(java.util.Optional.of(visible));
             while (lines.size() > MAX_LINES) lines.removeFirst();
         }
     }
@@ -55,13 +66,13 @@ final class SaoGameLogs {
     /// Returns a stable immutable snapshot for a coalesced JavaFX publication.
     synchronized @Unmodifiable List<String> snapshot() { return List.copyOf(lines); }
 
-    /// Loads the newest stored log on startup, reading line by line rather than buffering a full game log.
+    /// Loads the newest stored log line by line, replacing malformed legacy bytes without changing the file.
     void loadPrevious() throws IOException {
         Path latest = SaoPackFiles.resolve(instance, "logs/latest.log");
         if (!Files.isRegularFile(latest, LinkOption.NOFOLLOW_LINKS)) return;
-        try (BufferedReader reader = Files.newBufferedReader(latest)) {
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(Files.newInputStream(latest), StandardCharsets.UTF_8))) {
             @Nullable String line;
-            while ((line = reader.readLine()) != null) append(line);
+            while ((line = reader.readLine()) != null) append(line, false);
         }
     }
 
@@ -77,10 +88,11 @@ final class SaoGameLogs {
             try { text = readSanitized(report, 4 * 1024 * 1024); }
             catch (IOException unavailable) { /* Captured output still provides a crash card when a report cannot be read. */ }
         }
-        Set<CrashReportAnalyzer.Result> matches = CrashReportAnalyzer.analyze(text);
+        SaoCrashSummary.Summary summary = SaoCrashSummary.parse(text);
+        Set<CrashReportAnalyzer.Result> matches = CrashReportAnalyzer.analyze(summary.diagnostic());
         @Unmodifiable List<CrashReportAnalyzer.Result> ordered = matches.stream().sorted(Comparator.comparingInt(result -> result.rule().ordinal())).toList();
-        String reason = i18n("game.crash.reason.unknown");
-        String detail = text.length() > 16000 ? text.substring(text.length() - 16000) : text;
+        String reason = summary.headline().isBlank() ? i18n("game.crash.reason.unknown") : summary.headline();
+        String detail = summary.detail();
         if (!ordered.isEmpty()) {
             CrashReportAnalyzer.Result result = ordered.get(0);
             try {
@@ -92,7 +104,8 @@ final class SaoGameLogs {
                         : i18n("game.crash.reason." + result.rule().name().toLowerCase(Locale.ROOT),
                                 Arrays.stream(result.rule().getGroupNames()).map(name -> result.matcher().group(name)).toArray());
             } catch (RuntimeException ignored) { reason = result.rule().name(); }
-            detail = result.matcher().group();
+            // A rule explains the cause; it must not replace the exception and its cause chain.
+            if (detail.isBlank()) detail = reason;
         }
         return new SaoData.Crash(sanitize(reason).replaceAll("<[^>]+>", "").replaceAll("\\s+", " ").strip(), sanitize(detail),
                 report == null ? instance.resolve("logs/latest.log") : report);
@@ -143,18 +156,21 @@ final class SaoGameLogs {
         }
     }
 
-    /// Returns the newest regular crash report from this run; old reports never mark a clean run as crashed.
+    /// Returns the newest Minecraft or native report from this run; old reports cannot mark a clean run as crashed.
     private @Nullable Path latestReport(long since) throws IOException {
-        Path directory = SaoPackFiles.resolve(instance, "crash-reports");
-        if (!Files.isDirectory(directory, LinkOption.NOFOLLOW_LINKS)) return null;
         @Nullable Path latest = null;
         long time = since;
-        try (var files = Files.list(directory)) {
-            for (Path file : files.filter(path -> Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)
-                    && path.getFileName().toString().endsWith(".txt")).toList()) {
-                SaoPackFiles.resolve(instance, instance.relativize(file).toString().replace('\\', '/'));
-                long modified = Files.getLastModifiedTime(file).toMillis();
-                if (modified >= time) { time = modified; latest = file; }
+        for (String folder : List.of("crash-reports", "")) {
+            Path directory = folder.isEmpty() ? instance : SaoPackFiles.resolve(instance, folder);
+            if (!Files.isDirectory(directory, LinkOption.NOFOLLOW_LINKS)) continue;
+            try (var files = Files.list(directory)) {
+                for (Path file : files.filter(path -> Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)
+                        && (folder.isEmpty() ? path.getFileName().toString().matches("hs_err_pid[0-9]+\\.log")
+                                : path.getFileName().toString().endsWith(".txt"))).toList()) {
+                    SaoPackFiles.resolve(instance, instance.relativize(file).toString().replace('\\', '/'));
+                    long modified = Files.getLastModifiedTime(file).toMillis();
+                    if (modified >= time) { time = modified; latest = file; }
+                }
             }
         }
         return latest;

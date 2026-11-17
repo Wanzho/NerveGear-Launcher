@@ -85,8 +85,8 @@ final class SaoUninstaller {
         for (Path root : roots) {
             guardRoot(root, home);
             if (production) {
-                String name = root.getFileName().toString().toLowerCase(Locale.ROOT);
-                if (!name.equals(".sao-oath-launcher") && !name.equals("sao-oath-launcher"))
+                String name = root.getFileName().toString();
+                if (!org.jackhuang.hmcl.Metadata.isDefaultDataDirectoryName(name) && !SaoGameLocation.owned(root))
                     throw new IOException("自定义数据目录未使用启动器专属名称，已拒绝自动卸载");
             }
             if (desktop.startsWith(root) || kept.startsWith(root) || root.startsWith(kept))

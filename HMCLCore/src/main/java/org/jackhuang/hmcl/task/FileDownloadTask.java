@@ -157,6 +157,9 @@ public class FileDownloadTask extends FetchTask<Void> {
         }
     }
 
+    /// Large on-disk downloads can be assembled from independently verified HTTP ranges.
+    @Override protected boolean supportsSegments() { return true; }
+
     @Override
     protected void beforeDownload(WebURL url) {
         LOG.trace("Downloading " + url + " to " + file);

@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 package org.jackhuang.hmcl.sao;
 
+import org.jackhuang.hmcl.Metadata;
 import org.jackhuang.hmcl.auth.Account;
 import org.jackhuang.hmcl.launch.ProcessListener;
 import org.jackhuang.hmcl.util.versioning.VersionNumber;
@@ -61,8 +62,9 @@ final class SaoReadinessCheck {
     /// @param installed the committed receipt, or null
     /// @param signed    the signed last-good release's pack version, or null when no valid metadata is known
     /// @param quark     whether a valid Quark link is known
+    /// @param allowModifiedMods permits the explicit offline route to use modified mod files
     static SaoReadiness check(@Nullable String source, @Nullable SaoPackManifest installed, @Nullable String signed,
-                              boolean quark, Path instance, GameSteps steps) throws Exception {
+                              boolean quark, Path instance, GameSteps steps, boolean allowModifiedMods) throws Exception {
         SaoReadiness.Action fetch = quark ? SaoReadiness.Action.QUARK : SaoReadiness.Action.PACK_WINDOW;
         if (installed == null && source == null)
             return new SaoReadiness(SaoReadiness.Kind.DOWNLOAD, NOT_DOWNLOADED, SaoReadiness.Action.PACK_WINDOW);
@@ -74,18 +76,39 @@ final class SaoReadinessCheck {
             return new SaoReadiness(SaoReadiness.Kind.UPDATE, "有新版本 " + source, SaoReadiness.Action.PREPARE);
         @Nullable String game = steps.missing();
         if (game != null) return new SaoReadiness(SaoReadiness.Kind.DOWNLOAD, game, SaoReadiness.Action.PREPARE);
-        if (!filesPresent(installed, instance))
+        if (!filesPresent(installed, instance, allowModifiedMods))
             return new SaoReadiness(SaoReadiness.Kind.DOWNLOAD, INCOMPLETE, SaoReadiness.Action.PREPARE);
         return SaoReadiness.READY;
     }
 
-    /// Every managed pack file exists with its manifest size; player files (options, saves, shaders) may be absent.
+    /// Managed payloads retain their manifest size; game-written settings need only remain regular files.
+    /// Beta builds leave installed mod files to the tester.
+    /// Player files (options, saves, shaders) may be absent and are never inspected or changed.
     static boolean filesPresent(SaoPackManifest installed, Path instance) {
+        return filesPresent(installed, instance, false);
+    }
+
+    /// Offline relaxation permits missing and changed mods but still requires safe, ordinary file paths.
+    private static boolean filesPresent(SaoPackManifest installed, Path instance, boolean allowModifiedMods) {
         for (SaoPackManifest.PackFile file : installed.files()) {
-            if (SaoPackManifest.isPlayerFile(file.path())) continue;
+            boolean mod = file.path().regionMatches(true, 0, "mods/", 0, "mods/".length());
+            if (Metadata.SAO_BETA && mod) continue;
+            if (SaoPackManifest.isPlayerFile(file.path()) && !SaoPackManifest.isPersistentGameRecord(file.path())) continue;
             try {
                 Path target = SaoPackFiles.resolve(instance, file.path());
-                if (!Files.isRegularFile(target, LinkOption.NOFOLLOW_LINKS) || Files.size(target) != file.size()) return false;
+                if (allowModifiedMods && mod) {
+                    if (!Files.notExists(target, LinkOption.NOFOLLOW_LINKS) && !Files.isRegularFile(target, LinkOption.NOFOLLOW_LINKS)) return false;
+                    continue;
+                }
+                if (SaoPackManifest.isPersistentGameRecord(file.path())) {
+                    if (Files.exists(target, LinkOption.NOFOLLOW_LINKS) && !Files.isRegularFile(target, LinkOption.NOFOLLOW_LINKS)) return false;
+                    continue;
+                }
+                // Exact script-generated reports are optional; resolve still rejects links before this exemption.
+                if (SaoQuickUpdate.isGeneratedDiagnostic(file.path()) && !Files.exists(target, LinkOption.NOFOLLOW_LINKS)) continue;
+                if (!Files.isRegularFile(target, LinkOption.NOFOLLOW_LINKS)) return false;
+                // Normal play rewrites settings; an installation receipt describes their seed bytes, not current size.
+                if (!SaoQuickUpdate.isGameWrittenSetting(file.path()) && Files.size(target) != file.size()) return false;
             } catch (Exception unreadable) { return false; }
         }
         return true;

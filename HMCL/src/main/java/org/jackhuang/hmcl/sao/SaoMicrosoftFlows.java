@@ -24,7 +24,7 @@ final class SaoMicrosoftFlows {
     /// Page-installed presenter; null preserves upstream UI until the new page is ready.
     static volatile SaoMicrosoftFlow.@Nullable Presenter presenter;
     /// Latest presented flow; superseded continuations must never fire later.
-    private static @Nullable SaoMicrosoftFlow active;
+    private static @Nullable SaoMicrosoftPresentation active;
     /// Identifies the latest presentation, including stock-dialog fallbacks.
     private static long presentationGeneration;
     /// Utility class.
@@ -51,18 +51,19 @@ final class SaoMicrosoftFlows {
             Controllers.dialog(pane);
             return () -> { if (presentationGeneration == id) ++presentationGeneration; };
         }
-        SaoMicrosoftFlow flow = SaoServices.service().microsoftSignIn();
-        active = flow;
-        observe(flow, () -> {
+        SaoMicrosoftPresentation session = new SaoMicrosoftPresentation(
+                () -> SaoServices.service().microsoftSignIn(), () -> {
             if (id == presentationGeneration) { active = null; onDone.run(); }
         }, message -> {
             if (id == presentationGeneration) active = null;
             onFailure.accept(message);
         });
-        try { installed.present(flow); }
-        catch (RuntimeException failure) { flow.cancel(); throw failure; }
-        return flow::cancel;
+        active = session;
+        try { installed.present(session, session::cancel); }
+        catch (RuntimeException failure) { session.cancel(); throw failure; }
+        return session::cancel;
     }
+
     /// Listens until one terminal state, including an already-completed scripted flow.
     static void observe(SaoMicrosoftFlow flow, Runnable onDone, Consumer<String> onFailure) {
         ChangeListener<SaoMicrosoftFlow.State> listener = new ChangeListener<>() {
