@@ -1,3 +1,20 @@
+/*
+ * Hello Minecraft! Launcher
+ * Copyright (C) 2026 huangyuhui <huanghongxun2008@126.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 package org.jackhuang.hmcl.sao;
 
@@ -18,7 +35,6 @@ import java.util.*;
 import java.util.jar.*;
 import java.util.zip.*;
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -215,7 +231,9 @@ class SaoReleaseSignaturesTest {
 
     /// Fully valid pinned JAR and quick candidates remain unusable from unsigned metadata; signed controls accept both.
     @Test void unsignedMetadataNeverAuthorizesSelfUpdateOrQuickDrops() throws Exception {
-        String futureVersion = Metadata.VERSION + ".1";
+        int revisionStart = Metadata.VERSION.lastIndexOf('.') + 1;
+        int revision = Integer.parseInt(Metadata.VERSION.substring(revisionStart));
+        String futureVersion = Metadata.VERSION.substring(0, revisionStart) + (revision + 1);
         Path jar = launcherJar(futureVersion), old = pack("old.zip", "0.8", "old"), next = pack("next.zip", "0.8.1", "new");
         Path quick = temporary.resolve("quick.zip"), root = temporary.resolve("launcher");
         SaoData.QuickRelease edge = SaoUpdateBuilder.build(old, next, quick, Map.of(), null, null);

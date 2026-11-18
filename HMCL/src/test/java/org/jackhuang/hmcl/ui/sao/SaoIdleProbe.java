@@ -1,8 +1,21 @@
 /*
- * 刀剑神域·誓约 启动器, a fork of Hello Minecraft! Launcher
+ * Hello Minecraft! Launcher
  * Copyright (C) 2026 huangyuhui <huanghongxun2008@126.com> and contributors
- * Licensed under the GNU General Public License v3 or later; see the LICENSE file.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+// 刀剑神域·誓约 启动器, a fork of Hello Minecraft! Launcher
 package org.jackhuang.hmcl.ui.sao;
 
 import com.sun.javafx.scene.NodeHelper;
@@ -73,6 +86,8 @@ public final class SaoIdleProbe {
 
         Method sync = Scene.class.getDeclaredMethod("doCSSLayoutSyncForSnapshot", Node.class);
         sync.setAccessible(true);
+        Method clearDirty = NGNode.class.getDeclaredMethod("clearDirty");
+        clearDirty.setAccessible(true);
         Field renderSG = Class.forName("com.sun.javafx.sg.prism.NGSubScene").getDeclaredField("renderSG");
         renderSG.setAccessible(true);
         Field worldField = SaoHelmetPage.class.getDeclaredField("world");
@@ -97,7 +112,7 @@ public final class SaoIdleProbe {
                     if (renderSG.getBoolean(NodeHelper.getPeer(world))) worldRenders++;
                     if (character[0] != null && renderSG.getBoolean(NodeHelper.getPeer(character[0]))) characterRenders++;
                     scene[0].snapshot(img);
-                    root.clearDirty();
+                    clearDirty.invoke(root);
                 } catch (ReflectiveOperationException e) {
                     throw new IllegalStateException(e);
                 }
@@ -138,9 +153,11 @@ public final class SaoIdleProbe {
 
     private static SubScene find(Node n, SubScene not) {
         if (n instanceof SubScene s && s != not) return s;
-        if (n instanceof javafx.scene.Parent p) for (Node c : p.getChildrenUnmodifiable()) {
-            SubScene s = find(c, not);
-            if (s != null) return s;
+        if (n instanceof javafx.scene.Parent p) {
+            for (Node c : p.getChildrenUnmodifiable()) {
+                SubScene s = find(c, not);
+                if (s != null) return s;
+            }
         }
         return null;
     }
