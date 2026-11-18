@@ -1,3 +1,20 @@
+/*
+ * Hello Minecraft! Launcher
+ * Copyright (C) 2026 huangyuhui <huanghongxun2008@126.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 package org.jackhuang.hmcl.sao;
 
@@ -60,6 +77,7 @@ final class SaoGameProcesses {
     interface Running {
         /// Whether this exact process still exists.
         boolean alive();
+
         /// Ends only this process and waits for confirmed exit, escalating after a short grace period.
         void end() throws Exception;
     }
@@ -83,6 +101,7 @@ final class SaoGameProcesses {
                     .filter(p -> matches(p.info(), instance, windows)).<Running>map(p -> new Running() {
                         /// Reuses the captured OS handle rather than looking up a numeric PID again.
                         @Override public boolean alive() { return p.isAlive(); }
+
                         /// Revalidates the readable instance command immediately before signaling.
                         @Override public void end() throws Exception {
                             if (!p.isAlive()) return;
@@ -108,6 +127,7 @@ final class SaoGameProcesses {
             result.add(new Running() {
                 /// Both the PID and creation time must still identify the captured process.
                 @Override public boolean alive() { return sameLifetime(handle, command); }
+
                 /// Requeries command ownership before signaling; never terminates by executable name alone.
                 @Override public void end() throws Exception {
                     if (!alive()) return;

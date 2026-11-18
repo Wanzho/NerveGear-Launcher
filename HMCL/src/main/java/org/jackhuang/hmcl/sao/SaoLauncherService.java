@@ -1,8 +1,21 @@
 /*
- * 刀剑神域·誓约 启动器, a fork of Hello Minecraft! Launcher
+ * Hello Minecraft! Launcher
  * Copyright (C) 2026 huangyuhui <huanghongxun2008@126.com> and contributors
- * Licensed under the GNU General Public License v3 or later; see SaoPackState.java for the full notice.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+// 刀剑神域·誓约 启动器, a fork of Hello Minecraft! Launcher
 package org.jackhuang.hmcl.sao;
 
 import javafx.beans.property.ReadOnlyDoubleProperty;
@@ -33,7 +46,6 @@ public interface SaoLauncherService {
         /// Carries the localized active-task explanation to asynchronous callers.
         public OperationBusyException(String message) { super(message); }
     }
-
 
     /// Current game-data root; production overrides the fixture fallback.
     default Path gameDataRoot() { return instanceDir(); }
@@ -68,7 +80,6 @@ public interface SaoLauncherService {
 
     /// Starts headless Microsoft OAuth and immediately opens the browser; the page owns presentation.
     default SaoMicrosoftFlow microsoftSignIn() { return SaoMicrosoftFlows.start(); }
-
 
     /// The pack's state; drives what Link Start does and what the screen shows.
     ReadOnlyObjectProperty<SaoPackState> state();
@@ -244,7 +255,6 @@ public interface SaoLauncherService {
 
     /// Returns and consumes the previous unclean launcher exit notice.
     default boolean consumePreviousCrash() { return false; }
-
 
     /// Stable, read-only, last-good community actions; defaults are 爱发电, the shared 夸克网盘 and QQ群.
     /// Render non-null copy values as numbers with a copy button; only non-null URLs are browser actions.
@@ -720,7 +730,7 @@ public interface SaoLauncherService {
     default void loadOlderMessages(String chatId) { }
 
     /// Exact destinations currently offered by this launcher; invitations never add arbitrary hosts.
-    default @org.jetbrains.annotations.Unmodifiable List<String> knownServers() { var result=new java.util.ArrayList<String>();result.add(serverAddress());result.addAll(serverNodes());return List.copyOf(result); }
+    default @org.jetbrains.annotations.Unmodifiable List<String> knownServers() { var result = new java.util.ArrayList<String>();result.add(serverAddress());result.addAll(serverNodes()); return List.copyOf(result); }
 
     /// Marks a conversation read (it is open on screen).
     default void markRead(String chatId) {
@@ -780,14 +790,17 @@ public interface SaoLauncherService {
     default ReadOnlyObjectProperty<@Nullable SaoMicrosoftIdentity> microsoftIdentity() {
         return new javafx.beans.property.ReadOnlyObjectWrapper<@Nullable SaoMicrosoftIdentity>().getReadOnlyProperty();
     }
+
     /// ARGUS admission state; the screen may show the reason while displaying Microsoft's identity.
     default ReadOnlyObjectProperty<SaoOathLinking> oathLinking() {
         return new javafx.beans.property.ReadOnlyObjectWrapper<>(SaoOathLinking.idle()).getReadOnlyProperty();
     }
+
     /// True while Link Start is waiting for ARGUS; use the existing sign-in waiting presentation.
     default javafx.beans.property.ReadOnlyBooleanProperty oathLinkWaiting() {
         return new javafx.beans.property.ReadOnlyBooleanWrapper().getReadOnlyProperty();
     }
+
     /// Cancels background Microsoft-to-ARGUS admission and clears its display identity.
     default void cancelOathLinking() { }
 

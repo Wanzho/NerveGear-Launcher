@@ -1,3 +1,20 @@
+/*
+ * Hello Minecraft! Launcher
+ * Copyright (C) 2026 huangyuhui <huanghongxun2008@126.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 package org.jackhuang.hmcl.sao;
 
@@ -24,6 +41,7 @@ final class SaoOathLaunchAccount extends AuthlibInjectorAccount {
         /// Creates one owner-only launch handoff; all ticket bytes remain out of arguments and logs.
         SaoOathLaunchTicket issue(Path instance, String server) throws Exception;
     }
+
     /// The exact refreshed session whose stable profile was checked by GET /sao/account.
     private final YggdrasilSession session;
     /// The bounded same-origin transport used for the final launch validation.
@@ -52,8 +70,10 @@ final class SaoOathLaunchAccount extends AuthlibInjectorAccount {
 
     /// The public issuing API namespace for local play-time accounting.
     URI apiRoot() { return URI.create(api); }
+
     /// Stable ARGUS ID profile key, preserved across nickname changes.
     String profileId() { return session.getSelectedProfile().getId().toString().replace("-", ""); }
+
     /// Mints a ticket immediately before process construction, refusing stale prepared accounts.
     SaoOathLaunchTicket ticket(Path instance, String server) throws Exception {
         if (!active.getAsBoolean()) throw new SaoAccountException("请重新登录 ARGUS ID", "invalidSession");
@@ -105,8 +125,10 @@ final class SaoOathLaunchAccount extends AuthlibInjectorAccount {
 
     /// Refuses HMCL's offline fallback so an invalid SAO account can never launch with an offline identity.
     @Override public AuthInfo playOffline() throws AuthenticationException { throw new AuthenticationException("请重新登录 ARGUS ID"); }
+
     /// Password exchange belongs to the SAO account API; the game launch pipeline cannot initiate another login.
     @Override public AuthInfo logInWithPassword(String password) throws AuthenticationException { throw new AuthenticationException("请在 ARGUS ID 窗口重新登录"); }
+
     /// Refuses accidental persistence of the memory-only SAO token in HMCL account stores.
     @Override public void writePrivateData(JsonObject output) { throw new IllegalStateException("ARGUS ID 会话不能保存到磁盘"); }
 

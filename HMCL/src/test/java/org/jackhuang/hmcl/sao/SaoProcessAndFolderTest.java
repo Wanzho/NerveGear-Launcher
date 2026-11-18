@@ -1,3 +1,20 @@
+/*
+ * Hello Minecraft! Launcher
+ * Copyright (C) 2026 huangyuhui <huanghongxun2008@126.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 package org.jackhuang.hmcl.sao;
 
@@ -92,6 +109,7 @@ class SaoProcessAndFolderTest {
             SaoGameProcesses.Running old = new SaoGameProcesses.Running() {
                 /// Reads the synthetic old-process state.
                 @Override public boolean alive() { return alive.get(); }
+
                 /// Ends no OS process.
                 @Override public void end() { alive.set(false); }
             };
@@ -213,8 +231,10 @@ class SaoProcessAndFolderTest {
         Runnable prepare = () -> { };
         /// Records dependency preparation and runs only the injected fixture.
         @Override public void ensureInstalled(boolean repair) { installs.incrementAndGet(); prepare.run(); }
+
         /// Dependencies are synthetic and ready.
         @Override public @Nullable String missing() { return null; }
+
         /// Delivers the same process/exit listener contract as HMCL.
         @Override public void launch(Account account, SaoPackManifest manifest, int memory, SaoData.GameWindow window,
                 String args, char @Nullable [] password, boolean offline, @Nullable String server,
@@ -236,22 +256,31 @@ class SaoProcessAndFolderTest {
         Runnable exit = () -> { };
         /// No input is sent to a child.
         @Override public OutputStream getOutputStream() { return OutputStream.nullOutputStream(); }
+
         /// No child output exists.
         @Override public InputStream getInputStream() { return InputStream.nullInputStream(); }
+
         /// No child error output exists.
         @Override public InputStream getErrorStream() { return InputStream.nullInputStream(); }
+
         /// A termination has already completed synchronously.
         @Override public int waitFor() { return exitValue(); }
+
         /// Reports whether the synchronous termination occurred.
         @Override public boolean waitFor(long timeout, TimeUnit unit) { return !alive; }
+
         /// Implements Process's running-state contract.
         @Override public int exitValue() { if (alive) throw new IllegalThreadStateException(); return 0; }
+
         /// Completes the synthetic exit only once.
         @Override public void destroy() { if (alive) { terminate(); exit.run(); } }
+
         /// Ends the game without completing diagnostics.
         void terminate() { alive = false; exited.run(); }
+
         /// No OS force operation is needed.
         @Override public Process destroyForcibly() { destroy(); return this; }
+
         /// Returns synthetic liveness.
         @Override public boolean isAlive() { return alive; }
     }

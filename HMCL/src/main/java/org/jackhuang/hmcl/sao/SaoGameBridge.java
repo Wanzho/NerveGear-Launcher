@@ -1,8 +1,21 @@
 /*
- * 刀剑神域·誓约 启动器, a fork of Hello Minecraft! Launcher
- * Copyright (C) 2026 huangyuhui and contributors
- * Licensed under the GNU General Public License v3 or later.
+ * Hello Minecraft! Launcher
+ * Copyright (C) 2026 huangyuhui <huanghongxun2008@126.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+// 刀剑神域·誓约 启动器, a fork of Hello Minecraft! Launcher
 package org.jackhuang.hmcl.sao;
 
 import org.jackhuang.hmcl.Metadata;
@@ -13,7 +26,6 @@ import org.jackhuang.hmcl.auth.offline.OfflineAccount;
 import org.jackhuang.hmcl.auth.offline.OfflineAccountFactory;
 import org.jackhuang.hmcl.auth.authlibinjector.AuthlibInjectorArtifactInfo;
 import org.jackhuang.hmcl.auth.authlibinjector.AuthlibInjectorArtifactProvider;
-import org.jackhuang.hmcl.download.DefaultCacheRepository;
 import org.jackhuang.hmcl.download.DefaultDependencyManager;
 import org.jackhuang.hmcl.download.HMCLDownloadProvider;
 import org.jackhuang.hmcl.download.neoforge.NeoForgeRemoteVersion;
@@ -110,6 +122,7 @@ final class SaoGameBridge {
         @Override public AuthlibInjectorArtifactInfo getArtifactInfo() throws IOException {
             throw new IOException("Offline play does not use authlib-injector");
         }
+
         /// Reports that no authentication agent is configured for this offline account.
         @Override public Optional<AuthlibInjectorArtifactInfo> getArtifactInfoImmediately() { return Optional.empty(); }
     }
@@ -467,15 +480,18 @@ final class SaoGameBridge {
             return taskRunner.run(task, observer);
         }
     }
+
     /// Repository implementation that has exactly one isolated instance and no HMCL profile settings.
     @NotNullByDefault
     private static final class SaoRepository extends DefaultGameRepository {
         /// Creates an isolated repository at the fixed Minecraft root.
         private SaoRepository(Path directory) { super(directory); }
+
         /// Uses upstream's official assets/libraries/versions layout.
         @Override protected DefaultGameRepositoryLayout createLayout(Path directory) {
             return new DefaultGameRepositoryLayout(directory);
         }
+
         /// Wraps a repository snapshot member with a permanently isolated run directory.
         @Override protected DefaultGameInstance createInstance(DefaultGameRepositorySnapshot snapshot,
                 GameInstanceID id, GameInstanceManifest manifest, @Nullable Path manifestFile) {
@@ -491,14 +507,17 @@ final class SaoGameBridge {
                             GameInstanceManifest manifest, @Nullable Path manifestFile) {
             super(snapshot, id, manifest, manifestFile);
         }
+
         /// Preserves the manifest and path when republishing a repository snapshot.
         @Override protected DefaultGameInstance withNewSnapshot(DefaultGameRepositorySnapshot snapshot) {
             return new SaoInstance(snapshot, getId(), getManifest(), getManifestFile());
         }
+
         /// Copies this instance with the replacement manifest in the new snapshot.
         @Override protected DefaultGameInstance withManifest(DefaultGameRepositorySnapshot snapshot, GameInstanceManifest manifest) {
             return new SaoInstance(snapshot, getId(), manifest, getManifestFile());
         }
+
         /// Keeps options, saves, screenshots, skins and every mod in this launcher's fixed instance.
         @Override public Path getRunDirectory() { return getInstanceRoot(); }
     }

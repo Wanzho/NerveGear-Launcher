@@ -1,3 +1,20 @@
+/*
+ * Hello Minecraft! Launcher
+ * Copyright (C) 2026 huangyuhui <huanghongxun2008@126.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 package org.jackhuang.hmcl.sao;
 
@@ -21,6 +38,7 @@ final class SaoPremiumSkins {
     record Entry(String name, byte @Unmodifiable [] png, boolean slim) { }
     /// Utility class.
     private SaoPremiumSkins() { }
+
     /// Resolves only the official default directory; never creates it.
     static Path officialFile(String os, Path home, @Nullable String appData) {
         Path directory = os.toLowerCase(Locale.ROOT).startsWith("windows")
@@ -28,6 +46,7 @@ final class SaoPremiumSkins {
                 : os.toLowerCase(Locale.ROOT).contains("mac") ? home.resolve("Library/Application Support/minecraft") : home.resolve(".minecraft");
         return directory.resolve("launcher_custom_skins.json");
     }
+
     /// Reads a bounded object-keyed customSkins library without writing anywhere in the official directory.
     static @Unmodifiable List<Entry> local(Path file) throws IOException {
         if (!Files.exists(file, LinkOption.NOFOLLOW_LINKS)) return List.of();
@@ -50,6 +69,7 @@ final class SaoPremiumSkins {
             return List.copyOf(result);
         } catch (RuntimeException invalid) { throw new IOException("Invalid skin library"); }
     }
+
     /// Independently tries both sources, emitting at most one sanitized line per refresh.
     static @Unmodifiable List<Entry> load(@Nullable String token, Path file, SaoMicrosoftSkin.Fetch fetch) {
         List<Entry> result = new ArrayList<>(); boolean failed = false;
@@ -58,6 +78,7 @@ final class SaoPremiumSkins {
         if (failed) System.getLogger(SaoPremiumSkins.class.getName()).log(System.Logger.Level.INFO, "Premium skin library source unavailable");
         return List.copyOf(result);
     }
+
     /// Caches normalized images by content hash inside launcher data, deduplicating both sources.
     static @Unmodifiable List<SaoData.SavedSkin> cache(Path root, List<Entry> entries) throws IOException {
         Path directory = root.resolve("oath-skins/premium-library");
@@ -73,19 +94,21 @@ final class SaoPremiumSkins {
         }
         return List.copyOf(result.values());
     }
+
     /// Combines local and premium entries by normalized pixels, preferring the protected premium provenance.
     static @Unmodifiable List<SaoData.SavedSkin> merge(List<SaoData.SavedSkin> local, List<SaoData.SavedSkin> premium) {
         if (premium.isEmpty()) return List.copyOf(local);
         Map<String, SaoData.SavedSkin> result = new LinkedHashMap<>();
         List<SaoData.SavedSkin> all = new ArrayList<>(premium); all.addAll(local);
         for (SaoData.SavedSkin entry : all) try {
-            if (Files.size(entry.file()) > SaoMicrosoftSkin.LIMIT) continue;
-            try (InputStream input = Files.newInputStream(entry.file())) {
-                result.putIfAbsent(hash(SaoMicrosoftSkin.normalize(input.readNBytes(SaoMicrosoftSkin.LIMIT + 1))), entry);
-            }
-        } catch (IOException | RuntimeException ignored) { }
+                if (Files.size(entry.file()) > SaoMicrosoftSkin.LIMIT) continue;
+                try (InputStream input = Files.newInputStream(entry.file())) {
+                    result.putIfAbsent(hash(SaoMicrosoftSkin.normalize(input.readNBytes(SaoMicrosoftSkin.LIMIT + 1))), entry);
+                }
+            } catch (IOException | RuntimeException ignored) { }
         return List.copyOf(result.values());
     }
+
     /// Computes a stable image content key without source identifiers.
     private static String hash(byte[] png) {
         try { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(png)); }

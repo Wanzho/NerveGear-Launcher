@@ -1,3 +1,20 @@
+/*
+ * Hello Minecraft! Launcher
+ * Copyright (C) 2026 huangyuhui <huanghongxun2008@126.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 package org.jackhuang.hmcl.sao;
 
@@ -22,6 +39,7 @@ final class SaoUninstallHelper {
     interface Prepared {
         /// Permits cleanup after the launcher exits; no files are removed before that exit.
         void arm() throws IOException;
+
         /// Leaves all app/runtime files in place when uninstall did not reach its commit point.
         void cancel();
     }
@@ -169,6 +187,7 @@ final class SaoUninstallHelper {
                 if (!child.isAlive()) throw new IOException("卸载助手已退出，未退出启动器");
                 Files.writeString(directory.resolve("armed"), "committed", StandardOpenOption.CREATE_NEW);
             }
+
             /// The detached process exits without touching targets after seeing this marker.
             @Override public void cancel() {
                 try { Files.writeString(directory.resolve("cancelled"), "cancelled", StandardOpenOption.CREATE_NEW); }

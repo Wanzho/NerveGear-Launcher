@@ -1,8 +1,21 @@
 /*
- * 刀剑神域·誓约 启动器, a fork of Hello Minecraft! Launcher
+ * Hello Minecraft! Launcher
  * Copyright (C) 2026 huangyuhui <huanghongxun2008@126.com> and contributors
- * Licensed under the GNU General Public License v3 or later; see the LICENSE file.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+// 刀剑神域·誓约 启动器, a fork of Hello Minecraft! Launcher
 package org.jackhuang.hmcl.ui.sao;
 
 import javafx.application.Platform;
@@ -50,8 +63,8 @@ public final class SaoScreenShotTool {
         // shows, and no Microsoft app id so the sign-in dialog can never start a real sign-in or open a browser.
         Path dlgHome = Path.of(System.getProperty("user.home"), "Developer", "sao-launcher-runs", "logo45", "dlg-home");
         if (Files.exists(dlgHome)) try (var walk = Files.walk(dlgHome)) {
-            walk.sorted(java.util.Comparator.reverseOrder()).forEach(f -> f.toFile().delete());
-        }
+                walk.sorted(java.util.Comparator.reverseOrder()).forEach(f -> f.toFile().delete());
+            }
         Files.createDirectories(dlgHome);
         System.setProperty("sao.home", dlgHome.resolve("user").toString());
         System.setProperty("sao.dir", dlgHome.resolve("local").toString());
@@ -117,45 +130,45 @@ public final class SaoScreenShotTool {
         shootWire(base, false);
         // Every shot twice: 浅色 into the folder, 深色 (James, 9 Nov) into dark/.
         for (boolean dark : new boolean[]{false, true})
-        for (int[] size : sizes) {
-            Path out = dark ? base.resolve("dark") : base;
-            Files.createDirectories(out);
-            int w = size[0], h = size[1];
-            boolean win = size[2] == 1, big = w > 1500 && !win;
+            for (int[] size : sizes) {
+                Path out = dark ? base.resolve("dark") : base;
+                Files.createDirectories(out);
+                int w = size[0], h = size[1];
+                boolean win = size[2] == 1, big = w > 1500 && !win;
             // The small size and the second big one show the Windows/Linux layout of the window buttons (top right),
             // the first big one the Mac's.
-            System.setProperty("sao.windowButtons", big ? "left" : "right");
-            SaoFakeService fake = new SaoFakeService();
-            fake.setPreference("theme", dark ? "dark" : "light");
-            SaoHelmetPage[] page = new SaoHelmetPage[1];
-            Scene[] scene = new Scene[1];
-            fx(() -> {
+                System.setProperty("sao.windowButtons", big ? "left" : "right");
+                SaoFakeService fake = new SaoFakeService();
+                fake.setPreference("theme", dark ? "dark" : "light");
+                SaoHelmetPage[] page = new SaoHelmetPage[1];
+                Scene[] scene = new Scene[1];
+                fx(() -> {
                 page[0] = new SaoHelmetPage(fake);
                 scene[0] = new Scene(page[0], w, h);
             });
-            Thread.sleep(2500);
-            String p = w + "x" + h + (win ? "-win-" : "-");
-            if (win) {
+                Thread.sleep(2500);
+                String p = w + "x" + h + (win ? "-win-" : "-");
+                if (win) {
                 // Signed in, as on the Mac, with the buttons on the right.
-                fx(() -> fake.forceOath(true));
-                shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "21-home-signed-in.png"));
-                fx(() -> page[0].forceNodes());
-                Thread.sleep(500);
-                WritableImage[] im = new WritableImage[1];
-                fx(() -> im[0] = scene[0].snapshot(null));
-                write(im[0], out.resolve(p + "40-server-nodes.png"));
-                // The nickname edited in place: a free name, then a taken one.
-                for (String[] t : new String[][]{{"Kirito_Black", "41-name-edit-free"}, {"Asuna", "42-name-edit-taken"}}) {
-                    fx(() -> page[0].forceNameEdit(t[0]));
-                    Thread.sleep(900);
+                    fx(() -> fake.forceOath(true));
+                    shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "21-home-signed-in.png"));
+                    fx(() -> page[0].forceNodes());
+                    Thread.sleep(500);
+                    WritableImage[] im = new WritableImage[1];
                     fx(() -> im[0] = scene[0].snapshot(null));
-                    write(im[0], out.resolve(p + t[1] + ".png"));
-                }
+                    write(im[0], out.resolve(p + "40-server-nodes.png"));
+                // The nickname edited in place: a free name, then a taken one.
+                    for (String[] t : new String[][]{{"Kirito_Black", "41-name-edit-free"}, {"Asuna", "42-name-edit-taken"}}) {
+                        fx(() -> page[0].forceNameEdit(t[0]));
+                        Thread.sleep(900);
+                        fx(() -> im[0] = scene[0].snapshot(null));
+                        write(im[0], out.resolve(p + t[1] + ".png"));
+                    }
                 // 好友: a conversation, a group, adding a friend, a new group.
-                Object[][] friendShots = {{"d-asuna", 0, false, false, "50-friends-chat"}, {"g-fuurinkazan", 1, false, false, "51-friends-group"},
+                    Object[][] friendShots = {{"d-asuna", 0, false, false, "50-friends-chat"}, {"g-fuurinkazan", 1, false, false, "51-friends-group"},
                         {null, 0, true, false, "52-friends-add"}, {null, 1, false, true, "53-friends-new-group"}};
-                for (Object[] f : friendShots) {
-                    fx(() -> {
+                    for (Object[] f : friendShots) {
+                        fx(() -> {
                         page[0].forceApp(-1);
                         SaoFriendsApp.openFirst = (String) f[0];
                         SaoFriendsApp.tabFirst = (Integer) f[1];
@@ -163,98 +176,98 @@ public final class SaoScreenShotTool {
                         SaoFriendsApp.newGroupFirst = (Boolean) f[3];
                         page[0].forceApp(1);
                     });
-                    Thread.sleep(1300);
+                        Thread.sleep(1300);
+                        fx(() -> im[0] = scene[0].snapshot(null));
+                        write(im[0], out.resolve(p + f[4] + ".png"));
+                    }
+                    fx(() -> page[0].forceApp(-1));
+                    Thread.sleep(400);
+                    fx(() -> page[0].forceNameConfirm("Kirito_Black"));
+                    Thread.sleep(500);
                     fx(() -> im[0] = scene[0].snapshot(null));
-                    write(im[0], out.resolve(p + f[4] + ".png"));
-                }
-                fx(() -> page[0].forceApp(-1));
-                Thread.sleep(400);
-                fx(() -> page[0].forceNameConfirm("Kirito_Black"));
-                Thread.sleep(500);
-                fx(() -> im[0] = scene[0].snapshot(null));
-                write(im[0], out.resolve(p + "43-name-confirm.png"));
-            } else if (big) {
-                String[] apps = {"settings", "friends", "skin", "worlds", "multiplayer", "packs", "screenshots", "logs", "java", "downloads", "about"};
-                shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "00-home.png"));
-                for (int i = 0; i < apps.length; i++) {
-                    shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, i, out.resolve(p + String.format("%02d-%s.png", i + 1, apps[i])));
-                }
+                    write(im[0], out.resolve(p + "43-name-confirm.png"));
+                } else if (big) {
+                    String[] apps = {"settings", "friends", "skin", "worlds", "multiplayer", "packs", "screenshots", "logs", "java", "downloads", "about"};
+                    shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "00-home.png"));
+                    for (int i = 0; i < apps.length; i++) {
+                        shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, i, out.resolve(p + String.format("%02d-%s.png", i + 1, apps[i])));
+                    }
                 // 日志 after a graphics-driver crash: the card's 关闭光影 / 用独显 / 驱动 buttons (14 Nov).
-                fx(fake::forceDriverCrash);
-                shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, 7, out.resolve(p + "08b-logs-driver-crash.png"));
+                    fx(fake::forceDriverCrash);
+                    shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, 7, out.resolve(p + "08b-logs-driver-crash.png"));
                 // The skin editor over the helmet, then turned as a drag 80 px to the right would turn it.
-                shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, 2, out.resolve(p + "60-skin-library.png"));
-                fx(() -> SaoSkinApp.forceEdit.run());
-                Thread.sleep(700);
-                WritableImage[] ed = new WritableImage[1];
-                fx(() -> ed[0] = scene[0].snapshot(null));
-                write(ed[0], out.resolve(p + "61-skin-editor.png"));
-                fx(() -> SaoSkinApp.forceTurn(80));
-                Thread.sleep(300);
-                fx(() -> ed[0] = scene[0].snapshot(null));
-                write(ed[0], out.resolve(p + "62-skin-editor-dragged-right.png"));
-                fx(SaoHelmetPage::uncover);
-                Thread.sleep(300);
-                shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, 0, out.resolve(p + "20-settings-uninstall.png"));
-                fx(() -> page[0].forceDanger());
-                Thread.sleep(500);
-                WritableImage[] img = new WritableImage[1];
-                fx(() -> img[0] = scene[0].snapshot(null));
-                write(img[0], out.resolve(p + "20-settings-uninstall.png"));
+                    shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, 2, out.resolve(p + "60-skin-library.png"));
+                    fx(() -> SaoSkinApp.forceEdit.run());
+                    Thread.sleep(700);
+                    WritableImage[] ed = new WritableImage[1];
+                    fx(() -> ed[0] = scene[0].snapshot(null));
+                    write(ed[0], out.resolve(p + "61-skin-editor.png"));
+                    fx(() -> SaoSkinApp.forceTurn(80));
+                    Thread.sleep(300);
+                    fx(() -> ed[0] = scene[0].snapshot(null));
+                    write(ed[0], out.resolve(p + "62-skin-editor-dragged-right.png"));
+                    fx(SaoHelmetPage::uncover);
+                    Thread.sleep(300);
+                    shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, 0, out.resolve(p + "20-settings-uninstall.png"));
+                    fx(() -> page[0].forceDanger());
+                    Thread.sleep(500);
+                    WritableImage[] img = new WritableImage[1];
+                    fx(() -> img[0] = scene[0].snapshot(null));
+                    write(img[0], out.resolve(p + "20-settings-uninstall.png"));
                 // The battery, as the computer reports it: charging, on battery, and low (red).
-                int[][] batt = {{85, 1}, {60, 0}, {15, 0}, {12, 1}};
-                for (int[] b : batt) {
-                    SaoBattery.now = new SaoBattery.State(b[0], b[1] == 1);
-                    SaoBattery.version++;
-                    shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1,
+                    int[][] batt = {{85, 1}, {60, 0}, {15, 0}, {12, 1}};
+                    for (int[] b : batt) {
+                        SaoBattery.now = new SaoBattery.State(b[0], b[1] == 1);
+                        SaoBattery.version++;
+                        shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1,
                             out.resolve(p + "30-battery-" + b[0] + (b[1] == 1 ? "-charging" : "") + ".png"));
-                }
-                SaoBattery.now = new SaoBattery.State(100, true);
-                SaoBattery.version++;
+                    }
+                    SaoBattery.now = new SaoBattery.State(100, true);
+                    SaoBattery.version++;
                 // Signed in: 确定退出吗？; then signed out, the ARGUS ID form and the 正版 tab.
-                fx(() -> fake.forceOath(true));
-                shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "tmp.png"));
-                fx(() -> page[0].forceConfirmOut());
-                Thread.sleep(400);
-                fx(() -> img[0] = scene[0].snapshot(null));
-                write(img[0], out.resolve(p + "31-confirm-logout.png"));
-                fx(() -> {
+                    fx(() -> fake.forceOath(true));
+                    shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "tmp.png"));
+                    fx(() -> page[0].forceConfirmOut());
+                    Thread.sleep(400);
+                    fx(() -> img[0] = scene[0].snapshot(null));
+                    write(img[0], out.resolve(p + "31-confirm-logout.png"));
+                    fx(() -> {
                     fake.remembered = null;
                     fake.oathLogout();
                 });
-                shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "32-signed-out.png"));
+                    shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "32-signed-out.png"));
                 // The password typed (its dots), then the remembered one's prompt, then 离线游玩 in the right column.
-                fx(() -> page[0].forceSignIn("Kirito_07", "linkstart"));
-                shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "33-signed-out-typed.png"));
-                fx(() -> {
+                    fx(() -> page[0].forceSignIn("Kirito_07", "linkstart"));
+                    shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "33-signed-out-typed.png"));
+                    fx(() -> {
                     fake.remembered = "Kirito_07";
                     page[0].forceSignIn("", "");
                     page[0].forceSignIn("Kirito_07", "");
                 });
-                shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "34-signed-out-remembered.png"));
-                fx(() -> page[0].forceOffline(true));
-                shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "35-offline.png"));
-                fx(() -> {
+                    shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "34-signed-out-remembered.png"));
+                    fx(() -> page[0].forceOffline(true));
+                    shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "35-offline.png"));
+                    fx(() -> {
                     page[0].forceOffline(false);
                     page[0].forceSignIn("", "");
                     fake.remembered = null;
                 });
                 // 誓约账号: signed in (verified, then waiting for the code), and each page of its window.
-                fx(() -> fake.forceOath(true));
-                shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "21-home-signed-in.png"));
+                    fx(() -> fake.forceOath(true));
+                    shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "21-home-signed-in.png"));
                 // 好友在线 on one line, as many as fit and then +N (James, 9 Nov), with 0, 2, 5 and 30 friends online.
-                for (int n : new int[]{0, 2, 5, 30}) {
-                    fx(() -> fake.forceFriends(n));
-                    shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "21-home-friends-" + n + ".png"));
-                    fx(() -> {
+                    for (int n : new int[]{0, 2, 5, 30}) {
+                        fx(() -> fake.forceFriends(n));
+                        shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "21-home-friends-" + n + ".png"));
+                        fx(() -> {
                         var line = page[0].friendsLine;
                         System.out.println("friends " + n + ": " + (line == null ? "no line (没有好友在线)"
                                 : "shown " + line.shown + ", +N " + (line.more.isVisible() ? ((javafx.scene.text.Text)
                                 ((javafx.scene.layout.HBox) line.more).getChildren().get(0)).getText() : "hidden")));
                     });
-                }
+                    }
                 // +N opens 好友.
-                fx(() -> {
+                    fx(() -> {
                     var line = page[0].friendsLine;
                     if (line == null || !line.more.isVisible()) {
                         System.out.println("+N check FAILED: no +N with 30 friends");
@@ -263,61 +276,61 @@ public final class SaoScreenShotTool {
                     line.more.getOnMouseClicked().handle(null);
                     System.out.println("+N clicked");
                 });
-                Thread.sleep(1300);
-                fx(() -> img[0] = scene[0].snapshot(null));
-                write(img[0], out.resolve(p + "21-home-friends-more-clicked.png"));
-                fx(() -> page[0].forceApp(-1));
-                // 公告 in their own window (James, 9 Nov): the long 11-09 entry, then a short one replacing it.
-                for (int k : new int[]{0, 3}) {
-                    fx(() -> page[0].openNews(fake.news().get(k)));
                     Thread.sleep(1300);
                     fx(() -> img[0] = scene[0].snapshot(null));
-                    write(img[0], out.resolve(p + (k == 0 ? "70-news-long.png" : "71-news-short.png")));
-                }
-                fx(() -> page[0].forceApp(-1));
-                fx(() -> fake.forceFriends(2));
+                    write(img[0], out.resolve(p + "21-home-friends-more-clicked.png"));
+                    fx(() -> page[0].forceApp(-1));
+                // 公告 in their own window (James, 9 Nov): the long 11-09 entry, then a short one replacing it.
+                    for (int k : new int[]{0, 3}) {
+                        fx(() -> page[0].openNews(fake.news().get(k)));
+                        Thread.sleep(1300);
+                        fx(() -> img[0] = scene[0].snapshot(null));
+                        write(img[0], out.resolve(p + (k == 0 ? "70-news-long.png" : "71-news-short.png")));
+                    }
+                    fx(() -> page[0].forceApp(-1));
+                    fx(() -> fake.forceFriends(2));
                 // 外观 switches live: the same page turned to the other look without a rebuild.
-                fx(() -> page[0].setDark(!dark));
-                shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "21-home-live-switched.png"));
-                fx(() -> page[0].setDark(dark));
-                fx(() -> fake.forceOath(false));
-                shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "22-home-verify-pending.png"));
-                SaoAccountApp.Page[] pages = {SaoAccountApp.Page.REGISTER, SaoAccountApp.Page.VERIFY, SaoAccountApp.Page.FORGOT, SaoAccountApp.Page.MANAGE};
-                for (int i = 0; i < pages.length; i++) {
-                    SaoAccountApp.Page pg = pages[i];
-                    shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "tmp.png"));
-                    fx(() -> page[0].forceAccount(pg));
-                    Thread.sleep(1200);
-                    fx(() -> img[0] = scene[0].snapshot(null));
-                    write(img[0], out.resolve(p + String.format("%02d-account-%s.png", 23 + i, pg.name().toLowerCase(java.util.Locale.ROOT))));
-                }
-                Files.deleteIfExists(out.resolve(p + "tmp.png"));
+                    fx(() -> page[0].setDark(!dark));
+                    shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "21-home-live-switched.png"));
+                    fx(() -> page[0].setDark(dark));
+                    fx(() -> fake.forceOath(false));
+                    shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "22-home-verify-pending.png"));
+                    SaoAccountApp.Page[] pages = {SaoAccountApp.Page.REGISTER, SaoAccountApp.Page.VERIFY, SaoAccountApp.Page.FORGOT, SaoAccountApp.Page.MANAGE};
+                    for (int i = 0; i < pages.length; i++) {
+                        SaoAccountApp.Page pg = pages[i];
+                        shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "tmp.png"));
+                        fx(() -> page[0].forceAccount(pg));
+                        Thread.sleep(1200);
+                        fx(() -> img[0] = scene[0].snapshot(null));
+                        write(img[0], out.resolve(p + String.format("%02d-account-%s.png", 23 + i, pg.name().toLowerCase(java.util.Locale.ROOT))));
+                    }
+                    Files.deleteIfExists(out.resolve(p + "tmp.png"));
                 // 微软正版登录 (James 13 Nov: HMCL's dialog replaced): every state of a sign-in.
-                org.jackhuang.hmcl.sao.SaoMicrosoftFlow.State[] ms = {
+                    org.jackhuang.hmcl.sao.SaoMicrosoftFlow.State[] ms = {
                         new org.jackhuang.hmcl.sao.SaoMicrosoftFlow.State(org.jackhuang.hmcl.sao.SaoMicrosoftFlow.Kind.BROWSER, "https://login.live.com/oauth20_authorize.srf?client_id=x", "", "", "", "", ""),
                         new org.jackhuang.hmcl.sao.SaoMicrosoftFlow.State(org.jackhuang.hmcl.sao.SaoMicrosoftFlow.Kind.DEVICE_CODE, "", "J46BA8HC", "https://www.microsoft.com/link", "", "", ""),
                         new org.jackhuang.hmcl.sao.SaoMicrosoftFlow.State(org.jackhuang.hmcl.sao.SaoMicrosoftFlow.Kind.SIGNING_IN, "", "", "", "正在验证 Xbox 账号", "", ""),
                         new org.jackhuang.hmcl.sao.SaoMicrosoftFlow.State(org.jackhuang.hmcl.sao.SaoMicrosoftFlow.Kind.FAILED, "", "", "", "", "", "这个微软账号还没有购买 Minecraft"),
                         new org.jackhuang.hmcl.sao.SaoMicrosoftFlow.State(org.jackhuang.hmcl.sao.SaoMicrosoftFlow.Kind.DONE, "", "", "", "", "Wzho", "")};
-                String[] msNames = {"browser", "device", "signing", "failed", "done"};
-                for (boolean d : new boolean[]{false, true}) {
-                    fx(() -> page[0].setDark(d));
-                    for (int i = 0; i < ms.length; i++) {
-                        org.jackhuang.hmcl.sao.SaoMicrosoftFlow.State st = ms[i];
-                        shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "tmp.png"));
-                        fx(() -> page[0].openMicrosoft(() -> new FixedFlow(st)));
-                        Thread.sleep(1000);
-                        fx(() -> img[0] = scene[0].snapshot(null));
-                        write(img[0], out.resolve(p + String.format("%02d-microsoft-%s-%s.png", 40 + i, msNames[i], d ? "dark" : "light")));
+                    String[] msNames = {"browser", "device", "signing", "failed", "done"};
+                    for (boolean d : new boolean[]{false, true}) {
+                        fx(() -> page[0].setDark(d));
+                        for (int i = 0; i < ms.length; i++) {
+                            org.jackhuang.hmcl.sao.SaoMicrosoftFlow.State st = ms[i];
+                            shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, -1, out.resolve(p + "tmp.png"));
+                            fx(() -> page[0].openMicrosoft(() -> new FixedFlow(st)));
+                            Thread.sleep(1000);
+                            fx(() -> img[0] = scene[0].snapshot(null));
+                            write(img[0], out.resolve(p + String.format("%02d-microsoft-%s-%s.png", 40 + i, msNames[i], d ? "dark" : "light")));
+                        }
                     }
+                    fx(() -> page[0].setDark(dark));
+                    Files.deleteIfExists(out.resolve(p + "tmp.png"));
+                } else {
+                    shot(scene[0], page[0], fake, SaoPackState.WORKING, 0.42, "安装 NeoForge", 0, 0, -1, out.resolve(p + "01-home-installing.png"));
+                    shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, 0, out.resolve(p + "10-app-settings.png"));
                 }
-                fx(() -> page[0].setDark(dark));
-                Files.deleteIfExists(out.resolve(p + "tmp.png"));
-            } else {
-                shot(scene[0], page[0], fake, SaoPackState.WORKING, 0.42, "安装 NeoForge", 0, 0, -1, out.resolve(p + "01-home-installing.png"));
-                shot(scene[0], page[0], fake, SaoPackState.READY, 1, "", 0, 0, 0, out.resolve(p + "10-app-settings.png"));
             }
-        }
         Platform.exit();
         System.exit(0);
     }
@@ -325,8 +338,11 @@ public final class SaoScreenShotTool {
     /// A sign-in that stays in one state (the 微软正版登录 shots).
     private record FixedFlow(org.jackhuang.hmcl.sao.SaoMicrosoftFlow.State fixed) implements org.jackhuang.hmcl.sao.SaoMicrosoftFlow {
         @Override public javafx.beans.property.ReadOnlyObjectProperty<State> state() { return new javafx.beans.property.SimpleObjectProperty<>(fixed); }
+
         @Override public void openBrowser() { }
+
         @Override public void useDeviceCode() { }
+
         @Override public void cancel() { }
     }
 
@@ -336,8 +352,8 @@ public final class SaoScreenShotTool {
     private static void shootBoot(Path base) throws Exception {
         Path out = base.resolve("boot");
         if (Files.exists(out)) try (var walk = Files.walk(out)) {
-            walk.sorted(java.util.Comparator.reverseOrder()).forEach(f -> f.toFile().delete());
-        }
+                walk.sorted(java.util.Comparator.reverseOrder()).forEach(f -> f.toFile().delete());
+            }
         Files.createDirectories(out);
         System.setProperty("sao.windowButtons", "left");
         SaoFakeService fake = new SaoFakeService();
@@ -922,8 +938,8 @@ public final class SaoScreenShotTool {
     /// them plays at real speed (frames.txt is an ffmpeg concat list with each frame's duration).
     private static void film(Scene scene, Path dir, double totalMs, java.util.List<Cue> cues) throws Exception {
         if (Files.exists(dir)) try (var walk = Files.walk(dir)) {
-            walk.sorted(java.util.Comparator.reverseOrder()).forEach(f -> f.toFile().delete());
-        }
+                walk.sorted(java.util.Comparator.reverseOrder()).forEach(f -> f.toFile().delete());
+            }
         Files.createDirectories(dir);
         java.util.concurrent.ExecutorService writers = java.util.concurrent.Executors.newFixedThreadPool(6);
         // At most this many frames wait for their PNG; past that the film waits (memory stays small).

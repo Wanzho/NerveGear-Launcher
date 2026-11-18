@@ -1,8 +1,21 @@
 /*
- * 刀剑神域·誓约 启动器, a fork of Hello Minecraft! Launcher
+ * Hello Minecraft! Launcher
  * Copyright (C) 2026 huangyuhui <huanghongxun2008@126.com> and contributors
- * Licensed under the GNU General Public License v3 or later; see the LICENSE file.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+// 刀剑神域·誓约 启动器, a fork of Hello Minecraft! Launcher
 package org.jackhuang.hmcl.ui.sao;
 
 import com.sun.jna.Structure;
@@ -79,7 +92,7 @@ final class SaoBattery {
 
     private static final Pattern PMSET = Pattern.compile("(\\d{1,3})%;\\s*([a-zA-Z ]+)");
 
-    /// Reads `pmset -g batt`: "Now drawing from 'AC Power'" then "-InternalBattery-0 (id=…)	85%; charging; …".
+    /// Reads `pmset -g batt`: "Now drawing from 'AC Power'" then "-InternalBattery-0 (id=…) 85%; charging; …".
     static State parsePmset(String out) {
         boolean ac = out.contains("'AC Power'");
         Matcher m = PMSET.matcher(out);

@@ -1,3 +1,20 @@
+/*
+ * Hello Minecraft! Launcher
+ * Copyright (C) 2026 huangyuhui <huanghongxun2008@126.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 package org.jackhuang.hmcl.sao;
 
@@ -183,9 +200,9 @@ final class SaoExistingMinecraft {
         private List<Path> others() {
             @Nullable List<Path> o = others;
             if (o == null) synchronized (this) {
-                o = others;
-                if (o == null) { try { o = List.copyOf(search.get()); } catch (RuntimeException failure) { o = List.of(); } others = o; }
-            }
+                    o = others;
+                    if (o == null) { try { o = List.copyOf(search.get()); } catch (RuntimeException failure) { o = List.of(); } others = o; }
+                }
             List<Path> all = new ArrayList<>(SaoOfflineBundle.sources(dataRoot));
             all.addAll(o);
             return all;
@@ -255,17 +272,17 @@ final class SaoExistingMinecraft {
         /// Copies only matching content; source mutation during copying is detected afterward.
         private Optional<Path> borrow(List<String> places, String hash) {
             for (Path other : others()) for (String rel : places) {
-                Path file = other.resolve(rel).normalize();
-                if (!file.startsWith(other) || !Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) continue;
-                try {
-                    if (!file.toRealPath().startsWith(other.toRealPath())) continue;
-                    if (!DigestUtils.digestToString(SHA1, file).equalsIgnoreCase(hash)) continue;
-                    Path copy = cacheFile(file, SHA1, hash);
-                    if (!DigestUtils.digestToString(SHA1, copy).equalsIgnoreCase(hash)) { Files.deleteIfExists(copy); continue; }
-                    reused.incrementAndGet();
-                    return Optional.of(copy);
-                } catch (IOException | RuntimeException unreadable) { /* try the next folder */ }
-            }
+                    Path file = other.resolve(rel).normalize();
+                    if (!file.startsWith(other) || !Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) continue;
+                    try {
+                        if (!file.toRealPath().startsWith(other.toRealPath())) continue;
+                        if (!DigestUtils.digestToString(SHA1, file).equalsIgnoreCase(hash)) continue;
+                        Path copy = cacheFile(file, SHA1, hash);
+                        if (!DigestUtils.digestToString(SHA1, copy).equalsIgnoreCase(hash)) { Files.deleteIfExists(copy); continue; }
+                        reused.incrementAndGet();
+                        return Optional.of(copy);
+                    } catch (IOException | RuntimeException unreadable) { /* try the next folder */ }
+                }
             return Optional.empty();
         }
     }

@@ -1,3 +1,20 @@
+/*
+ * Hello Minecraft! Launcher
+ * Copyright (C) 2026 huangyuhui <huanghongxun2008@126.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 package org.jackhuang.hmcl.sao;
 
@@ -23,28 +40,28 @@ final class SaoWindowsPrivatePaths {
 
     /// Lists only the owned launcher root through the instance; never touches its parent, home or drive ACL.
     static @Unmodifiable List<Path> plan(Path root, Path instance) throws IOException {
-        Path base=root.toAbsolutePath().normalize(), target=instance.toAbsolutePath().normalize();
-        if(base.getParent()==null||!target.startsWith(base))throw new IOException("启动凭证目录不在启动器内");
-        var paths=new ArrayList<Path>();paths.add(base);Path next=base;
-        for(Path part:base.relativize(target)){next=next.resolve(part);if(!next.equals(base))paths.add(next);}
+        Path base = root.toAbsolutePath().normalize(), target = instance.toAbsolutePath().normalize();
+        if (base.getParent() == null || !target.startsWith(base))throw new IOException("启动凭证目录不在启动器内");
+        var paths = new ArrayList<Path>();paths.add(base);Path next = base;
+        for (Path part:base.relativize(target)) { next = next.resolve(part); if (!next.equals(base))paths.add(next); }
         return List.copyOf(paths);
     }
 
     /// Builds an owner-only inheritable full-control ACL; SYSTEM and Administrators receive no exception.
     static String descriptor(String sid, boolean directory) {
-        if(!sid.matches("S-1-[0-9]+(?:-[0-9]+)+"))throw new IllegalArgumentException("Invalid owner SID");
-        return "D:P(A;"+(directory?"OICI":"")+";FA;;;"+sid+")";
+        if (!sid.matches("S-1-[0-9]+(?:-[0-9]+)+"))throw new IllegalArgumentException("Invalid owner SID");
+        return "D:P(A;" + (directory ? "OICI" : "") + ";FA;;;" + sid + ")";
     }
 
     /// Protects every launcher-owned ancestor before any ticket bytes are written; protection remains after exit.
     static void prepare(Path root,Path instance) throws IOException {
-        if(!Platform.isWindows())return;
-        Path existing=root.toAbsolutePath().normalize();
-        while(existing.getParent()!=null&&!Files.exists(existing))existing=existing.getParent();
+        if (!Platform.isWindows()) return;
+        Path existing = root.toAbsolutePath().normalize();
+        while (existing.getParent() != null && !Files.exists(existing))existing = existing.getParent();
         // FAT/exFAT drives (USB sticks) keep no permissions, so the ticket cannot be made private there.
-        if(!Files.getFileStore(existing).supportsFileAttributeView(java.nio.file.attribute.AclFileAttributeView.class))
+        if (!Files.getFileStore(existing).supportsFileAttributeView(java.nio.file.attribute.AclFileAttributeView.class))
             throw new IOException("启动器所在磁盘不支持权限保护（如 exFAT U 盘），请把启动器放到 NTFS 磁盘");
-        for(Path directory:plan(root,instance)){
+        for (Path directory:plan(root,instance)) {
             SaoUninstaller.rejectLinksBelowRoot(directory);
             Files.createDirectories(directory);
             protect(directory,true);
@@ -63,25 +80,25 @@ final class SaoWindowsPrivatePaths {
 
     /// Applies and verifies the native DACL, retaining detailed failures for the launch log.
     private static void protectNative(Path path, boolean directory) throws IOException {
-        WindowsSecurity api=Native.load("Advapi32",WindowsSecurity.class);
-        WindowsKernel kernel=Native.load("Kernel32",WindowsKernel.class);
-        String current=currentSid(api,kernel);
-        var owner=new PointerByReference();var security=new PointerByReference();
-        int status=api.GetNamedSecurityInfoW(new WString(path.toAbsolutePath().toString()),1,1,owner,null,null,null,security);
-        if(status!=0)throw new IOException("GetNamedSecurityInfoW(owner) failed: " + status);
-        try{
-            @Nullable Pointer ownerSid=owner.getValue();
-            if(ownerSid==null)throw new IOException("无法读取启动凭证目录所有者");
+        WindowsSecurity api = Native.load("Advapi32",WindowsSecurity.class);
+        WindowsKernel kernel = Native.load("Kernel32",WindowsKernel.class);
+        String current = currentSid(api,kernel);
+        var owner = new PointerByReference();var security = new PointerByReference();
+        int status = api.GetNamedSecurityInfoW(new WString(path.toAbsolutePath().toString()),1,1,owner,null,null,null,security);
+        if (status != 0)throw new IOException("GetNamedSecurityInfoW(owner) failed: " + status);
+        try {
+            @Nullable Pointer ownerSid = owner.getValue();
+            if (ownerSid == null)throw new IOException("无法读取启动凭证目录所有者");
             // A folder first created by "以管理员身份运行" is owned by Administrators; that owner is accepted too.
-            String found=sid(api,kernel,ownerSid);
-            if(!current.equals(found)&&!found.equals(ADMINISTRATORS))throw new IOException("启动凭证目录属于其他用户");
+            String found = sid(api,kernel,ownerSid);
+            if (!current.equals(found) && !found.equals(ADMINISTRATORS))throw new IOException("启动凭证目录属于其他用户");
         }
-        finally{kernel.LocalFree(security.getValue());}
-        try{verify(path,api,kernel);return;}catch(IOException changed){ /* First use or changed permissions require a protected replacement. */ }
-        var descriptor=new PointerByReference();
-        if(!api.ConvertStringSecurityDescriptorToSecurityDescriptorW(new WString(descriptor(current,directory)),1,descriptor,null))throw new IOException("ConvertStringSecurityDescriptorToSecurityDescriptorW failed: " + kernel.GetLastError());
-        try{if(!api.SetFileSecurityW(new WString(path.toAbsolutePath().toString()),PROTECTED_DACL,descriptor.getValue()))throw new IOException("SetFileSecurityW failed: " + kernel.GetLastError());}
-        finally{kernel.LocalFree(descriptor.getValue());}
+        finally { kernel.LocalFree(security.getValue()); }
+        try { verify(path,api,kernel); return; } catch (IOException changed){ /* First use or changed permissions require a protected replacement. */ }
+        var descriptor = new PointerByReference();
+        if (!api.ConvertStringSecurityDescriptorToSecurityDescriptorW(new WString(descriptor(current,directory)),1,descriptor,null))throw new IOException("ConvertStringSecurityDescriptorToSecurityDescriptorW failed: " + kernel.GetLastError());
+        try { if (!api.SetFileSecurityW(new WString(path.toAbsolutePath().toString()),PROTECTED_DACL,descriptor.getValue()))throw new IOException("SetFileSecurityW failed: " + kernel.GetLastError()); }
+        finally { kernel.LocalFree(descriptor.getValue()); }
         verify(path,api,kernel);
     }
 
@@ -161,22 +178,22 @@ final class SaoWindowsPrivatePaths {
 
     /// Obtains the current process token's user SID, independent of localized account names.
     private static String currentSid(WindowsSecurity api,WindowsKernel kernel)throws IOException {
-        var token=new PointerByReference();
-        if(!api.OpenProcessToken(kernel.GetCurrentProcess(),8,token))throw new IOException("无法读取当前用户");
-        try{
-            var needed=new IntByReference();api.GetTokenInformation(token.getValue(),1,null,0,needed);
-            if(needed.getValue()<Native.POINTER_SIZE||needed.getValue()>65536)throw new IOException("当前用户信息无效");
-            try(var buffer=new Memory(needed.getValue())){
-                if(!api.GetTokenInformation(token.getValue(),1,buffer,(int)buffer.size(),needed))throw new IOException("无法读取当前用户");
+        var token = new PointerByReference();
+        if (!api.OpenProcessToken(kernel.GetCurrentProcess(),8,token))throw new IOException("无法读取当前用户");
+        try {
+            var needed = new IntByReference();api.GetTokenInformation(token.getValue(),1,null,0,needed);
+            if (needed.getValue() < Native.POINTER_SIZE || needed.getValue() > 65536)throw new IOException("当前用户信息无效");
+            try (var buffer = new Memory(needed.getValue())) {
+                if (!api.GetTokenInformation(token.getValue(),1,buffer,(int)buffer.size(),needed))throw new IOException("无法读取当前用户");
                 return sid(api,kernel,Objects.requireNonNull(buffer.getPointer(0)));
             }
-        }finally{kernel.CloseHandle(token.getValue());}
+        } finally { kernel.CloseHandle(token.getValue()); }
     }
 
     /// Converts an owned native SID into its canonical public identifier and frees the native string.
     private static String sid(WindowsSecurity api,WindowsKernel kernel,Pointer value)throws IOException {
-        var text=new PointerByReference();if(!api.ConvertSidToStringSidW(value,text))throw new IOException("用户标识无效");
-        try{return Objects.requireNonNull(text.getValue()).getWideString(0);}finally{kernel.LocalFree(text.getValue());}
+        var text = new PointerByReference(); if (!api.ConvertSidToStringSidW(value,text))throw new IOException("用户标识无效");
+        try { return Objects.requireNonNull(text.getValue()).getWideString(0); } finally { kernel.LocalFree(text.getValue()); }
     }
 
     /// Native security functions used without shell commands or application registration values.
@@ -184,34 +201,47 @@ final class SaoWindowsPrivatePaths {
     interface WindowsSecurity extends StdCallLibrary {
         /// Reads owner or DACL plus an allocated security descriptor.
         int GetNamedSecurityInfoW(WString path,int type,int information,@Nullable PointerByReference owner,@Nullable PointerByReference group,@Nullable PointerByReference dacl,@Nullable PointerByReference sacl,PointerByReference descriptor);
+
         /// Validates the ACL header and ACE boundaries before reading native fields.
         boolean IsValidAcl(Pointer acl);
+
         /// Reads ACL_SIZE_INFORMATION (class 2) without depending on the ACL header layout.
         boolean GetAclInformation(Pointer acl, Pointer information, int length, int informationClass);
+
         /// Returns a borrowed ACE pointer valid until the containing security descriptor is freed.
         boolean GetAce(Pointer acl, int index, PointerByReference ace);
+
         /// Parses the protected owner-only DACL.
         boolean ConvertStringSecurityDescriptorToSecurityDescriptorW(WString text,int revision,PointerByReference result,@Nullable IntByReference size);
+
         /// Applies the complete protected DACL.
         boolean SetFileSecurityW(WString path,int information,@Nullable Pointer descriptor);
+
         /// Checks whether inheritance is disabled.
         boolean GetSecurityDescriptorControl(@Nullable Pointer descriptor,ShortByReference control,IntByReference revision);
+
         /// Opens the process token for TOKEN_QUERY only.
         boolean OpenProcessToken(@Nullable Pointer process,int access,PointerByReference token);
+
         /// Reads TokenUser into bounded memory.
         boolean GetTokenInformation(@Nullable Pointer token,int type,@Nullable Pointer data,int length,IntByReference needed);
+
         /// Allocates a canonical SID string.
         boolean ConvertSidToStringSidW(Pointer value,PointerByReference result);
     }
+
     /// Minimal native allocation and token-handle lifecycle.
     @NotNullByDefault
     interface WindowsKernel extends StdCallLibrary {
         /// Returns the calling thread's last native error code immediately after a failed Win32 call.
         int GetLastError();
+
         /// Returns the current-process pseudo-handle.
         @Nullable Pointer GetCurrentProcess();
+
         /// Frees memory allocated by the security APIs.
         @Nullable Pointer LocalFree(@Nullable Pointer memory);
+
         /// Releases an opened token handle.
         boolean CloseHandle(@Nullable Pointer handle);
     }

@@ -1,8 +1,21 @@
 /*
  * Hello Minecraft! Launcher
- * Copyright (C) 2025 huangyuhui and contributors
- * SPDX-License-Identifier: GPL-3.0-or-later
+ * Copyright (C) 2025 huangyuhui <huanghongxun2008@126.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+// SPDX-License-Identifier: GPL-3.0-or-later
 package org.jackhuang.hmcl.terracotta;
 
 import com.google.gson.JsonObject;
@@ -29,7 +42,6 @@ import java.time.Duration;
 import java.util.concurrent.*;
 import java.util.function.Consumer;
 import java.util.function.BiConsumer;
-import java.util.Map;
 import java.util.List;
 
 /// HMCL Terracotta transport, started only by the dedicated SAO host/join actions.
@@ -49,22 +61,31 @@ public final class TerracottaManager {
 
     /// Returns state without accessing TerracottaMetadata or constructing a worker.
     public static ReadOnlyObjectProperty<TerracottaState> stateProperty() { return STATE.getReadOnlyProperty(); }
+
     /// Legacy UI page visibility cannot start or resume a transport.
     public static void switchDaemon(boolean active) { }
+
     /// Legacy bundle pickers remain disabled; only the dedicated room action installs verified upstream bundles.
     public static boolean isInvalidBundle(Path file) { return true; }
+
     /// Legacy UI cannot download eagerly.
     public static TerracottaState.@Nullable Preparing download() { return null; }
+
     /// Legacy UI cannot install a package or start a process.
     public static TerracottaState.@Nullable Preparing install(Path bundle) { return null; }
+
     /// Legacy recovery is side-effect-free; host/join retries create a new session after leave.
     public static TerracottaState recover() { return STATE.get(); }
+
     /// Returns no remote logs through legacy UI; the SAO game-log export is a separate sanitized path.
     public static Task<@Nullable String> exportLogs() { return Task.completed(null); }
+
     /// Legacy navigation cannot send control requests.
     public static TerracottaState.@Nullable Waiting setWaiting() { return null; }
+
     /// LAN scanning is started only by the dedicated host action.
     public static TerracottaState.@Nullable HostScanning setScanning() { return null; }
+
     /// Joining is started only by the dedicated join action.
     public static @Nullable Task<TerracottaState.GuestConnecting> setGuesting(String room) { return null; }
 
@@ -103,8 +124,10 @@ public final class TerracottaManager {
     interface RoomSession {
         /// Starts only after a host/join action has reserved this session.
         void start();
+
         /// Observes package transfers; lifecycle fixtures without downloads can keep the default no-op.
         default void observeDownloads(BiConsumer<Task<?>, org.jackhuang.hmcl.sao.SaoDownloadTasks.Status> observer) { }
+
         /// Cancels pending work and terminates the session's process.
         void close();
     }
@@ -202,6 +225,7 @@ public final class TerracottaManager {
                 Path bundle = java.util.Objects.requireNonNull(execute(provider.download(new AbstractTerracottaProvider.DownloadContext() {
                     /// Download progress stays in HMCL's task graph; no UI dialog is created here.
                     @Override public void bindProgress(javafx.beans.value.ObservableDoubleValue progress) { }
+
                     /// Aborts package transfer immediately after leave/shutdown.
                     @Override public void checkCancellation() { if (closed) throw new CancellationException(); }
                 })), "Terracotta download returned no bundle");

@@ -1,3 +1,20 @@
+/*
+ * Hello Minecraft! Launcher
+ * Copyright (C) 2026 huangyuhui <huanghongxun2008@126.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 package org.jackhuang.hmcl.sao;
 
@@ -36,14 +53,17 @@ public final class SaoGameLocation {
         /// Inspects the nearest existing ancestor without creating the target.
         Volume inspect(Path path) throws IOException;
     }
+
     /// Transaction callbacks; rollback must restore the old in-memory components and persisted pointer.
     @NotNullByDefault
     interface Switch {
         /// Persists and binds the selected root.
         void select(Path root) throws Exception;
+
         /// Rechecks the new game's readiness, without downloading.
         boolean ready() throws Exception;
     }
+
     /// Copies one file; injectable to exercise partial-write failures.
     @NotNullByDefault
     @FunctionalInterface
@@ -105,7 +125,7 @@ public final class SaoGameLocation {
                     || part.equals("box") || part.equals("nutstore")) throw new IOException("不能选择 OneDrive 或其他同步文件夹");
         }
         for (Path sync : synced) if (target.startsWith(sync.toAbsolutePath().normalize()))
-            throw new IOException("不能选择 OneDrive 或其他同步文件夹");
+                throw new IOException("不能选择 OneDrive 或其他同步文件夹");
         if (windows && (long) target.toString().length() + 1 + Math.max(180, deepest) >= 250)
             throw new IOException("路径太长，游戏最深路径必须少于 250 个字符，请选更短的文件夹");
         Volume store = probe.inspect(target);
@@ -190,6 +210,7 @@ public final class SaoGameLocation {
                     if (!dir.toRealPath().equals(dir.toAbsolutePath().normalize())) throw new IOException("游戏目录包含链接: " + dir);
                     return FileVisitResult.CONTINUE;
                 }
+
                 /// Includes every regular file, including all player saves and options.
                 @Override public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
                     if (!attrs.isRegularFile() || attrs.isSymbolicLink()) throw new IOException("游戏目录包含非普通文件: " + file);
@@ -234,7 +255,7 @@ public final class SaoGameLocation {
         }
         if (!new HashSet<>(inventory(old)).equals(new HashSet<>(files))) throw new IOException("复制期间原目录发生变化，请重试");
         for (var entry : hashes.entrySet()) if (!entry.getValue().equals(hash(old.resolve(entry.getKey()))))
-            throw new IOException("复制期间文件发生变化: " + entry.getKey());
+                throw new IOException("复制期间文件发生变化: " + entry.getKey());
         Files.writeString(target.resolve(MARKER), "NerveGear data v1\n", StandardOpenOption.CREATE_NEW);
         boolean selected = false;
         try {
@@ -285,6 +306,7 @@ public final class SaoGameLocation {
         Files.walkFileTree(tree, new SimpleFileVisitor<>() {
             /// Removes a single file; symlinks are removed themselves, never traversed.
             @Override public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException { Files.delete(file); return FileVisitResult.CONTINUE; }
+
             /// Removes directories after their children.
             @Override public FileVisitResult postVisitDirectory(Path dir, @Nullable IOException error) throws IOException {
                 if (error != null) throw error; Files.delete(dir); return FileVisitResult.CONTINUE;

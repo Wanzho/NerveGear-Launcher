@@ -1,3 +1,20 @@
+/*
+ * Hello Minecraft! Launcher
+ * Copyright (C) 2026 huangyuhui <huanghongxun2008@126.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 package org.jackhuang.hmcl.sao;
 
@@ -29,12 +46,15 @@ final class SaoMicrosoftFlows {
     private static long presentationGeneration;
     /// Utility class.
     private SaoMicrosoftFlows() { }
+
     /// Creates an immediately running production flow with a five-minute deadline.
     static SaoMicrosoftFlow start() {
         return new SaoMicrosoftFlowEngine(HmclTransport::new, Platform::runLater, FXUtils::openLink, 300_000);
     }
+
     /// Routes the page's continuation through the backend or the existing fallback.
     static void present(Runnable onDone) { present(onDone, message -> { }); }
+
     /// Routes login with a safe terminal-error callback for worker callers.
     static Runnable present(Runnable onDone, Consumer<String> onFailure) {
         long id = ++presentationGeneration;
@@ -83,6 +103,7 @@ final class SaoMicrosoftFlows {
         flow.state().addListener(listener);
         listener.changed(flow.state(), null, flow.state().get());
     }
+
     /// Converts known failures without returning arbitrary provider text, credentials or stack traces.
     static String error(Throwable failure) {
         for (@Nullable Throwable cause = failure; cause != null; cause = cause.getCause()) {
@@ -111,6 +132,7 @@ final class SaoMicrosoftFlows {
         }
         return "Microsoft 登录失败，请重试";
     }
+
     /// Per-attempt OAuth callback, independent of the global callbacks used by stock dialogs.
     @NotNullByDefault
     private static final class HmclTransport implements SaoMicrosoftFlowEngine.Transport, OAuth.Callback {
@@ -143,6 +165,7 @@ final class SaoMicrosoftFlows {
                 else install.run();
             });
         }
+
         /// Opens HMCL's localhost server and wraps its successful callback with truthful progress.
         @Override public synchronized OAuth.Session startServer() throws IOException, AuthenticationException {
             if (closed) throw new IOException("Cancelled");
@@ -150,35 +173,45 @@ final class SaoMicrosoftFlows {
             return new OAuth.Session() {
                 /// PKCE verifier remains private to OAuth.
                 @Override public String getCodeVerifier() { return opened.getCodeVerifier(); }
+
                 /// CSRF state remains private to OAuth.
                 @Override public String getState() { return opened.getState(); }
+
                 /// Uses the upstream localhost redirect URI.
                 @Override public String getRedirectURI() { return opened.getRedirectURI(); }
+
                 /// Waits for redirect before announcing downstream authentication.
                 @Override public String waitFor() throws InterruptedException, java.util.concurrent.ExecutionException {
                     String code = opened.waitFor(); signingIn(); return code;
                 }
+
                 /// Releases the upstream listener.
                 @Override public void close() { opened.close(); }
             };
         }
+
         /// Publishes the verification code; the device secret is never exposed.
         @Override public void grantDeviceCode(String userCode, String verificationURI) {
             emit.accept(new SaoMicrosoftFlow.State(SaoMicrosoftFlow.Kind.DEVICE_CODE, "", userCode, verificationURI, "", "", ""));
         }
+
         /// Announces Xbox authentication after device authorization completes.
         @Override public void loginCompletedDeviceCode() { signingIn(); }
+
         /// Publishes authorization URLs; device URLs remain available through DEVICE_CODE.
         @Override public void openBrowser(OAuth.GrantFlow flow, String url) {
             if (flow == OAuth.GrantFlow.AUTHORIZATION_CODE)
                 emit.accept(new SaoMicrosoftFlow.State(SaoMicrosoftFlow.Kind.BROWSER, url, "", "", "", "", ""));
         }
+
         /// Shares the launcher's configured Microsoft application id.
         @Override public String getClientId() { return factory.getClientId(); }
+
         /// Emits a safe description of downstream account verification.
         private void signingIn() {
             emit.accept(new SaoMicrosoftFlow.State(SaoMicrosoftFlow.Kind.SIGNING_IN, "", "", "", "正在验证 Xbox 账号", "", ""));
         }
+
         /// Idempotently closes the callback server; the engine interrupts polling separately.
         @Override public synchronized void close() { closed = true; if (session != null) session.close(); }
     }

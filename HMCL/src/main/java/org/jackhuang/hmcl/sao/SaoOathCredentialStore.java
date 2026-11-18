@@ -1,3 +1,20 @@
+/*
+ * Hello Minecraft! Launcher
+ * Copyright (C) 2026 huangyuhui <huanghongxun2008@126.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 package org.jackhuang.hmcl.sao;
 
@@ -20,12 +37,10 @@ import org.jetbrains.annotations.Nullable;
 import org.jackhuang.hmcl.setting.SaoAccountProtection;
 import java.io.*;
 import java.nio.ByteBuffer;
-import java.nio.CharBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.security.MessageDigest;
-import java.security.SecureRandom;
 import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.Locale;
@@ -56,19 +71,20 @@ final class SaoOathCredentialStore implements SaoOathCredentials {
     /// Selects native Keychain without showing prompts; tests may force the private encrypted fallback.
     SaoOathCredentialStore(Path root, boolean nativeStore) throws IOException {
         directory = root.toAbsolutePath().normalize().resolve("oath-private");
-        try { keyId = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+        try {
+            keyId = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
                 .digest(root.toAbsolutePath().normalize().toString().getBytes(StandardCharsets.UTF_8))).getBytes(StandardCharsets.US_ASCII); }
         catch (java.security.GeneralSecurityException impossible) { throw new AssertionError(impossible); }
         @Nullable Keychain selected = null;
         if (nativeStore && System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("mac")) {
             try { selected = Native.load("Security", Keychain.class); }
-            catch (LinkageError | RuntimeException unavailable) { }
+            catch (LinkageError | RuntimeException ignore) { }
         }
         keychain = selected;
         @Nullable WindowsCredentials selectedWindows = null;
         String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
         if (nativeStore && os.contains("win")) try { selectedWindows = Native.load("Advapi32", WindowsCredentials.class); }
-        catch (LinkageError | RuntimeException unavailable) { }
+            catch (LinkageError | RuntimeException ignore) { }
         windows = selectedWindows;
         @Nullable Path selectedTool = null;
         if (nativeStore && os.contains("linux") && System.getenv("DBUS_SESSION_BUS_ADDRESS") != null) {
@@ -155,7 +171,7 @@ final class SaoOathCredentialStore implements SaoOathCredentials {
         SaoUninstaller.rejectLinksBelowRoot(directory);
         Files.createDirectories(directory);
         try { Files.setPosixFilePermissions(directory, PosixFilePermissions.fromString("rwx------")); }
-        catch (UnsupportedOperationException windows) { }
+        catch (UnsupportedOperationException ignore) { }
         for (String name : new String[]{"credential.bin", "signed-out"})
             if (Files.isSymbolicLink(directory.resolve(name))) throw new IOException("账号存储路径包含链接");
     }
@@ -178,7 +194,7 @@ final class SaoOathCredentialStore implements SaoOathCredentials {
         Path temporary = Files.createTempFile(directory, "private-", ".tmp");
         try {
             try { Files.setPosixFilePermissions(temporary, PosixFilePermissions.fromString("rw-------")); }
-            catch (UnsupportedOperationException windows) { }
+            catch (UnsupportedOperationException ignore) { }
             Files.write(temporary, bytes);
             SaoPackFiles.atomicMove(temporary, directory.resolve(name));
         } finally { Files.deleteIfExists(temporary); }
@@ -368,6 +384,7 @@ final class SaoOathCredentialStore implements SaoOathCredentials {
         public @Nullable WString username;
         /// Creates a writeable native structure.
         public WindowsCredential() { }
+
         /// Reads a structure allocated by CredReadW.
         public WindowsCredential(Pointer pointer) { super(pointer); read(); }
     }
@@ -377,10 +394,13 @@ final class SaoOathCredentialStore implements SaoOathCredentials {
     interface WindowsCredentials extends StdCallLibrary {
         /// Reads a current-user generic credential.
         boolean CredReadW(WString target, int type, int flags, PointerByReference credential);
+
         /// Stores a current-user generic credential.
         boolean CredWriteW(WindowsCredential credential, int flags);
+
         /// Removes the scoped credential.
         boolean CredDeleteW(WString target, int type, int flags);
+
         /// Frees the native credential allocation.
         void CredFree(Pointer credential);
     }
@@ -390,18 +410,24 @@ final class SaoOathCredentialStore implements SaoOathCredentials {
     interface Keychain extends Library {
         /// Reads the process interaction setting.
         int SecKeychainGetUserInteractionAllowed(IntByReference allowed);
+
         /// Changes the interaction setting for the bounded operation.
         int SecKeychainSetUserInteractionAllowed(int allowed);
+
         /// Finds an item or copies its secret data.
         int SecKeychainFindGenericPassword(@Nullable Pointer keychain, int serviceLength, byte[] service, int accountLength, byte[] account,
                                           @Nullable IntByReference length, @Nullable PointerByReference data, @Nullable PointerByReference item);
+
         /// Creates a generic password item.
         int SecKeychainAddGenericPassword(@Nullable Pointer keychain, int serviceLength, byte[] service, int accountLength, byte[] account,
                                          int length, byte[] data, @Nullable PointerByReference item);
+
         /// Replaces an item's secret in place.
         int SecKeychainItemModifyAttributesAndData(Pointer item, @Nullable Pointer attributes, int length, byte[] data);
+
         /// Deletes one scoped item.
         int SecKeychainItemDelete(Pointer item);
+
         /// Releases a copied secret buffer.
         int SecKeychainItemFreeContent(@Nullable Pointer attributes, Pointer data);
     }

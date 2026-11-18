@@ -1,8 +1,21 @@
 /*
- * 刀剑神域·誓约 启动器, a fork of Hello Minecraft! Launcher
+ * Hello Minecraft! Launcher
  * Copyright (C) 2026 huangyuhui <huanghongxun2008@126.com> and contributors
- * Licensed under the GNU General Public License v3 or later; see the LICENSE file.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+// 刀剑神域·誓约 启动器, a fork of Hello Minecraft! Launcher
 package org.jackhuang.hmcl.ui.sao;
 
 import javafx.animation.AnimationTimer;
@@ -12,8 +25,6 @@ import javafx.animation.KeyFrame;
 import javafx.animation.KeyValue;
 import javafx.animation.PauseTransition;
 import javafx.animation.Timeline;
-import javafx.beans.binding.Bindings;
-import javafx.collections.ListChangeListener;
 import javafx.geometry.Insets;
 import javafx.geometry.Point2D;
 import javafx.geometry.Pos;
@@ -25,20 +36,16 @@ import javafx.scene.SubScene;
 import javafx.application.Platform;
 import org.jackhuang.hmcl.ui.FXUtils;
 import javafx.scene.control.Button;
-import javafx.scene.control.Label;
 import javafx.scene.control.PasswordField;
 import javafx.scene.control.TextField;
 import javafx.scene.control.ToggleButton;
-import javafx.scene.control.ToggleGroup;
 import javafx.scene.effect.BlendMode;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.MouseEvent;
-import javafx.scene.layout.FlowPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Pane;
-import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
@@ -50,25 +57,17 @@ import javafx.scene.transform.Scale;
 import javafx.scene.transform.Translate;
 import javafx.util.Duration;
 import org.jackhuang.hmcl.Metadata;
-import org.jackhuang.hmcl.auth.Account;
-import org.jackhuang.hmcl.game.TexturesLoader;
 import org.jackhuang.hmcl.sao.SaoData;
 import org.jackhuang.hmcl.sao.SaoLauncherService;
 import org.jackhuang.hmcl.sao.SaoPackState;
 import org.jackhuang.hmcl.sao.SaoReadiness;
 import org.jackhuang.hmcl.sao.SaoServices;
-import org.jackhuang.hmcl.setting.Accounts;
 import org.jackhuang.hmcl.ui.Controllers;
 import org.jackhuang.hmcl.ui.SVG;
-import org.jackhuang.hmcl.ui.account.CreateAccountPane;
-import org.jackhuang.hmcl.ui.skin.SkinCanvas;
-import org.jackhuang.hmcl.ui.skin.animation.SkinAniWavingArms;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
@@ -82,6 +81,9 @@ import static org.jackhuang.hmcl.ui.sao.SaoUiKit.*;
 /// once; the game's own Link Start covers the loading.
 @NotNullByDefault
 public final class SaoHelmetPage extends StackPane {
+    /// Builds the helmet home windows and handles their account and friend controls.
+    private final SaoHelmetDashboard dashboard = new SaoHelmetDashboard(this);
+
     /// The design space the windows are laid out in (the episode picture at depth 0).
     private static final double EW = 1280, EH = 720;
     /// The dock's turn: its right edge away, so it leans toward facing the eye (JavaFX's Rotate, see DOCK_WIDEN).
@@ -101,7 +103,7 @@ public final class SaoHelmetPage extends StackPane {
     static final double DOCK_WIDEN = 1 / (Math.cos(Math.toRadians(DOCK_TURN))
             + (DOCK_X - EW / 2) * Math.sin(Math.toRadians(DOCK_TURN)) / (EH / 2 / Math.tan(HALF_FOV) + DOCK_Z));
     /// The engine.
-    private final SaoLauncherService service;
+    final SaoLauncherService service;
     /// The glass behind the windows.
     private final ImageView glass = new ImageView();
     /// The helmet in front of the windows, display off.
@@ -193,7 +195,7 @@ public final class SaoHelmetPage extends StackPane {
     /// The dock button of the open app.
     private @Nullable Button appButton;
     /// The dock's buttons.
-    private final Button[] dockButtons = new Button[SaoApps.APPS.length];
+    final Button[] dockButtons = new Button[SaoApps.APPS.length];
 
     /// Mouse position in parts of the window, -0.5 to 0.5, answered on the same frame.
     private double headX, headY, lookX, lookY;
@@ -208,39 +210,39 @@ public final class SaoHelmetPage extends StackPane {
     /// the name and password, 记住 with 注册 and 忘记密码, 登录, a line, 使用 Microsoft; signed in, "ARGUS ID [退出登录]",
     /// the name large, the mailbox and Microsoft each with 验证, and Link Start at the bottom right.
     // The grey hint like 密码's (James, 14 Nov: "用户名这个里面没有灰掉的用户名输入的地方").
-    private final TextField name = field("用户名／邮箱");
-    private final PasswordField pw = SaoAccountApp.password("");
-    private final ToggleButton remember = new ToggleButton();
-    private final Button login = SaoUiKit.accent("登录");
-    private final Button useMicrosoft = SaoUiKit.button("使用 Microsoft 登录");
-    private final VBox signedOut = new VBox(10);
-    private final VBox signedIn = new VBox(10);
+    final TextField name = field("用户名／邮箱");
+    final PasswordField pw = SaoAccountApp.password("");
+    final ToggleButton remember = new ToggleButton();
+    final Button login = SaoUiKit.accent("登录");
+    final Button useMicrosoft = SaoUiKit.button("使用 Microsoft 登录");
+    final VBox signedOut = new VBox(10);
+    final VBox signedIn = new VBox(10);
     /// Logging in with the remembered password on opening: the player sees the account, not a password form
     /// (James, 7 Nov: "登录进去就直接显示已登录，别再显示一整个密码界面").
-    private boolean autoLogging;
+    boolean autoLogging;
     /// The 游戏昵称 being edited in place (the pencil beside the name).
-    private boolean editingName;
+    boolean editingName;
     /// A name to start the editor with instead of the current one (the screenshot tool).
-    private @Nullable String typedName;
+    @Nullable String typedName;
     /// 确定改成…吗？ over the player's body, before a new 游戏昵称 is saved.
-    private final VBox confirmName = new VBox(10);
+    final VBox confirmName = new VBox(10);
     /// What 确定 on [#confirmName] does.
-    private Runnable confirmNameAction = () -> {
+    Runnable confirmNameAction = () -> {
     };
     /// 确定退出吗？ over the player's body.
-    private final VBox confirmOut = new VBox(10);
+    final VBox confirmOut = new VBox(10);
     /// 离线游玩: the name and the warning, in place of the body.
-    private final VBox confirmOffline = new VBox(11);
+    final VBox confirmOffline = new VBox(11);
     /// The name for 离线游玩.
-    private final javafx.scene.control.TextField offlineName = SaoUiKit.field("游戏里的名字");
+    final javafx.scene.control.TextField offlineName = SaoUiKit.field("游戏里的名字");
     /// The character.
-    private final Character skin = new Character();
+    final SaoHelmetCharacter skin = new SaoHelmetCharacter();
     /// Link Start and its lines.
-    private final Button start = new Button("Link Start");
-    private final Text problem = new Text();
+    final Button start = new Button("Link Start");
+    final Text problem = new Text();
     /// Direct recovery action beside missing-drive and disk-space errors.
-    private final Button locationRecovery = button("重新选择游戏位置");
-    private final Region fill = new Region();
+    final Button locationRecovery = button("重新选择游戏位置");
+    final Region fill = new Region();
 
     /// Builds the page with the installed engine, or a stand-in when none is installed yet.
     public SaoHelmetPage() {
@@ -265,10 +267,10 @@ public final class SaoHelmetPage extends StackPane {
             requestFocus();
         });
         // Microsoft first, ARGUS behind it (James, 14 Nov: "可以先直连微软吗"): while ARGUS links, the status line says so.
-        service.microsoftIdentity().addListener((o, was, now) -> Platform.runLater(this::refreshAccount));
+        service.microsoftIdentity().addListener((o, was, now) -> Platform.runLater(this.dashboard::refreshAccount));
         service.oathLinking().addListener((o, was, now) -> Platform.runLater(() -> {
             if (now.kind() == org.jackhuang.hmcl.sao.SaoOathLinking.Kind.FAILED) startupPending = false;
-            refreshAccount();
+            dashboard.refreshAccount();
             String linking = now.reason().isEmpty() ? "正在连接 ARGUS…" : now.reason();
             if (now.kind() == org.jackhuang.hmcl.sao.SaoOathLinking.Kind.LINKING) problem.setText(linking);
             else if (now.kind() == org.jackhuang.hmcl.sao.SaoOathLinking.Kind.LINKED
@@ -332,9 +334,9 @@ public final class SaoHelmetPage extends StackPane {
         space.getTransforms().addAll(centre, fit);
         windows.getTransforms().addAll(turnY, turnX);
 
-        news = buildNews();
-        server = buildServer();
-        player = buildPlayer();
+        news = dashboard.buildNews();
+        server = dashboard.buildServer();
+        player = dashboard.buildPlayer();
         dock = buildDock();
         windows.getChildren().addAll(news, server, player);
         space.getChildren().addAll(windows, dock);
@@ -492,627 +494,19 @@ public final class SaoHelmetPage extends StackPane {
 
     // ------------------------------------------------------------------ home windows
 
-    /// News, on the left, turned toward the player.
-    private SaoFloatWindow buildNews() {
-        VBox list = SaoApps.live(service.news(), n -> {
-            Text title = ink(n.title(), 14);
-            // The card keeps a short preview; the whole entry opens in its own window (James, 9 Nov:
-            // "启动器点击某个公告能像别的一样单开一个窗口吗").
-            Text body = dim(SaoNewsApp.preview(n.body(), 54), 12);
-            body.setWrappingWidth(222);
-            HBox head = new HBox(8, title, grow(), dim(n.date(), 12));
-            head.setAlignment(Pos.CENTER_LEFT);
-            VBox v = new VBox(6, head, body);
-            v.getStyleClass().add("vr-tile");
-            v.setCursor(javafx.scene.Cursor.HAND);
-            v.setOnMouseClicked(e -> openNews(n));
-            // Lifts a little under the mouse, like the buttons (SaoMotion).
-            v.hoverProperty().addListener((o, x, on) -> SaoMotion.lift(v, on));
-            return v;
-        }, empty(SVG.CHAT, "暂无公告"));
-        return new SaoFloatWindow("公告", 290, 430, null)
-                .add(scroll(list))
-                .home(246, 175, 40, -24, 0);
-    }
-
-    /// The server, on the right, turned toward the player.
-    private SaoFloatWindow buildServer() {
-        VBox box = new VBox(10);
-        VBox.setVgrow(box, Priority.ALWAYS);
-        // The address under the title, and 其他节点 opening the other nodes (James, 7 Nov: "更多改成其他节点").
-        Text address = sao(service.serverAddress(), 19, true);
-        VBox nodes = new VBox(4);
-        Button[] moreRef = new Button[1];
-        Button more = SaoAccountApp.link("其他节点", () -> {
-            boolean open = !nodes.isVisible();
-            nodes.setVisible(open);
-            nodes.setManaged(open);
-            moreRef[0].setText(open ? "收起" : "其他节点");
-        });
-        moreRef[0] = more;
-        openNodes = () -> {
-            if (!nodes.isVisible()) more.fire();
-        };
-        // The manifest loads in the background (launcherback5): read the address and nodes again once it has.
-        Runnable fillNodes = () -> {
-            address.setText(service.serverAddress());
-            nodes.getChildren().clear();
-            for (String n : service.serverNodes()) {
-                // No light: the launcher does not ping the nodes.
-                Text t = sao(n, 12, false);
-                t.getStyleClass().setAll("vr-dim");
-                nodes.getChildren().add(t);
-            }
-        };
-        fillNodes.run();
-        service.state().addListener((o, a, b) -> fillNodes.run());
-        nodes.setVisible(false);
-        nodes.setManaged(false);
-        HBox addressRow = new HBox(8, address, grow(), more);
-        addressRow.setAlignment(Pos.CENTER_LEFT);
-        VBox where = new VBox(6, addressRow, nodes);
-        // 维护中 (James, 10 Nov: "如果服务器在维护中，启动器要在右边面板上说明"): the signed notice under the address,
-        // whatever the ping says. Its text is the backend's, shown as is; a long one scrolls inside the tile.
-        Runnable show = () -> {
-            @Nullable SaoData.ServerStatus st = service.serverStatus().get();
-            SaoData.@Nullable Maintenance m = service.updateStatus().get().maintenance();
-            box.getChildren().clear();
-            box.getChildren().add(where);
-            if (m != null) box.getChildren().add(maintenanceTile(m));
-            if (st == null) {
-                box.getChildren().add(empty(SVG.PUBLIC, "正在连接服务器"));
-                return;
-            }
-            HBox state = new HBox(8, light(st.online()), ink(st.online() ? "在线" : "离线", 13), grow(),
-                    sao(st.online() && st.pingMs() >= 0 ? st.pingMs() + " ms" : "--", 13, false));
-            state.setAlignment(Pos.CENTER_LEFT);
-            Text count = sao(st.online() ? Integer.toString(st.players()) : "-", 48, true);
-            count.getStyleClass().add("vr-big");
-            HBox players = new HBox(8, count, dim("/ " + st.max() + "  在线玩家", 13));
-            players.setAlignment(Pos.BASELINE_LEFT);
-            Text motd = ink(st.motd(), 13);
-            motd.setWrappingWidth(240);
-            FlowPane names = new FlowPane(6, 6);
-            for (String n : st.names()) {
-                Text t = sao(SaoPlayerNames.display(n), 12, false);
-                StackPane chip = new StackPane(t);
-                chip.getStyleClass().add("vr-name");
-                names.getChildren().add(chip);
-            }
-            box.getChildren().addAll(state, rule(), players);
-            // During maintenance the notice takes the room of the MOTD and the name chips.
-            if (m == null) box.getChildren().addAll(motd, names);
-        };
-        service.serverStatus().addListener((o, a, b) -> show.run());
-        // The signed policy can turn maintenance on or off and move the address.
-        service.updateStatus().addListener((o, a, b) -> {
-            fillNodes.run();
-            show.run();
-        });
-        show.run();
-        Button refresh = round(SVG.REFRESH, 26, 14);
-        // The button also asks for the signed policy again; the open call and the 60 s timer do not.
-        refresh.setOnAction(e -> service.refreshOnline(true));
-        SaoFloatWindow w = new SaoFloatWindow("服务器", 290, 430, null).add(box);
-        w.head.getChildren().add(refresh);
-        return w.home(1034, 175, 40, 24, 0);
-    }
-
-    /// The 维护中 tile: the state word, the backend's message and, when given, 预计结束 with its time.
-    private static Node maintenanceTile(SaoData.Maintenance m) {
-        Text title = ink("维护中", 15);
-        title.getStyleClass().setAll("vr-warn");
-        SaoUiKit.font(title, 15, true);
-        Text message = ink(m.message(), 13);
-        // Narrower than the tile so the scroll bar of a long notice never covers the line ends.
-        message.setWrappingWidth(170);
-        // A long notice scrolls inside the tile instead of pushing the window's rows out; the end time stays visible.
-        javafx.scene.control.ScrollPane scroll = scroll(new VBox(message));
-        // The text follows the visible width, which shrinks when the scroll bar shows.
-        scroll.viewportBoundsProperty().addListener((o, a, b) -> {
-            double w = Math.floor(b.getWidth()) - 6;
-            if (w > 40 && Math.abs(w - message.getWrappingWidth()) > 0.5) message.setWrappingWidth(Math.min(184, w));
-        });
-        scroll.setMaxHeight(140);
-        VBox.setVgrow(scroll, Priority.NEVER);
-        VBox text = new VBox(4, title, scroll);
-        @Nullable String until = m.until();
-        if (until != null && !until.isBlank()) text.getChildren().add(ink("预计结束 " + until.strip(), 12.5));
-        HBox tile = tile(icon(SVG.WARNING, 20), text);
-        tile.setAlignment(Pos.TOP_LEFT);
-        tile.getStyleClass().add("vr-tile-warn");
-        return tile;
-    }
-
     /// The player, in the middle: the logo over the character on the left, the ARGUS ID on the right as James drew it
     /// (7 Nov); Link Start lives here too, at the bottom right once signed in. The skin has its own page (James, 7 Nov:
     /// "把classic slim等等塞到一个新的页面").
     /// James, 13 Nov: "中间图标先去掉吧，我不喜欢在那里": the logo under the friends is hidden for now; its room stays
     /// empty so Link Start keeps its place.
-    private static final boolean SHOW_PLAYER_LOGO = false;
-
-    private SaoFloatWindow buildPlayer() {
-        // James, 9 Nov: "左边只放人，logo放到好友在线这里": the logo-49 title fills the room under the friends, signed
-        // in; it shrinks when warnings take that room and hides when too little is left.
-        ImageView logo = SaoAssets.logo(RIGHT_W, 150);
-        logo.getStyleClass().add("vr-logo");
-        StackPane logoBox = new StackPane(logo);
-        logoBox.setMinHeight(0);
-        VBox.setVgrow(logoBox, Priority.ALWAYS);
-        logoBox.heightProperty().addListener((o, a, h) -> {
-            double fit = Math.min(170, h.doubleValue() - 4);
-            logo.setFitHeight(Math.max(1, fit));
-            logo.setVisible(SHOW_PLAYER_LOGO && fit >= 48);
-        });
-
-        Button editSkin = round(SVG.EDIT, 30, 15);
-        editSkin.setOnAction(e -> openSkin());
-        StackPane.setAlignment(editSkin, Pos.BOTTOM_RIGHT);
-        StackPane.setMargin(editSkin, new Insets(7));
-        // The character and its pencil; drawn over the 3D space while the window rests (see [#placeCharacter()]).
-        characterBox.getChildren().setAll(skin, editSkin);
-        for (Region b : new Region[]{characterBox, characterSlot}) {
-            b.setMinSize(STAGE_W, STAGE_H);
-            b.setPrefSize(STAGE_W, STAGE_H);
-            b.setMaxSize(STAGE_W, STAGE_H);
-        }
-        characterSlot.getChildren().setAll(characterBox);
-        StackPane stage = characterSlot;
-        stage.getStyleClass().add("vr-stage");
-        // James, 8 Nov: "中间这个界面，里面东西搞稍微大点，留白有点多，密码的那个点可以小一点": the stage and its
-        // turntable grow with the rest (150 x 214 before).
-        stage.setMinSize(STAGE_W, STAGE_H);
-        stage.setPrefSize(STAGE_W, STAGE_H);
-        stage.setMaxSize(STAGE_W, STAGE_H);
-        // The left: only the character and its pencil (James, 9 Nov: "左边只放人").
-        VBox left = new VBox(stage);
-        left.setAlignment(Pos.CENTER_LEFT);
-
-        // ---- signed out
-        @Nullable String remembered = service.rememberedOathName();
-        if (remembered != null) name.setText(remembered);
-        name.textProperty().addListener((o, a, b) -> refreshPrompt());
-        remember.getStyleClass().addAll("vr-check", "vr-check-big");
-        remember.setFocusTraversable(false);
-        remember.setSelected(true);
-        remember.setGraphic(icon(SVG.CHECK, 14));
-        remember.getGraphic().visibleProperty().bind(remember.selectedProperty());
-        SaoMotion.press(remember);
-        remember.selectedProperty().addListener((o, a, on) -> { if (on) SaoMotion.pop(remember.getGraphic()); });
-        Text rememberLabel = dim("记住我", 14);
-        rememberLabel.setOnMouseClicked(e -> remember.setSelected(!remember.isSelected()));
-        // James, 14 Nov: a new player's first step was a small grey 注册 link; it is a button beside 登录 now.
-        HBox rememberRow = new HBox(7, remember, rememberLabel, grow(),
-                bigLink("忘记密码", () -> openAccount(SaoAccountApp.Page.FORGOT)));
-        rememberRow.setAlignment(Pos.CENTER_LEFT);
-        for (javafx.scene.control.TextField f : new javafx.scene.control.TextField[]{name, pw, offlineName}) {
-            SaoUiKit.font(f, 16, false);
-            f.setMinHeight(FIELD_H);
-            f.setPrefHeight(FIELD_H);
-        }
-        Button register = SaoUiKit.button("注册");
-        register.setOnAction(e -> openAccount(SaoAccountApp.Page.REGISTER));
-        register.setMinWidth(88);
-        HBox loginRow = new HBox(8, login, register);
-        HBox.setHgrow(login, javafx.scene.layout.Priority.ALWAYS);
-        for (Button b : new Button[]{login, register, useMicrosoft}) {
-            SaoUiKit.font(b, 15, false);
-            b.setMinHeight(BUTTON_H);
-            b.setPrefHeight(BUTTON_H);
-        }
-        login.setMaxWidth(Double.MAX_VALUE);
-        login.setOnAction(e -> login());
-        login.defaultButtonProperty().bind(signedOut.visibleProperty());
-        useMicrosoft.setGraphic(microsoftLogo(16));
-        useMicrosoft.setMaxWidth(Double.MAX_VALUE);
-        useMicrosoft.setOnAction(e -> premiumLogin());
-        HBox outHead = new HBox(8, sao("ARGUS ID", 17, true), grow(), dim("未登录", 14));
-        outHead.setAlignment(Pos.CENTER_LEFT);
-        // James, 8 Nov: "可以选择不登录任何东西，顶着个名字，但是提醒窗口写这样就登录不了咱服务器".
-        HBox offlineRow = new HBox(bigLink("不登录，离线游玩", this::askOffline));
-        offlineRow.setAlignment(Pos.CENTER);
-        signedOut.getChildren().setAll(outHead, bigKey("用户名／邮箱"), name, bigKey("密码"), pw, rememberRow, loginRow, rule(), useMicrosoft, offlineRow);
-        // Every side of the account panel comes in, row after row, when it is shown (James, 14 Nov: "login时，成功等").
-        SaoMotion.reveal(signedOut);
-        SaoMotion.reveal(confirmOut);
-        SaoMotion.reveal(confirmOffline);
-        SaoMotion.reveal(confirmName);
-
-        // ---- signed in: filled by refreshAccount; Link Start at its bottom right
-        HBox linkRow = buildLinkRow();
-
-        problem.getStyleClass().add("vr-warn");
-        SaoMotion.report(problem);
-        SaoUiKit.font(problem, 13, false);
-        problem.setWrappingWidth(RIGHT_W - 6);
-        StackPane sides = new StackPane(signedOut, signedIn, confirmOffline);
-        for (VBox v : new VBox[]{signedOut, signedIn, confirmOffline}) {
-            StackPane.setAlignment(v, Pos.TOP_LEFT);
-            // Only the side shown takes room: the taller sign-in form, hidden, pushed Link Start out of the window.
-            v.managedProperty().bind(v.visibleProperty());
-        }
-        // Signed in, the logo takes the room between the friends and Link Start; elsewhere a plain spring.
-        Region spring = grow();
-        SaoMotion.revealOne(logoBox);
-        logoBox.visibleProperty().bind(signedIn.visibleProperty());
-        logoBox.managedProperty().bind(signedIn.visibleProperty());
-        spring.visibleProperty().bind(signedIn.visibleProperty().not());
-        spring.managedProperty().bind(signedIn.visibleProperty().not());
-        locationRecovery.setVisible(false); locationRecovery.setManaged(false);
-        locationRecovery.setOnAction(event -> openApp(new SaoApps.App(SVG.SETTINGS, "游戏位置", SaoApps::settings), null));
-        VBox right = new VBox(6, sides, logoBox, spring, problem, locationRecovery, linkRow);
-        right.setPrefWidth(RIGHT_W);
-        right.setMinWidth(RIGHT_W);
-        right.setMaxWidth(RIGHT_W);
-        // James, 11 Nov: "要啊": before login the row shows too, but only as 下载 / 更新, which need no account.
-        // Link Start itself still needs the login or 离线进入.
-        javafx.beans.binding.BooleanBinding rowShown = Bindings.createBooleanBinding(
-                () -> signedIn.isVisible() || service.readiness().get().shownSignedOut(),
-                signedIn.visibleProperty(), service.readiness());
-        SaoMotion.revealOne(linkRow);
-        linkRow.visibleProperty().bind(rowShown);
-        linkRow.managedProperty().bind(rowShown);
-        // Shown before login, the row takes the signed-in layout's slot and bottom inset: the form's nine gaps close
-        // from 10 to 5 so the column is no taller than the signed-in one. Signed out and ready, nothing changes.
-        signedOut.spacingProperty().bind(Bindings.when(rowShown.and(signedIn.visibleProperty().not())).then(5.0).otherwise(10.0));
-        HBox bodyRow = new HBox(GAP, left, right);
-
-        // 确定退出吗？ in place of the body until answered.
-        Text sure = ink("确定退出吗？", 18);
-        SaoUiKit.font(sure, 18, true);
-        Text after = dim("下次打开要重新输入密码", 12);
-        Button no = SaoUiKit.button("取消"), yes = SaoUiKit.button("退出登录");
-        yes.getStyleClass().add("vr-danger");
-        HBox answers = new HBox(10, no, yes);
-        answers.setAlignment(Pos.CENTER);
-        confirmOut.getChildren().setAll(sure, after, answers);
-        confirmOut.setAlignment(Pos.CENTER);
-        confirmOut.setVisible(false);
-        confirmOut.visibleProperty().addListener((o, a, shown) -> bodyRow.setVisible(!shown));
-        no.setOnAction(e -> confirmOut.setVisible(false));
-        yes.setOnAction(e -> {
-            confirmOut.setVisible(false);
-            startupPending = false;
-            service.setPreference(SNAPSHOT_KEY, "");
-            service.oathLogout();
-        });
-        // 确定改成…吗？, the same way.
-        Button nameNo = SaoUiKit.button("取消"), nameYes = SaoUiKit.accent("确定");
-        HBox nameAnswers = new HBox(10, nameNo, nameYes);
-        nameAnswers.setAlignment(Pos.CENTER);
-        confirmName.setAlignment(Pos.CENTER);
-        confirmName.setVisible(false);
-        confirmName.getProperties().put("answers", nameAnswers);
-        confirmName.visibleProperty().addListener((o, a, shown) -> bodyRow.setVisible(!shown && !confirmOut.isVisible()));
-        nameNo.setOnAction(e -> confirmName.setVisible(false));
-        nameYes.setOnAction(e -> {
-            confirmName.setVisible(false);
-            confirmNameAction.run();
-        });
-        // 离线游玩: a name, and the warning that it cannot reach the 誓约 server.
-        Text offTitle = ink("离线游玩", 17);
-        SaoUiKit.font(offTitle, 17, true);
-        Text offWarn = dim("离线进不了誓约服务器，只能玩单人游戏", 13);
-        offWarn.getStyleClass().setAll("vr-warn");
-        Text offProblem = dim("", 14);
-        offProblem.getStyleClass().setAll("vr-warn");
-        // Wrapped, or its width would push the column past the window's edge.
-        offProblem.setWrappingWidth(RIGHT_W - 6);
-        Button offNo = SaoUiKit.button("取消"), offYes = SaoUiKit.accent("离线进入");
-        for (Button b : new Button[]{offNo, offYes}) {
-            SaoUiKit.font(b, 15, false);
-            b.setMinHeight(BUTTON_H);
-            b.setPrefHeight(BUTTON_H);
-        }
-        HBox offAnswers = new HBox(10, offNo, offYes);
-        offAnswers.setAlignment(Pos.CENTER);
-        // James, 8 Nov: "离线游玩不要开个新的页面，只把右边的页面改了就行": it takes the sign-in's place on the right.
-        HBox offHead = new HBox(8, offTitle);
-        offHead.setAlignment(Pos.CENTER_LEFT);
-        offlineName.setMaxWidth(Double.MAX_VALUE);
-        offWarn.setWrappingWidth(RIGHT_W - 6);
-        offAnswers.setAlignment(Pos.CENTER_LEFT);
-        confirmOffline.getChildren().setAll(offHead, bigKey("名字"), offlineName, offWarn, offProblem, offAnswers);
-        confirmOffline.setAlignment(Pos.TOP_LEFT);
-        confirmOffline.setVisible(false);
-        confirmOffline.visibleProperty().addListener((o, a, shown) -> {
-            if (service.oathAccount().get() == null) signedOut.setVisible(!shown);
-        });
-        offNo.setOnAction(e -> confirmOffline.setVisible(false));
-        offYes.setOnAction(e -> {
-            String n = offlineName.getText().strip();
-            if (!n.matches("[A-Za-z0-9_]{3,16}")) {
-                offProblem.setText("名字要 3 到 16 位，只能用英文字母、数字和下划线");
-                return;
-            }
-            offProblem.setText("");
-            confirmOffline.setVisible(false);
-            begin(() -> service.linkStartOffline(n), true);
-        });
-        offlineName.setOnAction(e -> offYes.fire());
-        StackPane body = new StackPane(bodyRow, confirmOut, confirmName);
-        VBox.setVgrow(body, Priority.ALWAYS);
-
-        service.oathAccount().addListener((o, a, b) -> refreshAccount());
-        service.playerCard().addListener((o, a, b) -> refreshAccount());
-        Accounts.getAccounts().addListener((ListChangeListener<Account>) c -> refreshAccount());
-        // Shown from the last session's snapshot until the background sign-in answers; if nothing is signing in a few
-        // seconds after start (no remembered account), the snapshot goes.
-        startupPending = snapshot() != null;
-        PauseTransition settle = new PauseTransition(Duration.seconds(4));
-        settle.setOnFinished(e -> { if (startupPending && !autoLogging && !microsoftSigningIn() && service.oathAccount().get() == null) { startupPending = false; refreshAccount(); } });
-        settle.play();
-        refreshAccount();
-        autoLogin();
-        // 448 x 410 before; still clear of 公告 and 服务器 (their near edges at x 396 and 884) and centred on the
-        // same middle, y 391.
-        SaoFloatWindow w = new SaoFloatWindow("", PLAYER_W, PLAYER_H, null).add(body);
-        w.body.setPadding(new Insets(18, 16, 18, 16));
-        return w.home(640, 391 - PLAYER_H / 2, 0, 0, 0);
-    }
+    static final boolean SHOW_PLAYER_LOGO = false;
 
     /// The player window's size and its parts (James, 8 Nov: "中间这个界面，里面东西搞稍微大点，留白有点多").
-    private static final double PLAYER_W = 468, PLAYER_H = 420, STAGE_W = 168, STAGE_H = 300, GAP = 16,
+    static final double PLAYER_W = 468, PLAYER_H = 420, STAGE_W = 168, STAGE_H = 300, GAP = 16,
             RIGHT_W = PLAYER_W - 32 - STAGE_W - GAP, FIELD_H = 40, BUTTON_H = 40;
-
-    /// A label over a field in the player window, a step larger than [SaoUiKit#key].
-    private static HBox bigKey(String label) {
-        HBox h = key(label);
-        SaoUiKit.font(h.getChildren().get(0), 14, true);
-        return h;
-    }
-
-    /// A text link in the player window, a step larger than [SaoAccountApp#link].
-    private static Button bigLink(String text, Runnable r) {
-        Button b = SaoAccountApp.link(text, r);
-        SaoUiKit.font(b, 14, false);
-        return b;
-    }
-
-    /// The Microsoft logo, its four squares in their colours, as Microsoft's own sign-in buttons show it.
-    private static Node microsoftLogo(double size) {
-        double gap = size / 12, cell = (size - gap) / 2;
-        Group g = new Group();
-        String[] colours = {"#f25022", "#7fba00", "#00a4ef", "#ffb900"};
-        for (int i = 0; i < 4; i++) {
-            Rectangle r = new Rectangle((i % 2) * (cell + gap), (i / 2) * (cell + gap), cell, cell);
-            r.setFill(Color.web(colours[i]));
-            g.getChildren().add(r);
-        }
-        return g;
-    }
-
-    /// 正版 login: Microsoft first when not signed in yet, then ARGUS ID with it.
-    private void premiumLogin() {
-        SaoAccountApp.withMicrosoft(() -> {
-            problem.setText("正在用 Microsoft 登录…");
-            SaoMotion.busy(useMicrosoft);
-            service.oathPremiumLogin().whenComplete((ok, err) -> Platform.runLater(() -> {
-                SaoMotion.idle(useMicrosoft);
-                problem.setText(err == null ? "" : "! " + SaoSkinApp.message(err));
-            }));
-        });
-    }
-
-    /// Link Start inside the player window, bottom right. While the pack downloads or installs, only a progress bar
-    /// across the row (James, 7 Nov: "那个就绪可以删了，下载的时候linkstart别显示然后只有进度条就行").
-    private HBox buildLinkRow() {
-        double bw = RIGHT_W;
-        Region track = new Region();
-        track.getStyleClass().add("vr-track");
-        track.setPrefSize(bw, 4);
-        track.setMaxSize(bw, 4);
-        fill.getStyleClass().add("vr-fill");
-        fill.setPrefHeight(4);
-        fill.setMaxHeight(4);
-        fill.setMaxWidth(Region.USE_PREF_SIZE);
-        // The fill glides to each new amount (James, 14 Nov: "可以给所有东西都加动效/动画吗").
-        SaoMotion.follow(fill, Bindings.createDoubleBinding(() -> {
-            SaoPackState s = service.state().get();
-            return s == SaoPackState.WORKING ? bw * Math.max(0.03, fraction()) : 0.0;
-        }, service.state(), service.progress(), service.installProgress()));
-        StackPane track2 = new StackPane(track, fill);
-        track2.setAlignment(Pos.CENTER_LEFT);
-        track2.setMaxWidth(bw);
-        // James, 7 Nov: "write more stuff on the progress bar while downloading": the step and how far over it,
-        // the speed and how many files are left under it.
-        Text step = SaoUiKit.ink("", 13), percent = dim("", 13), speed = dim("", 12), left = dim("", 12);
-        SaoUiKit.font(percent, 14, false);
-        SaoUiKit.font(speed, 13, false);
-        HBox above = new HBox(6, step, grow(), percent);
-        above.setAlignment(Pos.BASELINE_LEFT);
-        HBox below = new HBox(6, speed, grow(), left);
-        below.setAlignment(Pos.BASELINE_LEFT);
-        VBox bar = new VBox(5, above, track2, below);
-        bar.setMaxWidth(bw);
-        bar.setAlignment(Pos.CENTER_LEFT);
-        Runnable words = () -> {
-            SaoPackState s = service.state().get();
-            double p = fraction();
-            org.jackhuang.hmcl.sao.SaoInstallProgress ip = service.installProgress().get();
-            boolean measured = ip.stage() != org.jackhuang.hmcl.sao.SaoInstallProgress.Stage.IDLE;
-            String label = measured && !ip.label().isBlank() ? ip.label() : service.stepLabel().get();
-            step.setText(s == SaoPackState.CHECKING ? "检查文件" : label.isEmpty() ? "准备中" : label);
-            percent.setText(p >= 0 ? Math.round(p * 100) + "%" : "");
-            if (measured && (ip.totalFiles() > 0 || ip.bytesDone() > 0)) {
-                // The backend's measured numbers: real throughput, bytes against the index total when it is known.
-                speed.setText(ip.bytesPerSecond() > 0 ? speedText((long) ip.bytesPerSecond()) : "");
-                left.setText(ip.totalBytes() > 0 ? size(ip.bytesDone()) + " / " + size(ip.totalBytes())
-                        : ip.bytesDone() > 0 ? size(ip.bytesDone()) : "");
-                return;
-            }
-            long bps = 0;
-            int open = 0;
-            for (SaoData.Task t : service.tasks()) {
-                if (t.done()) continue;
-                open++;
-                bps += t.bytesPerSecond();
-            }
-            speed.setText(bps > 0 ? speedText(bps) : "");
-            left.setText(open > 0 ? "剩 " + open + " 项" : "");
-        };
-        service.state().addListener((o, a, b) -> words.run());
-        service.progress().addListener((o, a, b) -> words.run());
-        service.stepLabel().addListener((o, a, b) -> words.run());
-        service.installProgress().addListener((o, a, b) -> words.run());
-        service.tasks().addListener((ListChangeListener<SaoData.Task>) c -> words.run());
-        words.run();
-        start.getStyleClass().add("vr-start");
-        SaoUiKit.font(start, 22, true);
-        start.setMinWidth(Region.USE_PREF_SIZE);
-        start.setOnAction(e -> pressMain());
-        start.defaultButtonProperty().bind(signedIn.visibleProperty());
-        // James, 11 Nov: "link start 是启动游戏，下载还是老实叫下载吧": 下载 / 更新 until everything is there.
-        Runnable label = () -> {
-            SaoReadiness r = service.readiness().get();
-            if (r.kind() != SaoReadiness.Kind.CHECKING) start.setText(r.buttonText());
-        };
-        service.readiness().addListener((o, a, b) -> label.run());
-        label.run();
-        // Installed: only the version beside Link Start ("安装完了那个进度条也删了，只剩v0.x").
-        Text version = dim("", 14);
-        // What needs doing before Link Start, as one small button beside the version: import the pack, a pack update,
-        // a launcher update (mandatory or not) or one waiting for a restart.
-        Button notice = SaoUiKit.button("");
-        notice.getStyleClass().add("vr-chip-tight");
-        HBox versionBox = new HBox(10, version, notice);
-        versionBox.setAlignment(Pos.CENTER_LEFT);
-        versionBox.setPickOnBounds(false);
-        StackPane.setAlignment(versionBox, Pos.CENTER_LEFT);
-        StackPane slot = new StackPane(bar, versionBox, start);
-        StackPane.setAlignment(start, Pos.CENTER_RIGHT);
-        slot.setMinHeight(48);
-        HBox.setHgrow(slot, Priority.ALWAYS);
-        Runnable show = () -> {
-            SaoPackState s = service.state().get();
-            boolean busy = s == SaoPackState.WORKING || s == SaoPackState.CHECKING;
-            bar.setVisible(busy);
-            start.setVisible(!busy);
-            @Nullable String v = service.installedVersion().get();
-            // installedVersion() only: a thin launcher has no pack of its own ("v未内置整合包" never shows).
-            version.setText(v != null ? "v" + v : "未安装");
-            versionBox.setVisible(!busy);
-            SaoData.UpdateStatus u = service.updateStatus().get();
-            SaoData.LauncherUpdate lu = service.launcherUpdate().get();
-            String what = "";
-            SaoPackApp.Mode mode = SaoPackApp.Mode.PACK;
-            if (u.launcherBlocked()) {
-                what = "更新启动器";
-                mode = SaoPackApp.Mode.LAUNCHER;
-            } else if (lu.restartRequired()) {
-                what = "重启生效";
-                mode = SaoPackApp.Mode.LAUNCHER;
-            } else if (v == null) what = "导入整合包";
-            else if (u.packUpdateAvailable() && u.metadata() != null) what = "更新 v" + u.metadata().pack().version();
-            else if (u.launcherUpdateAvailable()) {
-                what = "启动器更新";
-                mode = SaoPackApp.Mode.LAUNCHER;
-            }
-            SaoPackApp.Mode m = mode;
-            notice.setText(what);
-            notice.setOnAction(e -> openPack(m));
-            notice.setVisible(!what.isEmpty());
-            notice.setManaged(notice.isVisible());
-        };
-        service.state().addListener((o, a, b) -> show.run());
-        service.installedVersion().addListener((o, a, b) -> show.run());
-        service.updateStatus().addListener((o, a, b) -> show.run());
-        service.launcherUpdate().addListener((o, a, b) -> show.run());
-        show.run();
-        HBox row = new HBox(slot);
-        row.setAlignment(Pos.CENTER_LEFT);
-        return row;
-    }
-
-    /// The 游戏昵称 edited in place: the field with the name, save and cancel, and whether the name typed is free
-    /// (names never collide: "名字不能撞，永远不能").
-    private Node nameEditor(SaoData.OathAccount a) {
-        TextField f = field("游戏昵称");
-        f.setText(typedName != null ? typedName : a.name());
-        typedName = null;
-        f.setFont(SaoAssets.sao(20, true));
-        HBox.setHgrow(f, Priority.ALWAYS);
-        Button ok = round(SVG.CHECK, 28, 14), cancel = round(SVG.CLOSE, 28, 14);
-        Text note = dim("", 11);
-        Runnable close = () -> {
-            editingName = false;
-            refreshAccount();
-        };
-        Runnable save = () -> {
-            String n = f.getText().strip();
-            if (n.equals(a.name())) {
-                close.run();
-                return;
-            }
-            if (!SaoAccountApp.NAME.matcher(n).matches()) {
-                problem.setText("! 昵称 3-16 位：字母、数字、下划线");
-                return;
-            }
-            // James, 7 Nov: "确定的时候弹个确认框出来".
-            askName(n, () -> {
-                ok.setDisable(true);
-                service.oathRename(n).whenComplete((v, err) -> Platform.runLater(() -> {
-                    ok.setDisable(false);
-                    if (err != null) {
-                        problem.setText("! " + SaoSkinApp.message(err));
-                        return;
-                    }
-                    problem.setText("");
-                    close.run();
-                }));
-            });
-        };
-        ok.setOnAction(e -> save.run());
-        cancel.setOnAction(e -> close.run());
-        f.setOnAction(e -> save.run());
-        f.setOnKeyPressed(e -> {
-            if (e.getCode() == javafx.scene.input.KeyCode.ESCAPE) close.run();
-        });
-        // Whether it is free, a moment after typing stops.
-        PauseTransition wait = new PauseTransition(Duration.millis(350));
-        wait.setOnFinished(e -> {
-            String n = f.getText().strip();
-            note.getStyleClass().setAll("vr-dim");
-            if (n.equals(a.name())) {
-                note.setText("");
-            } else if (!SaoAccountApp.NAME.matcher(n).matches()) {
-                note.setText("3-16 位：字母、数字、下划线");
-            } else {
-                service.oathNameAvailable(n).whenComplete((free, err) -> Platform.runLater(() -> {
-                    if (!f.getText().strip().equals(n) || err != null) return;
-                    note.getStyleClass().setAll(free ? "vr-dim" : "vr-warn");
-                    note.setText(free ? "昵称可用" : "昵称被占用了，请换昵称再试");
-                    ok.setDisable(!free);
-                }));
-                return;
-            }
-            ok.setDisable(false);
-        });
-        f.textProperty().addListener((o, x, y) -> {
-            ok.setDisable(true);
-            wait.playFromStart();
-        });
-        if (!f.getText().equals(a.name())) {
-            ok.setDisable(true);
-            wait.playFromStart();
-        }
-        Platform.runLater(() -> {
-            f.requestFocus();
-            f.selectAll();
-        });
-        HBox row = new HBox(6, f, ok, cancel);
-        row.setAlignment(Pos.CENTER_LEFT);
-        return new VBox(3, row, note);
-    }
 
     /// The player card's friends line, when friends are online (screenshot checks).
     @Nullable FriendsLine friendsLine;
-
-    /// Opens 好友 (the +N after the friends who fit on the player card).
-    private void openFriends() {
-        for (int i = 0; i < SaoApps.APPS.length; i++)
-            if (SaoApps.APPS[i].label().equals("好友")) openApp(SaoApps.APPS[i], dockButtons[i]);
-    }
 
     /// One line of online friends under the player's name: the label, as many name chips as fit, then a +N chip for
     /// the rest. Laid out by hand so it never wraps or pushes the column wider.
@@ -1184,29 +578,9 @@ public final class SaoHelmetPage extends StackPane {
         }
     }
 
-    /// Opens 好友 on the conversation with a friend (their name under the player's).
-    private void openFriendChat(String name) {
-        service.directChat(name).whenComplete((id, err) -> Platform.runLater(() -> {
-            if (id != null) SaoFriendsApp.openFirst = id;
-            for (int i = 0; i < SaoApps.APPS.length; i++)
-                if (SaoApps.APPS[i].label().equals("好友")) openApp(SaoApps.APPS[i], dockButtons[i]);
-        }));
-    }
-
-    /// Asks before saving a new 游戏昵称.
-    private void askName(String name, Runnable yes) {
-        Text sure = ink("确定把昵称改成", 16);
-        SaoUiKit.font(sure, 16, true);
-        Text n = sao(name, 30, true);
-        Text after = dim("一天最多改 3 次", 12);
-        confirmName.getChildren().setAll(sure, n, after, (Node) confirmName.getProperties().get("answers"));
-        confirmNameAction = yes;
-        confirmName.setVisible(true);
-    }
-
     /// Shows 确定把昵称改成… (the screenshot tool).
     void forceNameConfirm(String name) {
-        askName(name, () -> {
+        dashboard.askName(name, () -> {
         });
     }
 
@@ -1214,51 +588,7 @@ public final class SaoHelmetPage extends StackPane {
     void forceNameEdit(String typed) {
         typedName = typed;
         editingName = true;
-        refreshAccount();
-    }
-
-    /// One number on the player card: what it is small, the value in the SAO face, no box (James, 7 Nov: the three
-    /// big tiles were too heavy, "给这三个雷霆大框换个表现形式").
-    private static Node stat(String before, String value, String after) {
-        HBox h = new HBox(4);
-        h.setAlignment(Pos.BASELINE_LEFT);
-        if (!before.isEmpty()) h.getChildren().add(dim(before, 12));
-        h.getChildren().add(sao(value, 21, true));
-        if (!after.isEmpty()) h.getChildren().add(dim(after, 12));
-        return h;
-    }
-
-    /// A short upright line between stats.
-    private static Node statRule() {
-        Region r = new Region();
-        r.getStyleClass().add("vr-rule");
-        r.setMinSize(1, 16);
-        r.setPrefSize(1, 16);
-        r.setMaxSize(1, 16);
-        return r;
-    }
-
-    /// When the game last ran, in a few words: 今天21:40, 昨天21:40, 3天前.
-    private static String whenText(long epochMs) {
-        java.time.ZoneId z = java.time.ZoneId.systemDefault();
-        java.time.LocalDateTime t = java.time.Instant.ofEpochMilli(epochMs).atZone(z).toLocalDateTime();
-        long days = java.time.temporal.ChronoUnit.DAYS.between(t.toLocalDate(), java.time.LocalDate.now(z));
-        String hm = String.format(java.util.Locale.ROOT, "%02d:%02d", t.getHour(), t.getMinute());
-        if (days <= 0) return "今天" + hm;
-        if (days == 1) return "昨天" + hm;
-        return days + "天前";
-    }
-
-    /// Play time: 12.7小时, under an hour 40分钟.
-    private static String playText(long seconds) {
-        if (seconds < 3600) return Math.max(seconds > 0 ? 1 : 0, seconds / 60) + "分钟";
-        return String.format(java.util.Locale.ROOT, "%.1f小时", seconds / 3600.0);
-    }
-
-    /// A download speed in a few characters: 820 KB/s, 3.2 MB/s.
-    private static String speedText(long bps) {
-        if (bps < 1024 * 1024) return Math.max(1, bps / 1024) + " KB/s";
-        return String.format(java.util.Locale.ROOT, "%.1f MB/s", bps / (1024.0 * 1024));
+        dashboard.refreshAccount();
     }
 
     /// The dock: a column of round buttons left of the windows, a label sliding out on hover.
@@ -1326,7 +656,7 @@ public final class SaoHelmetPage extends StackPane {
     // ------------------------------------------------------------------ apps
 
     /// Opens an app's window in front; the home windows move back and dim.
-    private void openApp(SaoApps.App a, @Nullable Button b) {
+    void openApp(SaoApps.App a, @Nullable Button b) {
         // An app opens once the power-on is over (the first start's 安装整合包 window, a file dropped meanwhile).
         if (boot.busy()) {
             afterBoot.add(() -> openApp(a, b));
@@ -1378,12 +708,12 @@ public final class SaoHelmetPage extends StackPane {
     }
 
     /// Opens the 誓约账号 window on a page.
-    private void openAccount(SaoAccountApp.Page page) {
+    void openAccount(SaoAccountApp.Page page) {
         openApp(new SaoApps.App(SVG.PERSON, "ARGUS ID", (s, c) -> SaoAccountApp.make(s, c, page)), null);
     }
 
     /// Opens the skin page, as its dock button does.
-    private void openSkin() {
+    void openSkin() {
         for (int i = 0; i < SaoApps.APPS.length; i++)
             if (SaoApps.APPS[i].label().equals("皮肤")) openApp(SaoApps.APPS[i], dockButtons[i]);
     }
@@ -1399,7 +729,7 @@ public final class SaoHelmetPage extends StackPane {
         w.close(() -> windows.getChildren().remove(w));
         for (SaoFloatWindow home : new SaoFloatWindow[]{news, server, player}) home.moveBack(0, 1, 320);
         // A skin put on or an account changed in the app shows on the player at once.
-        refreshAccount();
+        dashboard.refreshAccount();
     }
 
     // ------------------------------------------------------------------ frame
@@ -1570,7 +900,7 @@ public final class SaoHelmetPage extends StackPane {
     }
 
     /// The character's stage inside the player window, and the character itself with its pencil.
-    private final StackPane characterSlot = new StackPane(), characterBox = new StackPane();
+    final StackPane characterSlot = new StackPane(), characterBox = new StackPane();
     /// The flat layer over the 3D space that holds the character while the player window rests.
     private final Pane characterLayer = new Pane();
     private final Translate characterAt = new Translate();
@@ -1877,7 +1207,7 @@ public final class SaoHelmetPage extends StackPane {
     /// The screenshot tool: closes the app in front.
     /// For the screenshot tool: the account panel again, as after a service event.
     void debugRefreshAccount() {
-        refreshAccount();
+        dashboard.refreshAccount();
     }
 
     void debugCloseApp() {
@@ -1925,22 +1255,22 @@ public final class SaoHelmetPage extends StackPane {
     /// Starts on the account the launcher used last.
     /// Logs in with the remembered name and password, if any; the account shows as signed in at once and the
     /// password form comes back only when that fails.
-    private void autoLogin() {
+    void autoLogin() {
         @Nullable String r = service.rememberedOathName();
         if (r == null || service.oathAccount().get() != null) return;
         autoLogging = true;
-        refreshAccount();
+        dashboard.refreshAccount();
         service.oathLogin(r, null, true).whenComplete((ok, err) -> Platform.runLater(() -> {
             autoLogging = false;
             if (err != null) startupPending = false;
-            refreshAccount();
+            dashboard.refreshAccount();
             if (err != null) problem.setText("! " + SaoSkinApp.message(err) + "，请重新登录");
         }));
     }
 
     /// Stars in the password box only while the name typed is the one whose password is remembered (signing out
     /// forgets it).
-    private void refreshPrompt() {
+    void refreshPrompt() {
         @Nullable String r = service.rememberedOathName();
         // James, 8 Nov: "密码的那个点可以小一点": the prompt says it in words, no row of big dots.
         pw.setPromptText(r != null && name.getText().strip().equals(r) ? "已记住密码" : "密码");
@@ -1949,14 +1279,14 @@ public final class SaoHelmetPage extends StackPane {
     /// The signed-in side last shown: null signed out, "" logging in, else the name (and whether it was being renamed).
     private @Nullable String shownAccount;
     /// The big name drawn last, for its success glow.
-    private @Nullable Text shownNameText;
+    @Nullable Text shownNameText;
     /// The "正在登录…" line breathing now.
     private @Nullable Node busyLine;
 
     /// Moves the signed-in side only when it changes, never on a plain refresh (James, 14 Nov: "login时，成功等"):
     /// logging in comes in and breathes; signed in (from out, logging in, or another name) comes in row after row and
     /// the name lands with a glow; a rename shows its editor coming in.
-    private void accountMotion(boolean waiting, SaoData.@Nullable OathAccount a) {
+    void accountMotion(boolean waiting, SaoData.@Nullable OathAccount a) {
         @Nullable String now = a != null ? a.name() + (editingName ? "\u0000" : "") : waiting ? "" : null;
         @Nullable String was = shownAccount;
         shownAccount = now;
@@ -1982,172 +1312,22 @@ public final class SaoHelmetPage extends StackPane {
     }
 
     /// A Microsoft identity is known and ARGUS is still linking it, with no account yet.
-    private boolean microsoftSigningIn() {
+    boolean microsoftSigningIn() {
         return service.oathAccount().get() == null && service.microsoftIdentity().get() != null
                 && service.oathLinking().get().kind() == org.jackhuang.hmcl.sao.SaoOathLinking.Kind.LINKING;
     }
 
-    /// Shows the side that fits, signed out or signed in (or logging in), and the skin worn now.
-    private void refreshAccount() {
-        SaoData.@Nullable OathAccount live = service.oathAccount().get();
-        if (live != null) startupPending = false;
-        // James, 14 Nov: "登录可以慢慢来，但是显示必须先显示好": until the background sign-in answers, the panel is the last
-        // session's, drawn from a snapshot saved at every signed-in refresh.
-        @Nullable Snapshot cached = live == null && startupPending ? snapshot() : null;
-        SaoData.@Nullable OathAccount a = live != null ? live : cached != null ? cached.account() : null;
-        SaoData.@Nullable PlayerCard shownCard = live != null ? service.playerCard().get() : cached != null ? cached.card() : null;
-        // James, 14 Nov: "为什么进launcher要自己手动点一遍登录microsoft". The remembered Microsoft account signs in by
-        // itself at startup (4–6 s); the panel says so instead of showing the sign-in form, which invited a click
-        // that restarted the whole chain.
-        @Nullable String microsoftName = microsoftSigningIn() ? java.util.Objects.requireNonNull(service.microsoftIdentity().get()).name() : null;
-        boolean waiting = a == null && (autoLogging || microsoftName != null);
-        boolean in = a != null || waiting;
-        signedOut.setVisible(!in);
-        signedIn.setVisible(in);
-        if (!in) {
-            confirmOut.setVisible(false);
-            refreshPrompt();
-        }
-        if (waiting) {
-            @Nullable String r = microsoftName != null ? microsoftName : service.rememberedOathName();
-            signedIn.getChildren().setAll(sao("ARGUS ID", 17, true), sao(r == null ? "" : r, 33, true),
-                    dim(microsoftName != null ? "正在用 Microsoft 登录…" : "正在登录…", 14));
-        } else if (a != null) {
-            Button out = SaoUiKit.button("退出登录");
-            out.setOnAction(e -> confirmOut.setVisible(true));
-            // James, 7 Nov: "Sign out 右边加个Settings": the account's own settings.
-            Button settings = SaoUiKit.button("设置");
-            settings.setOnAction(e -> openAccount(SaoAccountApp.Page.MANAGE));
-            for (Button b : new Button[]{out, settings}) SaoUiKit.font(b, 14, false);
-            HBox head = new HBox(8, sao("ARGUS ID", 17, true), out, settings);
-            head.setAlignment(Pos.CENTER_LEFT);
-            // James, 7 Nov: "让名字大一点", then "a bit too big now"; a long name shrinks to stay in the column.
-            Text n = sao(a.name(), 42, true);
-            shownNameText = n;
-            double nw = n.getLayoutBounds().getWidth(), room = RIGHT_W - 38;
-            if (nw > room) SaoUiKit.font(n, 42 * room / nw, true);
-            n.getStyleClass().add("vr-link-text");
-            n.setOnMouseClicked(e -> openAccount(SaoAccountApp.Page.MANAGE));
-            // The mailbox and Microsoft live in 设置 only (James, 7 Nov).
-            // A pencil beside the name: it can be changed (James, 7 Nov), in 设置.
-            // James, 7 Nov: "点击铅笔可以直接在那个界面换昵称".
-            Button rename = round(SVG.EDIT, 28, 14);
-            rename.setOnAction(e -> {
-                editingName = true;
-                refreshAccount();
-            });
-            HBox nameRow = new HBox(8, n, rename);
-            nameRow.setAlignment(Pos.CENTER_LEFT);
-            signedIn.getChildren().setAll(head, editingName ? nameEditor(a) : nameRow);
-            if (a.mustRename()) {
-                Text taken = new Text("昵称已被正版玩家使用，请更换昵称");
-                taken.getStyleClass().add("vr-warn");
-                SaoUiKit.font(taken, 13, false);
-                Button change = bigLink("更换", () -> {
-                    editingName = true;
-                    refreshAccount();
-                });
-                HBox takenRow = new HBox(6, taken, grow(), change);
-                takenRow.setAlignment(Pos.CENTER_LEFT);
-                signedIn.getChildren().add(takenRow);
-            }
-            // Under the name (James, 7 Nov, picked 1 3 4 5): LV, floor and Col; the last time in the game and the
-            // play time; friends in the game now; and a red line while the mailbox waits for its code.
-            SaoData.@Nullable PlayerCard card = shownCard;
-            if (card != null) {
-                // No floor (James, 7 Nov: "那就不显示floor").
-                HBox tiles = new HBox(12,
-                        stat("LV", card.level() < 0 ? "-" : Integer.toString(card.level()), ""), statRule(),
-                        stat("", card.col() < 0 ? "-" : String.format(java.util.Locale.ROOT, "%,d", card.col()), "Col"));
-                tiles.setAlignment(Pos.CENTER_LEFT);
-                // James, 7 Nov: "上次进入：昨天22:18", "累计游玩时长：_._小时 （不到一小时，_分钟）".
-                Text last = dim(card.lastPlayed() <= 0 ? "上次进入：还没进过游戏" : "上次进入：" + whenText(card.lastPlayed()), 14);
-                Text total = dim("累计游玩时长：" + playText(card.playSeconds()), 14);
-                // James, 9 Nov: "好友在线的多了就+N": one line, as many names as fit, then +N (opens 好友).
-                Region friends;
-                friendsLine = null;
-                if (card.friendsOnline().isEmpty()) {
-                    HBox none = new HBox(dim("没有好友在线", 14));
-                    none.setAlignment(Pos.CENTER_LEFT);
-                    friends = none;
-                } else {
-                    List<Node> chips = new ArrayList<>();
-                    for (String f : card.friendsOnline()) {
-                        HBox chip = new HBox(5, light(true), sao(f, 14, false));
-                        chip.setAlignment(Pos.CENTER_LEFT);
-                        chip.getStyleClass().addAll("vr-name", "vr-row");
-                        chip.setOnMouseClicked(e -> openFriendChat(f));
-                        chips.add(chip);
-                    }
-                    Text moreText = sao("", 14, false);
-                    HBox more = new HBox(moreText);
-                    more.setAlignment(Pos.CENTER);
-                    more.getStyleClass().addAll("vr-name", "vr-row");
-                    more.setId("sao-friends-more");
-                    more.setOnMouseClicked(e -> openFriends());
-                    friends = friendsLine = new FriendsLine(dim("好友在线", 14), chips, more, moreText);
-                }
-                signedIn.getChildren().addAll(tiles, new VBox(2, last, total), friends);
-            }
-            // A Microsoft-linked (正版) account signs in with Microsoft and has no password to recover: no mailbox nag
-            // (James, 14 Nov: "正版玩家不用提醒这个东西").
-            boolean premiumNoMail = a.premiumName() != null && a.maskedEmail().isEmpty();
-            if (!a.emailVerified() && !premiumNoMail) {
-                Label w = new Label(a.maskedEmail().isEmpty() ? "还没有邮箱，绑定后才能找回密码"
-                        : a.locked() ? "邮箱没验证，验证后才能进游戏"
-                        : "邮箱待验证 · 还剩 " + SaoAccountApp.hours(a.graceSeconds()));
-                w.getStyleClass().add("vr-warn-label");
-                SaoUiKit.font(w, 13, false);
-                // The text wraps and the link keeps its full width inside the panel (James, 14 Nov: "这东西怎么在外面").
-                w.setWrapText(true);
-                w.setMinWidth(0);
-                w.setMaxWidth(Double.MAX_VALUE);
-                HBox.setHgrow(w, Priority.ALWAYS);
-                Button go = bigLink(a.maskedEmail().isEmpty() ? "去设置" : "去验证",
-                        () -> openAccount(a.maskedEmail().isEmpty() ? SaoAccountApp.Page.MANAGE : SaoAccountApp.Page.VERIFY));
-                go.setMinWidth(Region.USE_PREF_SIZE);
-                HBox warnRow = new HBox(6, w, go);
-                warnRow.setAlignment(Pos.CENTER_LEFT);
-                warnRow.setMinWidth(0);
-                warnRow.setMaxWidth(Double.MAX_VALUE);
-                signedIn.getChildren().add(warnRow);
-            }
-        }
-        // The snapshot's buttons wait for the real account.
-        if (cached != null) for (Node n : signedIn.getChildren()) n.setDisable(true);
-        accountMotion(waiting, a);
-        problem.setText(cached != null ? "正在登录…" : "");
-        @Nullable Path worn = service.oathSkin() != null ? service.oathSkin() : service.skin();
-        boolean slim = service.skinSlim();
-        if (cached != null && cached.skin() != null && Files.isRegularFile(Path.of(cached.skin()))) { worn = Path.of(cached.skin()); slim = cached.slim(); }
-        skin.show(worn, slim);
-        if (live != null) saveSnapshot(live, service.playerCard().get(), service.oathSkin(), service.skinSlim());
-    }
-
     /// Whether the last session's snapshot is shown until the startup sign-in answers.
-    private boolean startupPending;
+    boolean startupPending;
     /// Preference key of the signed-in panel snapshot.
-    private static final String SNAPSHOT_KEY = "account.snapshot";
+    static final String SNAPSHOT_KEY = "account.snapshot";
 
     /// The signed-in panel as last shown: name, card and skin file. No token, password or email address.
-    private record Snapshot(String name, String profileId, @Nullable String premiumName, int level, long col,
+    record Snapshot(String name, String profileId, @Nullable String premiumName, int level, long col,
                             long lastPlayed, long playSeconds, @Nullable String skin, boolean slim) {
         SaoData.OathAccount account() { return new SaoData.OathAccount(name, profileId, "", true, false, 0, premiumName); }
+
         SaoData.PlayerCard card() { return new SaoData.PlayerCard(level, 0, col, lastPlayed, playSeconds, List.of()); }
-    }
-
-    private @Nullable Snapshot snapshot() {
-        String json = service.preference(SNAPSHOT_KEY, "");
-        if (json.isBlank()) return null;
-        try { return new com.google.gson.Gson().fromJson(json, Snapshot.class); }
-        catch (RuntimeException broken) { return null; }
-    }
-
-    private void saveSnapshot(SaoData.OathAccount a, SaoData.@Nullable PlayerCard card, @Nullable Path skinFile, boolean slim) {
-        Snapshot s = new Snapshot(a.name(), a.profileId(), a.premiumName(), card == null ? -1 : card.level(), card == null ? -1 : card.col(),
-                card == null ? 0 : card.lastPlayed(), card == null ? 0 : card.playSeconds(), skinFile == null ? null : skinFile.toString(), slim);
-        String json = new com.google.gson.Gson().toJson(s);
-        if (!json.equals(service.preference(SNAPSHOT_KEY, ""))) service.setPreference(SNAPSHOT_KEY, json);
     }
 
     /// The status line and Link Start from the engine.
@@ -2193,7 +1373,7 @@ public final class SaoHelmetPage extends StackPane {
     }
 
     /// The progress across the Link row: measured file or byte counts from the backend when it has them.
-    private double fraction() {
+    double fraction() {
         org.jackhuang.hmcl.sao.SaoInstallProgress ip = service.installProgress().get();
         if (ip.stage() != org.jackhuang.hmcl.sao.SaoInstallProgress.Stage.IDLE) {
             if (ip.totalBytes() > 0) return Math.min(1, (double) ip.bytesDone() / ip.totalBytes());
@@ -2225,7 +1405,7 @@ public final class SaoHelmetPage extends StackPane {
     }
 
     /// 登录: the name and the password (or the remembered one).
-    private void login() {
+    void login() {
         if (autoLogging) {
             problem.setText("! 正在登录，稍等");
             return;
@@ -2263,14 +1443,14 @@ public final class SaoHelmetPage extends StackPane {
     }
 
     /// Shows 离线游玩 in place of the sign-in.
-    private void askOffline() {
+    void askOffline() {
         if (offlineName.getText().isBlank() && !name.getText().isBlank()) offlineName.setText(name.getText().strip());
         confirmOffline.setVisible(true);
         offlineName.requestFocus();
     }
 
     /// The main button: Link Start when ready; otherwise 下载 / 更新, which only prepares and needs no account.
-    private void pressMain() {
+    void pressMain() {
         SaoReadiness r = service.readiness().get();
         // Still checking: Link Start, which checks again before launching.
         if (r.ready() || r.kind() == SaoReadiness.Kind.CHECKING) {
@@ -2310,7 +1490,7 @@ public final class SaoHelmetPage extends StackPane {
         if (a.mustRename()) {
             problem.setText("! 昵称已被正版玩家使用，请更换昵称");
             editingName = true;
-            refreshAccount();
+            dashboard.refreshAccount();
             return;
         }
         if (a.locked()) {
@@ -2327,7 +1507,7 @@ public final class SaoHelmetPage extends StackPane {
     private void begin(Runnable launch) { begin(launch, false); }
 
     /// Offline entry retains local safety checks without requiring an online launcher upgrade.
-    private void begin(Runnable launch, boolean offline) {
+    void begin(Runnable launch, boolean offline) {
         if (gated(offline)) return;
         // James, 14 Nov: "按linkstart没有反应……我根本不知道". A click while something runs says what is running.
         SaoPackState now = service.state().get();
@@ -2580,7 +1760,7 @@ public final class SaoHelmetPage extends StackPane {
     }
 
     /// What 其他节点 does, set by the server window.
-    private Runnable openNodes = () -> {
+    Runnable openNodes = () -> {
     };
 
     /// Presses the first danger button in view, for example settings' 一键卸载 (screenshot tools).
@@ -2691,258 +1871,4 @@ public final class SaoHelmetPage extends StackPane {
     /// The player's character, turning slowly in HMCL's 3D skin view and turned by dragging.
     /// Which way a drag turns and tips the character (checked by dragging the real window).
     static double TURN_SIGN = 1, TILT_SIGN = -1;
-
-    private static final class Character extends StackPane {
-        /// HMCL's skin model.
-        private final Turntable canvas = new Turntable();
-        /// Where a drag started, and the turn then.
-        private double pressX, pressY, pressYaw, pressTilt;
-
-        /// HMCL's model, turned only about its own upright axis and tipped a little, never rolled
-        /// (James, 8 Nov: "你的这个3d皮肤拖动鼠标的这个很搞笑，根本没做好反人类").
-        private static final class Turntable extends SkinCanvas {
-            /// The camera's tip, after its turn: up and down tip the view about the screen's horizontal whichever side
-            /// faces you (James, 8 Nov: "上下划怎么是反的", "像个pendulum一样").
-            private final javafx.scene.transform.Rotate pitch = new javafx.scene.transform.Rotate(0, javafx.scene.transform.Rotate.X_AXIS);
-
-            Turntable() {
-                super(TexturesLoader.getDefaultSkinImage(), STAGE_W, STAGE_H, true);
-                camera.getTransforms().add(camera.getTransforms().indexOf(yRotate) + 1, pitch);
-            }
-
-            double yaw() {
-                return yRotate.getAngle();
-            }
-
-            double tilt() {
-                return pitch.getAngle();
-            }
-
-            void turn(double yaw, double tilt) {
-                yRotate.setAngle(yaw);
-                // The camera faces the front from yaw 180, where its own horizontal is the model's reversed, so a
-                // camera tip of +a looks like the model's old tilt of +a.
-                pitch.setAngle(Math.max(-20, Math.min(20, tilt)));
-                xRotate.setAngle(0);
-                zRotate.setAngle(0);
-            }
-        }
-
-        /// Builds it with the default skin.
-        Character() {
-            // James, 8 Nov: "史蒂夫神秘跑步": HMCL's preview broke into a run at random; only the slight arm sway is left.
-            if (SWAY) canvas.getAnimationPlayer().addSkinAnimation(new SkinAniWavingArms(100, 2000, 7.5, canvas));
-            // The front follows the hand: dragging right turns the side under the pointer to the right.
-            canvas.addEventHandler(MouseEvent.MOUSE_PRESSED, e -> {
-                pressX = e.getScreenX();
-                pressY = e.getScreenY();
-                pressYaw = canvas.yaw();
-                pressTilt = canvas.tilt();
-                e.consume();
-            });
-            canvas.addEventHandler(MouseEvent.MOUSE_DRAGGED, e -> {
-                canvas.turn(pressYaw + TURN_SIGN * (e.getScreenX() - pressX) * 0.7, pressTilt + TILT_SIGN * (e.getScreenY() - pressY) * 0.25);
-                e.consume();
-            });
-            getChildren().add(canvas);
-        }
-
-        /// Stops the sway while nobody can see it.
-        void pause() {
-            if (band != null) band.finish();
-            canvas.getAnimationPlayer().stop();
-        }
-
-        /// Starts the sway again.
-        void resume() {
-            canvas.getAnimationPlayer().start();
-        }
-
-        /// Shows a skin, or the default one.
-        ///
-        /// @param png    the skin file, or null
-        /// @param isSlim Slim arms
-        void show(@Nullable Path png, boolean isSlim) {
-            String key = skinKey(png, isSlim);
-            if (key.equals(shownKey)) return;
-            boolean first = shownKey == null;
-            shownKey = key;
-            Image img = png == null ? TexturesLoader.getDefaultSkinImage() : new Image(png.toUri().toString());
-            if (img.isError()) img = TexturesLoader.getDefaultSkinImage();
-            Image skinImage = img;
-            if (first || !SaoMotion.on() || getScene() == null || !isVisible() || getWidth() <= 0) {
-                if (band != null) band.finish();
-                canvas.updateSkin(skinImage, isSlim, null);
-                return;
-            }
-            if (band != null) band.finish();
-            band = new SkinBand(skinImage, isSlim);
-        }
-
-        /// What the preview shows: the file's bytes (not its name or date) and the arm model; a refresh that brings the same
-        /// skin back changes nothing and plays nothing.
-        @Nullable private String shownKey;
-
-        private static String skinKey(@Nullable Path png, boolean isSlim) {
-            String what = "default";
-            if (png != null) {
-                try {
-                    java.util.zip.CRC32 crc = new java.util.zip.CRC32();
-                    crc.update(java.nio.file.Files.readAllBytes(png));
-                    what = Long.toHexString(crc.getValue());
-                } catch (java.io.IOException e) {
-                    what = png.toString();
-                }
-            }
-            return what + (isSlim ? "/slim" : "/wide");
-        }
-
-        @Nullable private SkinBand band;
-
-        /// The skin change of our Progressive opening's character creation (the mod's own opening, filmed 19 Oct,
-        /// "film vs game 10-19/02", measured at 30 fps; James, 14 Nov: "参考我们做progressive opening时候的那个效果",
-        /// "我不记得是扫过去的啊"): the old figure dims to a dark silhouette, flashes white, turns amber, the amber turns
-        /// to white light with a halo, and the new skin comes out of the light from the head down while the halo goes.
-        /// Drawn on two pictures of the model (before and after), with the sway held for the moment so they match.
-        private final class SkinBand extends AnimationTimer {
-            /// Milliseconds, measured on the opening (24.9-25.5 s and 27.1-28.3 s of the film).
-            static final double DARK = 150, WHITE_AT = 220, WHITE = 100, AMBER_AT = 320, AMBER = 80, LIGHT_AT = 560,
-                    LIGHT = 200, SHAPE_AT = 700, REVEAL_AT = 900, REVEAL = 350, GLOW_OUT = 1400, END = 1400;
-            /// The figure's band of change as it takes its colours, a share of its height (FilmLoginFigure.BAND).
-            static final double BAND = .22;
-            /// The silhouette's colours as filmed: dark, the white flash and the light, amber.
-            static final int DARK_INK = 0x2D2A21, LIGHT_INK = 0xFFF3CE, AMBER_INK = 0xC47A0A;
-            private final int w, h, top, bottom;
-            private final int[] from, to, out;
-            private final javafx.scene.image.WritableImage picture;
-            private final ImageView view, halo;
-            private final boolean swaying;
-            private long start = -1;
-            private boolean done;
-
-            SkinBand(Image skin, boolean isSlim) {
-                double scale = getScene().getWindow() != null ? getScene().getWindow().getOutputScaleX() : 1;
-                swaying = canvas.getAnimationPlayer().isRunning();
-                if (swaying) canvas.getAnimationPlayer().stop();
-                javafx.scene.SnapshotParameters sp = new javafx.scene.SnapshotParameters();
-                sp.setFill(Color.TRANSPARENT);
-                sp.setTransform(javafx.scene.transform.Transform.scale(scale, scale));
-                javafx.scene.image.WritableImage before = canvas.snapshot(sp, null);
-                canvas.updateSkin(skin, isSlim, null);
-                javafx.scene.image.WritableImage after = canvas.snapshot(sp, null);
-                w = (int) Math.min(before.getWidth(), after.getWidth());
-                h = (int) Math.min(before.getHeight(), after.getHeight());
-                from = new int[w * h];
-                to = new int[w * h];
-                out = new int[w * h];
-                javafx.scene.image.WritablePixelFormat<java.nio.IntBuffer> fmt = javafx.scene.image.PixelFormat.getIntArgbInstance();
-                before.getPixelReader().getPixels(0, 0, w, h, fmt, from, 0, w);
-                after.getPixelReader().getPixels(0, 0, w, h, fmt, to, 0, w);
-                // the figure's own height (head to feet, both skins), so the colours come down the figure
-                int t = h, b = -1;
-                for (int y = 0; y < h; y++)
-                    for (int x = 0; x < w; x++)
-                        if ((from[y * w + x] >>> 24) > 8 || (to[y * w + x] >>> 24) > 8) {
-                            if (y < t) t = y;
-                            b = y;
-                            break;
-                        }
-                top = t;
-                bottom = Math.max(b, t + 1);
-                picture = new javafx.scene.image.WritableImage(w, h);
-                view = new ImageView(picture);
-                halo = new ImageView(picture);
-                for (ImageView v : new ImageView[]{halo, view}) {
-                    v.setFitWidth(w / scale);
-                    v.setFitHeight(h / scale);
-                    v.setManaged(false);
-                    v.setMouseTransparent(true);
-                    v.relocate(canvas.getBoundsInParent().getMinX(), canvas.getBoundsInParent().getMinY());
-                }
-                // the light's halo: the same picture, blurred and added
-                halo.setEffect(new javafx.scene.effect.GaussianBlur(30 * scale));
-                halo.setBlendMode(javafx.scene.effect.BlendMode.ADD);
-                halo.setOpacity(0);
-                paint(0);
-                getChildren().addAll(halo, view);
-                canvas.setOpacity(0);
-                start();
-            }
-
-            @Override
-            public void handle(long now) {
-                if (start < 0) start = now;
-                double t = (now - start) / 1e6;
-                if (t >= END) {
-                    finish();
-                    return;
-                }
-                paint(t);
-            }
-
-            private static double ease(double x) {
-                x = x < 0 ? 0 : x > 1 ? 1 : x;
-                return x * x * (3 - 2 * x);
-            }
-
-            /// One moment of the change, t in milliseconds.
-            private void paint(double t) {
-                // the silhouette's flat colour now (the old figure under it until the light)
-                double dark = ease(t / DARK), white = ease((t - WHITE_AT) / WHITE), amber = ease((t - AMBER_AT) / AMBER),
-                        light = ease((t - LIGHT_AT) / LIGHT);
-                int ink = mixRgb(mixRgb(mixRgb(DARK_INK, LIGHT_INK, white), AMBER_INK, amber), LIGHT_INK, light);
-                double flat = t < LIGHT_AT ? dark : 1;
-                int[] shape = t < SHAPE_AT ? from : to;
-                double c = (t - REVEAL_AT) / REVEAL, front = -BAND + c * (1 + 2 * BAND), span = bottom - top;
-                for (int y = 0; y < h; y++) {
-                    double k = 0;
-                    if (t >= REVEAL_AT) {
-                        double s = (y - top) / span;
-                        k = ease((front - s) / BAND * .5 + .5);
-                    }
-                    int row = y * w;
-                    for (int x = 0; x < w; x++) {
-                        int base = shape[row + x];
-                        if ((base >>> 24) == 0 && k <= 0) {
-                            out[row + x] = 0;
-                            continue;
-                        }
-                        int sil = base & 0xff000000 | (flat >= 1 ? ink : mixRgb(base & 0xffffff, ink, flat));
-                        out[row + x] = k <= 0 ? sil : k >= 1 ? to[row + x] : blend(sil, to[row + x], k);
-                    }
-                }
-                picture.getPixelWriter().setPixels(0, 0, w, h, javafx.scene.image.PixelFormat.getIntArgbInstance(), out, 0, w);
-                // the halo: a little with the white flash, full with the light, gone as the colours come in
-                double glow = Math.max(.35 * white * (1 - amber), light * (1 - ease((t - REVEAL_AT) / (GLOW_OUT - REVEAL_AT))));
-                halo.setOpacity(glow);
-            }
-
-            private static int mixRgb(int a, int b, double k) {
-                int r = (int) Math.round((a >> 16 & 255) + ((b >> 16 & 255) - (a >> 16 & 255)) * k);
-                int g = (int) Math.round((a >> 8 & 255) + ((b >> 8 & 255) - (a >> 8 & 255)) * k);
-                int bl = (int) Math.round((a & 255) + ((b & 255) - (a & 255)) * k);
-                return r << 16 | g << 8 | bl;
-            }
-
-            private int blend(int a, int b, double k) {
-                double aa = (a >>> 24) * (1 - k), ba = (b >>> 24) * k, sum = aa + ba;
-                if (sum <= 0) return 0;
-                int r = (int) Math.round(((a >> 16 & 255) * aa + (b >> 16 & 255) * ba) / sum);
-                int g = (int) Math.round(((a >> 8 & 255) * aa + (b >> 8 & 255) * ba) / sum);
-                int bl = (int) Math.round(((a & 255) * aa + (b & 255) * ba) / sum);
-                return (int) Math.round(Math.min(255, sum)) << 24 | r << 16 | g << 8 | bl;
-            }
-
-            /// Ends at once: the real model again, swaying as before.
-            void finish() {
-                if (done) return;
-                done = true;
-                stop();
-                getChildren().removeAll(halo, view);
-                canvas.setOpacity(1);
-                if (swaying) canvas.getAnimationPlayer().start();
-                if (band == this) band = null;
-            }
-        }
-    }
 }

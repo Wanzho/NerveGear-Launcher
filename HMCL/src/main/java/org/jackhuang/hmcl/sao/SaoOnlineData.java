@@ -1,3 +1,20 @@
+/*
+ * Hello Minecraft! Launcher
+ * Copyright (C) 2026 huangyuhui <huanghongxun2008@126.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 package org.jackhuang.hmcl.sao;
 
@@ -303,29 +320,29 @@ final class SaoOnlineData implements AutoCloseable {
                 try { socket.close(); } catch (IOException ignored) { }
             }, remaining(deadline), TimeUnit.MILLISECONDS);
             try {
-            socket.connect(new InetSocketAddress(target.address(), port), remaining(deadline));
-            socket.setSoTimeout(remaining(deadline));
-            DataOutputStream output = new DataOutputStream(socket.getOutputStream());
-            DataInputStream input = new DataInputStream(socket.getInputStream());
-            ByteArrayOutputStream handshakeBytes = new ByteArrayOutputStream();
-            DataOutputStream handshake = new DataOutputStream(handshakeBytes);
-            writeVarInt(handshake, 0); writeVarInt(handshake, 763);
-            byte @Unmodifiable [] host = parsed.host().getBytes(StandardCharsets.UTF_8);
-            writeVarInt(handshake, host.length); handshake.write(host); handshake.writeShort(port); writeVarInt(handshake, 1);
-            writeVarInt(output, handshakeBytes.size()); output.write(handshakeBytes.toByteArray());
-            output.write(new byte[]{1, 0}); output.flush();
-            DataInputStream packet = packet(input);
-            if (readVarInt(packet) != 0) throw new IOException("Unexpected status packet");
-            int length = readVarInt(packet);
-            if (length < 0 || length > 1048576 || length > packet.available()) throw new IOException("Invalid status JSON length");
-            JsonObject status = JsonParser.parseString(new String(packet.readNBytes(length), StandardCharsets.UTF_8)).getAsJsonObject();
-            long start = System.nanoTime();
-            output.write(new byte[]{9, 1}); output.writeLong(start); output.flush();
-            socket.setSoTimeout(remaining(deadline));
-            DataInputStream pong = packet(input);
-            if (readVarInt(pong) != 1 || pong.readLong() != start) throw new IOException("Invalid pong");
-            int milliseconds = (int) TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
-            return status(status, milliseconds);
+                socket.connect(new InetSocketAddress(target.address(), port), remaining(deadline));
+                socket.setSoTimeout(remaining(deadline));
+                DataOutputStream output = new DataOutputStream(socket.getOutputStream());
+                DataInputStream input = new DataInputStream(socket.getInputStream());
+                ByteArrayOutputStream handshakeBytes = new ByteArrayOutputStream();
+                DataOutputStream handshake = new DataOutputStream(handshakeBytes);
+                writeVarInt(handshake, 0); writeVarInt(handshake, 763);
+                byte @Unmodifiable [] host = parsed.host().getBytes(StandardCharsets.UTF_8);
+                writeVarInt(handshake, host.length); handshake.write(host); handshake.writeShort(port); writeVarInt(handshake, 1);
+                writeVarInt(output, handshakeBytes.size()); output.write(handshakeBytes.toByteArray());
+                output.write(new byte[]{1, 0}); output.flush();
+                DataInputStream packet = packet(input);
+                if (readVarInt(packet) != 0) throw new IOException("Unexpected status packet");
+                int length = readVarInt(packet);
+                if (length < 0 || length > 1048576 || length > packet.available()) throw new IOException("Invalid status JSON length");
+                JsonObject status = JsonParser.parseString(new String(packet.readNBytes(length), StandardCharsets.UTF_8)).getAsJsonObject();
+                long start = System.nanoTime();
+                output.write(new byte[]{9, 1}); output.writeLong(start); output.flush();
+                socket.setSoTimeout(remaining(deadline));
+                DataInputStream pong = packet(input);
+                if (readVarInt(pong) != 1 || pong.readLong() != start) throw new IOException("Invalid pong");
+                int milliseconds = (int) TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
+                return status(status, milliseconds);
             } finally { timeout.cancel(false); }
         }
     }
@@ -347,9 +364,9 @@ final class SaoOnlineData implements AutoCloseable {
         JsonObject players = status.has("players") ? status.getAsJsonObject("players") : new JsonObject();
         List<String> names = new ArrayList<>();
         if (players.has("sample")) for (JsonElement sample : players.getAsJsonArray("sample")) {
-            if (names.size() == 100) break;
-            names.add(sample.getAsJsonObject().get("name").getAsString());
-        }
+                if (names.size() == 100) break;
+                names.add(sample.getAsJsonObject().get("name").getAsString());
+            }
         return new SaoData.ServerStatus(true, players.has("online") ? players.get("online").getAsInt() : 0,
                 players.has("max") ? players.get("max").getAsInt() : 0, pingMs,
                 status.has("description") ? plainText(status.get("description")) : "", List.copyOf(names));
@@ -412,12 +429,16 @@ final class SaoOnlineData implements AutoCloseable {
         private @Nullable java.util.concurrent.Flow.Subscription subscription;
         /// Retains the historical news limit for existing callers and regression tests.
         NewsSubscriber() { this(MAX_NEWS_BYTES); }
+
         /// Uses the smaller version-document limit when fetching release metadata.
         NewsSubscriber(int limit) { this.limit = limit; }
+
         /// Returns the completion observed by HttpClient.send.
         @Override public CompletionStage<byte[]> getBody() { return result; }
+
         /// Requests one chunk at a time, bounding buffering independently of upstream chunk count.
         @Override public void onSubscribe(java.util.concurrent.Flow.Subscription value) { subscription = value; value.request(1); }
+
         /// Cancels immediately when a chunk would exceed the document limit.
         @Override public void onNext(List<java.nio.ByteBuffer> chunks) {
             for (java.nio.ByteBuffer chunk : chunks) {
@@ -429,8 +450,10 @@ final class SaoOnlineData implements AutoCloseable {
             }
             if (subscription != null) subscription.request(1);
         }
+
         /// Propagates a network error without replacing the last-good cache.
         @Override public void onError(Throwable failure) { result.completeExceptionally(failure); }
+
         /// Completes the bounded response after the publisher sends every accepted chunk.
         @Override public void onComplete() { result.complete(bytes.toByteArray()); }
     }

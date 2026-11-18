@@ -1,3 +1,20 @@
+/*
+ * Hello Minecraft! Launcher
+ * Copyright (C) 2026 huangyuhui <huanghongxun2008@126.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 package org.jackhuang.hmcl.task;
 
@@ -164,8 +181,10 @@ final class SegmentedDownloadTest {
         private TestTask(DownloadCandidates candidates, Path path, String sha1) {
             super(candidates, path, new IntegrityCheck("SHA-1", sha1));
         }
+
         /// Test traffic always reaches the loopback server.
         @Override protected EnumCheckETag shouldCheckETag() { return EnumCheckETag.NOT_CHECK_E_TAG; }
+
         /// Leaves enough time for the first fast range to complete before measuring the three slow ones.
         @Override protected Duration slowDownloadWindow() { return Duration.ofMillis(800); }
     }
@@ -182,8 +201,10 @@ final class SegmentedDownloadTest {
             server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
             server.setExecutor(executor); server.start();
         }
+
         /// Constructs one loopback candidate URL.
         private String url(String path) { return "http://127.0.0.1:" + server.getAddress().getPort() + path; }
+
         /// Sends a full response, optionally trickling at roughly 25 KiB/s.
         private void full(HttpExchange exchange, boolean slow) throws IOException {
             try {
@@ -192,6 +213,7 @@ final class SegmentedDownloadTest {
             } catch (IOException ignored) { }
             finally { exchange.close(); }
         }
+
         /// Implements strict byte ranges and optional slow, invalid or barrier-controlled responses.
         private void range(HttpExchange exchange, @Nullable String tag, AtomicInteger count,
                            @Nullable CountDownLatch barrier, boolean slow, boolean invalid) throws IOException {
@@ -216,6 +238,7 @@ final class SegmentedDownloadTest {
             catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
             finally { exchange.close(); }
         }
+
         /// Writes an interval, stopping promptly when the client abandons a candidate.
         private void write(HttpExchange exchange, int first, int last, boolean slow) throws IOException {
             try (OutputStream output = exchange.getResponseBody()) {
@@ -229,6 +252,7 @@ final class SegmentedDownloadTest {
                 }
             }
         }
+
         /// Stops exchanges and worker threads after each assertion scope.
         @Override public void close() { server.stop(0); executor.shutdownNow(); }
     }

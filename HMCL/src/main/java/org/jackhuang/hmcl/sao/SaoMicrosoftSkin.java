@@ -1,3 +1,20 @@
+/*
+ * Hello Minecraft! Launcher
+ * Copyright (C) 2026 huangyuhui <huanghongxun2008@126.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 package org.jackhuang.hmcl.sao;
 
@@ -24,20 +41,26 @@ final class SaoMicrosoftSkin {
         /// Returns bounded bytes or fails without exposing response bodies in diagnostics.
         byte[] get(URI uri, @Nullable String bearer) throws Exception;
     }
+
     /// ARGUS operations used after publishing the local preview.
     @NotNullByDefault
     interface Target {
         /// Reads authoritative slots; failure must never be interpreted as an empty own slot.
         SaoTextureState state() throws Exception;
+
         /// Selects premium without deleting the own slot.
         void premium() throws Exception;
+
         /// Uses the existing multipart skin upload path.
         void upload(byte[] png, boolean slim) throws Exception;
+
         /// Requests asynchronous inheritance, including capes.
         void refresh() throws Exception;
     }
+
     /// Utility class.
     private SaoMicrosoftSkin() { }
+
     /// Fetches only ACTIVE cosmetics from the authenticated Minecraft Services profile API.
     static @Nullable Skin fetch(String token, Fetch fetch) throws Exception {
         byte[] response = fetch.get(URI.create("https://api.minecraftservices.com/minecraft/profile"), token);
@@ -52,6 +75,7 @@ final class SaoMicrosoftSkin {
         @Nullable URI capeUrl = cape == null ? null : texture(cape.get("url").getAsString());
         return new Skin(normalize(fetch.get(url, null)), variant.equals("SLIM"), capeUrl);
     }
+
     /// Fetches every profile skin regardless of state, with the same origin and image validation as the active skin.
     static java.util.@Unmodifiable List<SaoPremiumSkins.Entry> library(String token, Fetch fetch) throws Exception {
         byte[] bytes = fetch.get(URI.create("https://api.minecraftservices.com/minecraft/profile"), token);
@@ -70,6 +94,7 @@ final class SaoMicrosoftSkin {
         }
         return java.util.List.copyOf(result);
     }
+
     /// Finds the active slot, never assuming the first item is active.
     private static @Nullable JsonObject active(JsonObject profile, String key) {
         if (!profile.has(key)) return null;
@@ -79,6 +104,7 @@ final class SaoMicrosoftSkin {
         }
         return null;
     }
+
     /// Allows only canonical official texture URLs; legacy HTTP references are upgraded before downloading.
     static URI texture(String value) throws IOException {
         URI uri = URI.create(value);
@@ -88,6 +114,7 @@ final class SaoMicrosoftSkin {
                 || !uri.getRawPath().matches("/texture/[a-fA-F0-9]{32,64}")) throw new IOException("Texture origin refused");
         return URI.create("https://textures.minecraft.net" + uri.getRawPath());
     }
+
     /// Publishes before any ARGUS call; own uploads are preserved and cooldowns suppress manual refresh.
     static void sync(Skin skin, Runnable preview, Target target) throws Exception {
         preview.run();
@@ -98,6 +125,7 @@ final class SaoMicrosoftSkin {
             if (state.refreshAfter() == 0 && !state.status().equals("syncing")) target.refresh();
         }
     }
+
     /// Converts legacy limbs using HMCL NormalizedSkin's mirrored face mapping, then applies upload validation.
     static byte[] normalize(byte[] bytes) throws IOException {
         byte[] clean = SaoOathSkins.sanitized(bytes, true);
@@ -109,11 +137,12 @@ final class SaoMicrosoftSkin {
                 {8,20,16,52,12},{12,20,28,52,12},{44,16,36,48,4},{48,16,40,48,4},
                 {40,20,40,52,12},{44,20,36,52,12},{48,20,32,52,12},{52,20,44,52,12}};
         for (int[] face : faces) for (int y = 0; y < face[4]; y++) for (int x = 0; x < 4; x++)
-            result.setRGB(face[2] + 3 - x, face[3] + y, source.getRGB(face[0] + x, face[1] + y));
+                    result.setRGB(face[2] + 3 - x, face[3] + y, source.getRGB(face[0] + x, face[1] + y));
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         if (!ImageIO.write(result, "png", output)) throw new IOException("PNG encoding failed");
         return SaoOathSkins.sanitized(output.toByteArray(), false);
     }
+
     /// Makes a fixed-origin request with no redirects, bounded bytes and timeouts; tokens remain request-local.
     static byte[] download(URI uri, @Nullable String bearer) throws IOException {
         if (bearer != null && !uri.equals(URI.create("https://api.minecraftservices.com/minecraft/profile")))
@@ -140,6 +169,7 @@ final class SaoMicrosoftSkin {
             }
         } finally { connection.disconnect(); }
     }
+
     /// One sanitized diagnostic, never an exception, URL, identity or token.
     static void failed() { System.getLogger(SaoMicrosoftSkin.class.getName()).log(System.Logger.Level.INFO, "Microsoft skin sync unavailable; keeping current appearance"); }
 }

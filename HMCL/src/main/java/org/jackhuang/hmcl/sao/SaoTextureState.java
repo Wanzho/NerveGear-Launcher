@@ -1,3 +1,20 @@
+/*
+ * Hello Minecraft! Launcher
+ * Copyright (C) 2026 huangyuhui <huanghongxun2008@126.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 package org.jackhuang.hmcl.sao;
 
@@ -24,20 +41,29 @@ public record SaoTextureState(boolean linked,String skinSource,String capeSource
     @NotNullByDefault
     public record Image(String hash,String model,URI url) {
         /// Validates content identity and arm model independently of image-loading UI.
-        public Image {if(!hash.matches("[0-9a-f]{64}")||!Set.of("","slim").contains(model))throw new IllegalArgumentException("Invalid appearance image");}
+        public Image { if (!hash.matches("[0-9a-f]{64}") || !Set.of("","slim").contains(model))throw new IllegalArgumentException("Invalid appearance image"); }
     }
     /// Copies available images and validates all public state values before publication.
     public SaoTextureState {
-        images=Map.copyOf(images);
-        if(!Set.of("own","premium").contains(skinSource)||!Set.of("own","premium").contains(effectiveSkinSource)
-                ||!Set.of("own","mojang","optifine","minecraftcapes","none").contains(capeSource)
-                ||!Set.of("own","mojang","optifine","minecraftcapes","none").contains(effectiveCapeSource)
-                ||!Set.of("ownSkin","premiumSkin","ownCape","mojang","optifine","minecraftcapes").containsAll(images.keySet())
-                ||!Set.of("idle","syncing","synced","failed").contains(status)||lastRefresh<0||refreshAfter<0)
+        images = Map.copyOf(images);
+        if (!Set.of("own","premium").contains(skinSource) || !Set.of("own","premium").contains(effectiveSkinSource)
+                || !Set.of("own","mojang","optifine","minecraftcapes","none").contains(capeSource)
+                || !Set.of("own","mojang","optifine","minecraftcapes","none").contains(effectiveCapeSource)
+                || !Set.of("ownSkin","premiumSkin","ownCape","mojang","optifine","minecraftcapes").containsAll(images.keySet())
+                || !Set.of("idle","syncing","synced","failed").contains(status) || lastRefresh < 0 || refreshAfter < 0)
             throw new IllegalArgumentException("Invalid appearance state");
     }
     /// Cleared appearance state for signout, unsupported old services or a service without account support.
-    public static SaoTextureState empty(){return new SaoTextureState(false,"own","own","own","none",Map.of(),0,0,"idle");}
+    public static SaoTextureState empty() { return new SaoTextureState(false,"own","own","own","none",Map.of(),0,0,"idle"); }
+
     /// Concise game-style synchronization label, independent of arbitrary server diagnostics.
-    public String statusLabel(){if(!linked)return "未绑定微软账号";return switch(status){case "synced"->"已同步";case "failed"->"同步失败";case "syncing"->"同步中";default->"未同步";};}
+    public String statusLabel() {
+        if (!linked) return "未绑定微软账号";
+        return switch (status) {
+            case "synced" -> "已同步";
+            case "failed" -> "同步失败";
+            case "syncing" -> "同步中";
+            default -> "未同步";
+        };
+    }
 }

@@ -1,3 +1,20 @@
+/*
+ * Hello Minecraft! Launcher
+ * Copyright (C) 2026 huangyuhui <huanghongxun2008@126.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 package org.jackhuang.hmcl.sao;
 
@@ -76,7 +93,12 @@ final class SaoInstanceFiles {
             Path icon = world.getFile().resolve("icon.png");
             int mode = world.getLevelData().get("Data") instanceof org.glavo.nbt.tag.CompoundTag data
                     && data.get("GameType") instanceof org.glavo.nbt.tag.IntTag tag ? tag.get() : 0;
-            String modeName = switch (mode) { case 1 -> "创造"; case 2 -> "冒险"; case 3 -> "旁观"; default -> "生存"; };
+            String modeName = switch (mode) {
+                case 1 -> "创造";
+                case 2 -> "冒险";
+                case 3 -> "旁观";
+                default -> "生存";
+            };
             result.add(new SaoData.World(world.getWorldName(), world.getFile(), world.getLastPlayed(), size(world.getFile()),
                     Files.isRegularFile(icon, LinkOption.NOFOLLOW_LINKS) ? icon : null, modeName));
         }
@@ -354,7 +376,7 @@ final class SaoInstanceFiles {
     private @Unmodifiable List<String> enabledResources() throws IOException {
         Path options = SaoPackFiles.resolve(instance, "options.txt");
         if (Files.exists(options)) for (String line : Files.readAllLines(options))
-            if (line.startsWith("resourcePacks:")) return List.copyOf(resourceIds(line.substring("resourcePacks:".length())));
+                if (line.startsWith("resourcePacks:")) return List.copyOf(resourceIds(line.substring("resourcePacks:".length())));
         return List.of();
     }
 
@@ -376,10 +398,10 @@ final class SaoInstanceFiles {
                 if (!Files.isRegularFile(metadata, LinkOption.NOFOLLOW_LINKS) || Files.size(metadata) > 65536) return "";
                 text = Files.readString(metadata);
             } else try (ZipFile zip = new ZipFile(pack.toFile())) {
-                @Nullable ZipEntry entry = zip.getEntry("pack.mcmeta");
-                if (entry == null || entry.getSize() > 65536) return "";
-                try (InputStream input = zip.getInputStream(entry)) { text = new String(input.readNBytes(65537), java.nio.charset.StandardCharsets.UTF_8); }
-            }
+                    @Nullable ZipEntry entry = zip.getEntry("pack.mcmeta");
+                    if (entry == null || entry.getSize() > 65536) return "";
+                    try (InputStream input = zip.getInputStream(entry)) { text = new String(input.readNBytes(65537), java.nio.charset.StandardCharsets.UTF_8); }
+                }
             JsonElement value = JsonParser.parseString(text).getAsJsonObject().getAsJsonObject("pack").get("description");
             return value.isJsonPrimitive() ? value.getAsString() : value.toString();
         } catch (IOException | RuntimeException ignored) { return ""; }

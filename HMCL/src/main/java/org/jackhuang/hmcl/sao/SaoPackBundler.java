@@ -1,3 +1,20 @@
+/*
+ * Hello Minecraft! Launcher
+ * Copyright (C) 2026 huangyuhui <huanghongxun2008@126.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 package org.jackhuang.hmcl.sao;
 
@@ -110,17 +127,17 @@ public final class SaoPackBundler {
             List<Extra> extras = new ArrayList<>();
             Set<String> extraNames = new HashSet<>();
             if (approvals.has("extraFiles")) for (JsonElement element : approvals.getAsJsonArray("extraFiles")) {
-                JsonObject extra = element.getAsJsonObject();
-                String path = extra.get("path").getAsString();
-                SaoPackManifest.validatePath(path);
-                if (!path.startsWith("overrides/licenses/") || !extraNames.add(path) || archive.getEntry(path) != null)
-                    throw new IOException("Source/licence artifact must be a new member under overrides/licenses/: " + path);
-                Path local = Path.of(extra.get("localPath").getAsString()).toRealPath();
-                String hash = extra.get("sha256").getAsString();
-                if (!hash.matches("[0-9a-f]{64}") || !Files.isRegularFile(local) || Files.size(local) > SaoPackManifest.MAX_FILE_SIZE
+                    JsonObject extra = element.getAsJsonObject();
+                    String path = extra.get("path").getAsString();
+                    SaoPackManifest.validatePath(path);
+                    if (!path.startsWith("overrides/licenses/") || !extraNames.add(path) || archive.getEntry(path) != null)
+                        throw new IOException("Source/licence artifact must be a new member under overrides/licenses/: " + path);
+                    Path local = Path.of(extra.get("localPath").getAsString()).toRealPath();
+                    String hash = extra.get("sha256").getAsString();
+                    if (!hash.matches("[0-9a-f]{64}") || !Files.isRegularFile(local) || Files.size(local) > SaoPackManifest.MAX_FILE_SIZE
                         || !SaoUpdates.sha256(local).equals(hash)) throw new IOException("Source/licence artifact identity mismatch: " + path);
-                extras.add(new Extra(path, local, hash));
-            }
+                    extras.add(new Extra(path, local, hash));
+                }
             for (Path destination : selected.values()) Files.createDirectories(Objects.requireNonNull(destination.getParent()));
             downloader.downloadAll(selected);
             for (var item : selected.entrySet())
