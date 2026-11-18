@@ -59,7 +59,7 @@ final class SaoMicrosoftLogin {
     /// Reuses an unexpired provider session, including one just installed by the DONE flow.
     static AuthInfo reuse(MicrosoftAccount account) throws Exception {
         @Nullable AuthInfo fresh = account.validSession();
-        return fresh != null ? fresh : account.logIn();
+        return fresh != null ? fresh : SaoLoginSteps.timed("microsoft-refresh", account::logIn);
     }
 
     /// Reads only an already stored matching session; never opens login UI or refreshes credentials.

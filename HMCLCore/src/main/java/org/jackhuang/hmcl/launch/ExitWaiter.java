@@ -37,17 +37,21 @@ final class ExitWaiter implements Runnable {
 
     private final ManagedProcess process;
     private final Collection<Thread> joins;
+    /// Receives the process exit before the output readers have drained.
+    private final Runnable processExit;
     private final BiConsumer<Integer, ProcessListener.ExitType> watcher;
 
     /**
      * Constructor.
      *
      * @param process the process to wait for
+     * @param processExit the immediate process-exit notification
      * @param watcher the callback that will be called after process stops.
      */
-    public ExitWaiter(ManagedProcess process, Collection<Thread> joins, BiConsumer<Integer, ProcessListener.ExitType> watcher) {
+    public ExitWaiter(ManagedProcess process, Collection<Thread> joins, Runnable processExit, BiConsumer<Integer, ProcessListener.ExitType> watcher) {
         this.process = process;
         this.joins = joins;
+        this.processExit = processExit;
         this.watcher = watcher;
     }
 
@@ -55,6 +59,7 @@ final class ExitWaiter implements Runnable {
     public void run() {
         try {
             int exitCode = process.getProcess().waitFor();
+            processExit.run();
 
             for (Thread thread : joins)
                 thread.join();

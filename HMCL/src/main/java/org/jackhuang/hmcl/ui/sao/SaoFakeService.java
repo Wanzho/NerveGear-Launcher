@@ -505,6 +505,14 @@ public final class SaoFakeService implements SaoLauncherService {
     @Override public void setJvmArgs(String a) { jvm = a; }
     @Override public String preference(String key, String fallback) { return prefs.getOrDefault(key, fallback); }
     @Override public void setPreference(String key, String value) { prefs.put(key, value); }
+    /// {@inheritDoc}
+    @Override public boolean betaQuickUpdates() { return Boolean.parseBoolean(preference("betaQuickUpdates", "false")); }
+    /// {@inheritDoc}
+    @Override public void setBetaQuickUpdates(boolean enabled) { setPreference("betaQuickUpdates", Boolean.toString(enabled)); }
+    /// {@inheritDoc}
+    @Override public boolean allowModifiedModsOffline() { return Boolean.parseBoolean(preference("allowModifiedModsOffline", "false")); }
+    /// {@inheritDoc}
+    @Override public void setAllowModifiedModsOffline(boolean allow) { setPreference("allowModifiedModsOffline", Boolean.toString(allow)); }
 
     // ------------------------------------------------------------------ 誓约账号 (pretend)
 

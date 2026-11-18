@@ -10,10 +10,20 @@ import org.jetbrains.annotations.NotNullByDefault;
 final class SaoLoginSteps {
     /// Utility class.
     private SaoLoginSteps() { }
-    /// Executes a named operation and logs no account, endpoint, exception, or credential payload.
+    /// Executes a named operation and logs its outcome without raw exception messages or account data.
     static <T> T timed(String step, Callable<T> task) throws Exception {
         long started = System.nanoTime();
         try { return task.call(); }
+        catch (Exception failure) {
+            String kind = SaoAccountClient.networkFailureKind(failure);
+            if (failure instanceof InterruptedException
+                    || (failure instanceof SaoAccountException account && account.code().equals("cancelled")))
+                kind = "cancelled";
+            else if (failure instanceof SaoAccountException && kind.equals("transport"))
+                kind = "account";
+            Logger.LOG.warning("Sign-in failure step=" + step + " kind=" + kind);
+            throw failure;
+        }
         finally { elapsed(step, started); }
     }
     /// Emits exactly one INFO duration for a completed step, including failures.

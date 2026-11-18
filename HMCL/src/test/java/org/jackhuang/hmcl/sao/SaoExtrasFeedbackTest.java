@@ -72,14 +72,57 @@ class SaoExtrasFeedbackTest {
         Files.writeString(roaming.resolve("logs/b.log"), "roaming diagnostic\n--accessToken ROAM_SECRET\n");
         Files.writeString(local.resolve("user-accounts.json"), "ACCOUNT_SECRET");
         Files.writeString(game.resolve(".sao-launch-ticket.json"), "TICKET_SECRET");
-        Files.writeString(game.resolve(SaoPackInstaller.RECEIPT), "{\"version\":\"0.8.1\"}");
+        String hash = "a".repeat(40);
+        Files.writeString(game.resolve(SaoPackInstaller.RECEIPT), """
+                {
+                  "version": "0.8.2.1",
+                  "password": "RECEIPT_SECRET",
+                  "files": [{
+                    "path": "config/password-rules.toml",
+                    "entry": "overrides/config/password-rules.toml",
+                    "sha1": "%s",
+                    "downloads": ["https://example.org/payload.jar?key=QUERY_SECRET"]
+                  }]
+                }
+                """.formatted(hash));
         var zip = new SaoFeedbackZip(local, game, temporary.resolve("Desktop"), new SaoFeedbackSanitizer("", ""), List.of(local, roaming))
-                .build("Launcher: fixture", List.of(), List.of());
+                .build("Launcher: 0.1.3\nInstalled pack: 0.8.2.1", List.of(), List.of());
         Map<String, String> entries = unzip(zip.path());
         assertTrue(zip.path().getFileName().toString().startsWith("NerveGear日志-"));
         assertTrue(entries.keySet().containsAll(List.of("info.txt", "pack/installed-inventory.json", "data-1/logs/launcher-1.log", "data-2/logs/launcher-1.log")));
         String all = entries.toString();
-        for (String secret : List.of("LOCAL_SECRET", "ROAM_SECRET", "ACCOUNT_SECRET", "TICKET_SECRET", "user-accounts", ".sao-launch-ticket", "--accessToken")) assertFalse(all.contains(secret));
+        for (String secret : List.of("LOCAL_SECRET", "ROAM_SECRET", "ACCOUNT_SECRET", "TICKET_SECRET",
+                "RECEIPT_SECRET", "QUERY_SECRET", "user-accounts", ".sao-launch-ticket", "--accessToken")) assertFalse(all.contains(secret));
+        var receipt = com.google.gson.JsonParser.parseString(entries.get("pack/installed-inventory.json")).getAsJsonObject();
+        var file = receipt.getAsJsonArray("files").get(0).getAsJsonObject();
+        assertEquals("0.8.2.1", receipt.get("version").getAsString());
+        assertTrue(entries.get("system-summary.txt").contains("Installed pack: 0.8.2.1"));
+        assertEquals("config/password-rules.toml", file.get("path").getAsString());
+        assertEquals(hash, file.get("sha1").getAsString());
+        assertEquals("https://example.org/payload.jar", file.getAsJsonArray("downloads").get(0).getAsString());
+    }
+
+    /// Support exports preserve diagnostic clocks, reports and bounded account stages beside real redactions.
+    @Test void clockedTransportDiagnosticsSurviveArchiveExport() throws Exception {
+        Path launcher = temporary.resolve("launcher.log");
+        List<String> diagnostics = List.of(
+                "[07:57:02.893] [main/INFO] Ordinary report from 2001:db8::1",
+                "[07:57:03] [@.sao.SaoLoginSteps.elapsed/INFO] Sign-in timing step=microsoft-session elapsedMs=301",
+                "[07:57:04] [@.sao.SaoLoginSteps.timed/WARNING] Sign-in failure step=microsoft-refresh kind=request-timeout",
+                "[07:57:05] [@.sao.SaoAccountClient.request/WARNING] ARGUS HTTP failure: step=launch-ticket status=503",
+                "[07:57:06] [@.sao.SaoAccountClient.request/WARNING] ARGUS transport failure: step=session-refresh kind=dns",
+                "[07:57:07] [@.sao.SaoLoginSteps.elapsed/INFO] Sign-in timing step=microsoft-session elapsedMs=3 password=KEEP_PRIVATE");
+        Files.write(launcher, diagnostics);
+        var builder = new SaoFeedbackZip(temporary, temporary.resolve("instance"), temporary.resolve("Downloads"),
+                new SaoFeedbackSanitizer("", ""));
+        Map<String, String> entries = unzip(builder.build("fixture", List.of(launcher), List.of("")).path());
+        String report = entries.get("launcher/launcher-1.log");
+        assertTrue(report.contains("[07:57:02.893] [main/INFO] Ordinary report from [IP omitted]"));
+        for (String diagnostic : diagnostics.subList(1, 5)) assertTrue(report.contains(diagnostic));
+        assertTrue(report.contains("[07:57:07] [authentication data omitted]"));
+        assertFalse(report.contains("KEEP_PRIVATE"));
+        assertFalse(entries.containsKey("captured-game.log"));
+        assertTrue(entries.get("export-notes.txt").contains("启动器未捕获到游戏进程输出"));
     }
 
     /// Windows paths, uppercase identities, masked mail and sensitive lines are also removed from live log display.
@@ -162,7 +205,7 @@ class SaoExtrasFeedbackTest {
         Path instance = temporary.resolve("instance"), downloads = temporary.resolve("Downloads");
         var builder = new SaoFeedbackZip(temporary, instance, downloads, new SaoFeedbackSanitizer("", ""));
         var entries = unzip(builder.build("OS: fixture", List.of(), List.of()).path());
-        assertEquals(Set.of("system-summary.txt", "info.txt", "mods-sha1.txt", "captured-game.log", "export-notes.txt"), entries.keySet());
+        assertEquals(Set.of("system-summary.txt", "info.txt", "mods-sha1.txt", "export-notes.txt"), entries.keySet());
     }
 
     /// Hash values are generated public identities, not OS usernames even when both happen to share hex characters.

@@ -29,7 +29,7 @@ Reuse pinned toolchains without copying them with `--toolchain-cache /path/to/wo
 To reuse a previously built launcher without another Gradle build:
 
 ```sh
-packaging/build-all.sh --jar HMCL/build/libs/NerveGear-Launcher-0.1.3.jar
+packaging/build-all.sh --jar HMCL/build/libs/NerveGear-Launcher-0.1.3.1.jar
 ```
 
 The build lock is `~/Developer/sao-launcher-runs/build.lock`. A competing build is
@@ -57,13 +57,26 @@ named UTF-8 `.cfg` in `app/`. Its `app.mainclass` and `app.classpath` invoke the
 bundled `org.jackhuang.hmcl.sao.SaoLauncherBootstrap`. macOS and Linux invoke the
 same class with `-cp app/launcher.jar`, using only their bundled runtime.
 
-The same Windows folder is also wrapped in `NerveGear启动器-安装-0.1.3.exe`, a per-user
+The same Windows folder is also wrapped in `NerveGear启动器-安装-0.1.3.1.exe`, a per-user
 NSIS installer (`windows-installer.nsi`; needs `brew install makensis`, NSIS 3.13). It
 installs to `%LOCALAPPDATA%\Programs\NerveGear-Launcher` without admin, refuses a folder
 the player cannot write to, adds Start-menu and desktop shortcuts and an HKCU Uninstall
 entry, and never touches `.sao-oath-launcher`. Its `uninstall.exe` keeps the game and
 saves unless the player says otherwise; the launcher's own uninstall runs it with `/S`
 last, so the shortcuts and the entry go too. Any makensis warning fails the build.
+
+For existing Windows installations, `windows-launcher-patch.nsi` builds a
+standalone offline patch that backs up and replaces `app/launcher.jar`. Use a
+standard launcher JAR for the matching version and the Windows icon produced by
+the packaging build.
+
+```sh
+jar_path="$(pwd)/HMCL/build/libs/NerveGear-Launcher-0.1.3.1.jar"
+makensis -WX -DVERSION=0.1.3.1 "-DPAYLOAD=$jar_path" \
+  "-DPAYLOAD_BYTES=$(wc -c < "$jar_path" | tr -d ' ')" \
+  "-DICON=/absolute/path/to/icon.ico" "-DOUTFILE=$(pwd)/NerveGear-0.1.3.1-Patch.exe" \
+  packaging/windows-launcher-patch.nsi
+```
 
 The bootstrap verifies per-user update JARs before starting them with `-jar`, so
 the selected launcher's manifest JVM options still apply. Updates live under the
@@ -73,6 +86,13 @@ Windows has it open. A new version must acknowledge its initialized window withi
 300 seconds. Failed startup restores the previous verified JAR, or the bundled JAR,
 and retains a Chinese result message for the service/UI. `--self-update-status`
 prints persisted status without loading JavaFX or launching a child.
+
+The launcher settings offer a separate Beta test-update opt-in, off by default.
+After enabling it, players can import a quick-update ZIP that matches their
+installed pack or an explicitly selected `NerveGear-Launcher-Beta-<version>.jar`
+and its single-JAR ZIP wrapper. Test launcher files use the standard build with
+their distribution filename set separately. Official update and server admission
+checks still apply on their usual paths.
 
 Existing data roots remain `.sao-oath-launcher` on macOS/Linux and
 `.sao-oath-launcher` under Windows AppData, including the existing `sao.home` /

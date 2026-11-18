@@ -487,7 +487,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
                 // The screen may hold the hide until the game shows its own visor (see SaoHandoff).
                 stage.hide();
             }
-            /// The crash property is already published before this operation is queued.
+            /// Restores the main window while the engine finishes processing the exit.
             @Override public void show() {
                 if (closed.get()) return;
                 oath.friends.notifications.attention(true, false);
@@ -737,11 +737,23 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
                     }
                     /// Captures sanitized output only; handoff and authentication lines are filtered first.
                     @Override public void onLog(String line, boolean stderr) { appendGameLog(line); }
+                    /// Restores the launcher before waiting for log readers or rescanning the instance.
+                    @Override public void onProcessExit() {
+                        if (!gameRunning.getAndSet(false) || closed.get() || uninstalling.get()) return;
+                        activeTask = "整理游戏退出信息";
+                        publish(() -> {
+                            if (state.get() == SaoPackState.RUNNING) {
+                                step.set("正在整理游戏退出信息");
+                                state.set(SaoPackState.WORKING);
+                            }
+                        });
+                        lifecycle.exited();
+                        launchLog("game process exited; reading exit information");
+                    }
                     /// Reconciles the fixed instance and analyzes this run after the real process exits.
                     @Override public void onExit(int code, ExitType type) {
+                        onProcessExit();
                         if (account instanceof SaoOathLaunchAccount) oath.gameExited();
-                        gameRunning.set(false);
-                        lifecycle.processEnded();
                         if (closed.get() || uninstalling.get()) { heldGame = null; gameExit.complete(null); return; }
                         worker.execute(() -> {
                             try {
@@ -750,7 +762,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
                                 publish(() -> crash.set(result));
                                 refreshLocalNow(); refreshState();
                             } catch (Exception failure) { windowFailure("读取游戏退出信息失败", failure); }
-                            finally { heldGame = null; releaseBusy(); lifecycle.exited(); gameExit.complete(null); }
+                            finally { heldGame = null; releaseBusy(); gameExit.complete(null); }
                         });
                     }
                 });
@@ -1238,9 +1250,7 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     }
 
     /// Recognizes a manually selected quick-update ZIP for the Beta importer.
-    private static boolean isBetaQuickDrop(@Unmodifiable List<Path> dropped) {
-        if (!Metadata.SAO_BETA || dropped.size() != 1) return false;
-        Path path = dropped.get(0);
+    private static boolean isBetaQuickDrop(Path path) {
         if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) return false;
         try (var zip = new java.util.zip.ZipFile(path.toFile())) {
             return zip.getEntry(SaoQuickUpdate.NAME) != null && zip.getEntry("bundle-index.json") == null;
@@ -1252,6 +1262,12 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
         if (policy == null || policy.updates().stream().noneMatch(update -> update.size() == size)) return false;
         String hash = SaoUpdates.sha256(path);
         return policy.updates().stream().anyMatch(update -> update.size() == size && update.sha256().equals(hash));
+    }
+
+    /// Preserves the signed path when someone explicitly drops the registered launcher artifact in Beta mode.
+    private static boolean registeredLauncher(Path path, long size, @Nullable SaoData.VersionMetadata policy) throws IOException {
+        @Nullable SaoData.LauncherArtifact launcher = policy == null ? null : policy.launcher().artifact();
+        return launcher != null && size == launcher.size() && SaoUpdates.sha256(path).equals(launcher.sha256());
     }
 
     /// Installs a manually dropped Beta patch through the same verified-base transaction as official updates.
@@ -1352,11 +1368,15 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
         @Unmodifiable List<Path> dropped = List.copyOf(paths);
         if (!packReady.isDone()) return packReady.thenCompose(ignored -> acceptDroppedFilesNow(dropped));
         if (dropped.size() == 1 && isFullPackDrop(dropped.get(0))) return importLocalFullPack(dropped.get(0));
-        boolean betaQuick = isBetaQuickDrop(dropped);
+        @Nullable Path single = dropped.size() == 1 ? dropped.get(0) : null;
+        boolean betaEnabled = betaQuickUpdates();
+        boolean betaQuick = single != null && (betaEnabled || Metadata.SAO_BETA) && isBetaQuickDrop(single);
+        boolean betaLauncher = single != null && betaEnabled && Files.isRegularFile(single, LinkOption.NOFOLLOW_LINKS)
+                && SaoSelfUpdate.betaVersion(single) != null;
         CompletableFuture<Void> result = new CompletableFuture<>();
         // Preserve the immediate, non-mutating rejection for an ordinary drop without policy. A bundle may
         // bootstrap that policy; checking its central directory does not read or extract the payload here.
-        if (versionMetadata == null && !betaQuick && !containsOfflineBundle(dropped)) {
+        if (versionMetadata == null && !betaQuick && !betaLauncher && !containsOfflineBundle(dropped)) {
             IOException failure = new IOException("暂无有效版本信息，请稍后重试");
             windowFailure("无法校验整合包", failure); result.completeExceptionally(failure); return result;
         }
@@ -1371,13 +1391,24 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
             boolean accepted = false;
             List<Path> importedDirectories = new ArrayList<>();
             try {
-                if (betaQuick) {
-                    Path path = dropped.get(0);
-                    long size = Files.size(path);
-                    if (!registeredQuick(path, size, versionMetadata)) {
-                        applyBetaQuick(path, size);
+                if (single != null && betaQuick) {
+                    long size = Files.size(single);
+                    if (!registeredQuick(single, size, versionMetadata)) {
+                        if (!Metadata.SAO_BETA && !betaQuickUpdates()) throw new IOException("Beta 测试更新已关闭");
+                        applyBetaQuick(single, size);
                         return;
                     }
+                }
+                if (single != null && betaLauncher && !registeredLauncher(single, Files.size(single), versionMetadata)) {
+                    if (!betaQuickUpdates()) throw new IOException("Beta 测试更新已关闭");
+                    @Nullable SaoData.VersionMetadata current = versionMetadata;
+                    if (current != null && (SaoUpdates.compare(Metadata.VERSION, current.launcher().min()) < 0
+                            || current.launcher().nativeRequired() && SaoUpdates.compare(Metadata.VERSION, current.launcher().latest()) < 0))
+                        throw new IOException(SaoSelfUpdate.FULL_LAUNCHER_REQUIRED);
+                    SaoData.LauncherUpdate value = selfUpdate.stageBeta(single, Metadata.VERSION);
+                    publish(() -> launcherUpdate.set(value));
+                    refreshState();
+                    return;
                 }
                 List<Path> candidates = new ArrayList<>();
                 for (Path path : dropped) {
@@ -2145,6 +2176,14 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
         }
         saveSetting("preference." + key, value);
     }
+    /// {@inheritDoc}
+    @Override public boolean betaQuickUpdates() { return Boolean.parseBoolean(preference("betaQuickUpdates", "false")); }
+    /// {@inheritDoc}
+    @Override public void setBetaQuickUpdates(boolean enabled) { setPreference("betaQuickUpdates", Boolean.toString(enabled)); }
+    /// {@inheritDoc}
+    @Override public boolean allowModifiedModsOffline() { return Boolean.parseBoolean(preference("allowModifiedModsOffline", "false")); }
+    /// {@inheritDoc}
+    @Override public void setAllowModifiedModsOffline(boolean allow) { setPreference("allowModifiedModsOffline", Boolean.toString(allow)); }
     /// {@inheritDoc}
     @Override public void openFolder(SaoData.Folder folder) {
         if (closed.get() || uninstalling.get()) return;

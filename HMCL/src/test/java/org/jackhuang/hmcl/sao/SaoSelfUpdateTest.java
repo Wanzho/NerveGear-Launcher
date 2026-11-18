@@ -31,7 +31,9 @@ class SaoSelfUpdateTest {
         manifest.getMainAttributes().putValue("Main-Class", "org.jackhuang.hmcl.Main");
         manifest.getMainAttributes().putValue("Implementation-Version", version);
         try (JarOutputStream output = new JarOutputStream(Files.newOutputStream(path), manifest)) {
-            output.putNextEntry(new JarEntry("assets/hmcl.properties")); output.write(("hmcl.version=" + version + "\n").getBytes(StandardCharsets.UTF_8)); output.closeEntry();
+            output.putNextEntry(new JarEntry("assets/hmcl.properties"));
+            output.write(("hmcl.version=" + version + "\nhmcl.sao.beta=false\n").getBytes(StandardCharsets.UTF_8));
+            output.closeEntry();
             for (String entry : List.of("org/jackhuang/hmcl/Main.class", "org/jackhuang/hmcl/Launcher.class",
                     "org/jackhuang/hmcl/sao/SaoLauncherBootstrap.class", "org/jackhuang/hmcl/sao/SaoSelfUpdate.class")) {
                 output.putNextEntry(new JarEntry(entry)); output.write(0); output.closeEntry();
@@ -157,7 +159,7 @@ class SaoSelfUpdateTest {
 
     /// The same drag entry used by pack imports stages a verified JAR and enforces the minimum gate.
     @Test void engineDropStagesJarAndBelowMinimumRequestsCompleteLauncher() throws Exception {
-        String futureVersion = Metadata.VERSION + ".1";
+        String futureVersion = "99.0.0.1";
         Path candidate = jar("candidate.jar", futureVersion);
         for (boolean blocked : List.of(false, true)) {
             Path root = Files.createDirectories(temporary.resolve(blocked ? "blocked" : "optional"));
@@ -181,6 +183,32 @@ class SaoSelfUpdateTest {
             }
         }
         assertTrue(Files.exists(candidate));
+    }
+
+    /// Opt-in accepts unregistered test launcher updates locally and reuses native restart rollback.
+    @Test void betaLauncherDropRequiresOptInAndRollsBack() throws Exception {
+        String version = "99.0.0.1";
+        Path candidate = jar("NerveGear-Launcher-Beta-" + version + ".jar", version);
+        Path bundled = jar("installed.jar", Metadata.VERSION);
+        Path root = temporary.resolve("beta-launcher");
+        try (SaoPackEngine engine = SaoReleaseTestSupport.engine(root, null, false)) {
+            assertFalse(engine.betaQuickUpdates());
+            assertThrows(java.util.concurrent.ExecutionException.class,
+                    () -> engine.acceptDroppedFiles(List.of(candidate)).get(10, java.util.concurrent.TimeUnit.SECONDS));
+            assertFalse(engine.launcherUpdate().get().restartRequired());
+            engine.setBetaQuickUpdates(true);
+        }
+        try (SaoPackEngine engine = SaoReleaseTestSupport.engine(root, null, false)) {
+            assertTrue(engine.betaQuickUpdates());
+            engine.acceptDroppedFiles(List.of(candidate)).get(10, java.util.concurrent.TimeUnit.SECONDS);
+            assertTrue(engine.launcherUpdate().get().restartRequired());
+            assertEquals(version, engine.launcherUpdate().get().version());
+        }
+        var updater = new SaoSelfUpdate(root.resolve("self-update"));
+        var selection = updater.select(bundled, Metadata.VERSION);
+        assertEquals(SaoUpdates.sha256(candidate), SaoUpdates.sha256(selection.jar()));
+        updater.finish(Objects.requireNonNull(selection.token()), false);
+        assertEquals(bundled, updater.select(bundled, Metadata.VERSION).jar());
     }
 
     /// A damaged local state pointer is quarantined and exposes a persistent bundled-fallback message.

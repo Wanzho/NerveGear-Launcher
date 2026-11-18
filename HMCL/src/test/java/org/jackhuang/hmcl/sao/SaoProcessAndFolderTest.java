@@ -57,6 +57,23 @@ class SaoProcessAndFolderTest {
         assertThrows(IOException.class, () -> SaoGameProcesses.decodeWindows("invalid"));
     }
 
+    /// A complete no-Java snapshot avoids the failing PowerShell path, while possible games still require inspection.
+    @Test void windowsSnapshotAvoidsCimOnlyWhenNoOtherJavaExists() throws Exception {
+        assertTrue(SaoWindowsProcessSnapshot.isJavaImage("JaVaW.ExE"));
+        assertFalse(SaoWindowsProcessSnapshot.isJavaImage("java-helper.exe"));
+        assertTrue(SaoGameProcesses.discoverWindowsCommands(() -> false, () -> {
+            throw new AssertionError("CIM queried without other Java");
+        }).isEmpty());
+        var command = new SaoGameProcesses.WindowsCommand(42, 123456L, "javaw.exe", "--gameDir C:\\game");
+        assertEquals(List.of(command), SaoGameProcesses.discoverWindowsCommands(() -> true, () -> List.of(command)));
+        assertEquals(List.of(command), SaoGameProcesses.discoverWindowsCommands(() -> {
+            throw new IOException("snapshot failed");
+        }, () -> List.of(command)));
+        assertThrows(IOException.class, () -> SaoGameProcesses.discoverWindowsCommands(() -> true, () -> {
+            throw new IOException("CIM unavailable");
+        }));
+    }
+
     /// Explorer receives a full executable path and individual arguments without shell interpretation.
     @Test void windowsCommandKeepsUnicodeSpacesAndSelection() {
         String path = "D:\\游戏 包\\截图 & 样本.png";
@@ -110,6 +127,30 @@ class SaoProcessAndFolderTest {
             answer.complete(true);
             await(() -> steps.installs.get() > before && engine.state().get() == SaoPackState.READY);
             assertFalse(steps.process.isAlive()); assertNull(engine.lastError().get());
+        }
+    }
+
+    /// Closing Minecraft restores the launcher state even if the process output is still draining.
+    @Test void processExitPrecedesDiagnostics() throws Exception {
+        try (SaoPackEngine engine = new SaoPackEngine(temporary.resolve("root"), archive(), false)) {
+            FakeSteps steps = new FakeSteps();
+            engine.setGameSteps(steps);
+            engine.processControl(List::of, (held, alive) -> CompletableFuture.completedFuture(true));
+            await(() -> engine.state().get() != SaoPackState.CHECKING);
+            engine.download();
+            await(() -> engine.state().get() == SaoPackState.READY);
+            engine.setGraphicsPreset(SaoData.GraphicsPreset.FAST);
+            engine.linkStartOffline("Fixture");
+            await(() -> engine.state().get() == SaoPackState.RUNNING);
+
+            steps.process.terminate();
+            assertFalse(steps.process.isAlive());
+            await(() -> engine.state().get() == SaoPackState.WORKING);
+            assertEquals("正在整理游戏退出信息", engine.stepLabel().get());
+
+            steps.process.exit.run();
+            await(() -> engine.state().get() == SaoPackState.READY);
+            assertNull(engine.lastError().get());
         }
     }
 
@@ -178,6 +219,7 @@ class SaoProcessAndFolderTest {
         @Override public void launch(Account account, SaoPackManifest manifest, int memory, SaoData.GameWindow window,
                 String args, char @Nullable [] password, boolean offline, @Nullable String server,
                 BooleanSupplier cancelled, ProcessListener listener) {
+            process.exited = listener::onProcessExit;
             process.exit = () -> listener.onExit(0, ProcessListener.ExitType.NORMAL);
             listener.setProcess(new ManagedProcess(process, List.of("java", "fixture")));
         }
@@ -188,7 +230,9 @@ class SaoProcessAndFolderTest {
     private static final class FakeProcess extends Process {
         /// Synthetic lifetime.
         private volatile boolean alive = true;
-        /// Listener installed by the fake launch step.
+        /// Immediate notification installed by the fake launch step.
+        Runnable exited = () -> { };
+        /// Final notification installed by the fake launch step.
         Runnable exit = () -> { };
         /// No input is sent to a child.
         @Override public OutputStream getOutputStream() { return OutputStream.nullOutputStream(); }
@@ -203,7 +247,9 @@ class SaoProcessAndFolderTest {
         /// Implements Process's running-state contract.
         @Override public int exitValue() { if (alive) throw new IllegalThreadStateException(); return 0; }
         /// Completes the synthetic exit only once.
-        @Override public void destroy() { if (alive) { alive = false; exit.run(); } }
+        @Override public void destroy() { if (alive) { terminate(); exit.run(); } }
+        /// Ends the game without completing diagnostics.
+        void terminate() { alive = false; exited.run(); }
         /// No OS force operation is needed.
         @Override public Process destroyForcibly() { destroy(); return this; }
         /// Returns synthetic liveness.

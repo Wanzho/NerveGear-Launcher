@@ -616,6 +616,38 @@ class SaoQuickUpdateTest {
         assertFalse(Files.exists(instance.resolve("config/added.txt")));
     }
 
+    /// Manual test patches preserve the existing settings and saves and leave launch validation enabled.
+    @Test void betaOptInAllowsManualQuickPackAndPreservesPlayerFiles() throws Exception {
+        Path old = pack("0.8", "old.zip", Map.of("mods/a.jar", "old", "options.txt", "original"), false);
+        Path next = pack("0.8.1", "next.zip", Map.of("mods/a.jar", "new", "options.txt", "new default"), false);
+        Path quick = temporary.resolve(delta(old, next, "manual-test.zip").file());
+        Path root = temporary.resolve("beta-pack");
+        Path instance;
+        try (SaoPackEngine engine = SaoReleaseTestSupport.engine(root, SaoPackArchive.open(old), false)) {
+            await(() -> engine.state().get() != SaoPackState.CHECKING);
+            instance = engine.instanceDir();
+        }
+        installer(instance).apply(SaoPackArchive.open(old), false);
+        Files.writeString(instance.resolve("options.txt"), "player settings");
+        Path save = instance.resolve("saves/Fixture/level.dat");
+        Files.createDirectories(save.getParent());
+        Files.writeString(save, "player world");
+        try (SaoPackEngine engine = SaoReleaseTestSupport.engine(root, SaoPackArchive.open(old), false)) {
+            if (!org.jackhuang.hmcl.Metadata.SAO_BETA) {
+                assertThrows(ExecutionException.class, () -> engine.acceptDroppedFiles(List.of(quick)).get(10, TimeUnit.SECONDS));
+                assertEquals("old", Files.readString(instance.resolve("mods/a.jar")));
+            }
+            engine.setBetaQuickUpdates(true);
+            engine.acceptDroppedFiles(List.of(quick)).get(10, TimeUnit.SECONDS);
+            assertTrue(engine.betaPatchedPack());
+            assertEquals("0.8.1", engine.installedVersion().get());
+            assertEquals("new", Files.readString(instance.resolve("mods/a.jar")));
+            assertEquals("player settings", Files.readString(instance.resolve("options.txt")));
+            assertEquals("player world", Files.readString(save));
+            assertFalse(engine.allowModifiedModsOffline());
+        }
+    }
+
     /// Base edits trigger the service's full-pack fallback while leaving all modified and player files untouched.
     @Test void serviceModifiedBaseFallsBackToFullPack() throws Exception {
         Path old = pack("0.8", "old.zip", Map.of("mods/a.jar", "old", "options.txt", "seed"), false);

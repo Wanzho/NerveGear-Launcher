@@ -19,6 +19,9 @@ import java.util.zip.*;
 /// Native applications and their bundled runtimes are never modified by this service.
 @NotNullByDefault
 public final class SaoSelfUpdate {
+    /// Distribution name for manually selected test launcher JARs and single-JAR ZIP wrappers.
+    private static final java.util.regex.Pattern BETA_FILENAME = java.util.regex.Pattern.compile(
+            "NerveGear-Launcher-Beta-((?:0|[1-9][0-9]{0,8})(?:\\.(?:0|[1-9][0-9]{0,8})){0,3})\\.(?:jar|zip)");
     /// Hard expansion bound for a thin launcher JAR, including a manually downloaded ZIP wrapper.
     static final long MAX_JAR_BYTES = 256L * 1024 * 1024;
     /// Full-download instruction used below the minimum or for native/runtime changes.
@@ -66,6 +69,30 @@ public final class SaoSelfUpdate {
         if (SaoUpdates.compare(runningVersion, release.min()) < 0 || release.nativeRequired() || identity == null)
             throw new IOException(FULL_LAUNCHER_REQUIRED);
         if (SaoUpdates.compare(runningVersion, release.latest()) >= 0) throw new IOException("启动器已是当前或更新版本");
+        return stageArtifact(download, identity, release.latest(), false);
+    }
+
+    /// Reads the intended test version from a distribution filename without opening the provided file.
+    static @Nullable String betaVersion(Path download) {
+        @Nullable Path name = download.getFileName();
+        if (name == null) return null;
+        var match = BETA_FILENAME.matcher(name.toString());
+        return match.matches() ? match.group(1) : null;
+    }
+
+    /// Stages a personally selected test update using the normal snapshot and bootstrap rollback path.
+    SaoData.LauncherUpdate stageBeta(Path download, String runningVersion) throws IOException {
+        @Nullable String version = betaVersion(download);
+        if (version == null || !Files.isRegularFile(download, LinkOption.NOFOLLOW_LINKS)) throw new IOException("测试启动器更新包无效");
+        if (SaoUpdates.compare(runningVersion, version) >= 0) throw new IOException("测试启动器版本必须高于当前版本");
+        long size = Files.size(download);
+        if (size <= 0 || size > MAX_JAR_BYTES) throw new IOException("测试启动器文件大小无效");
+        var identity = new SaoData.LauncherArtifact(download.getFileName().toString(), size, SaoUpdates.sha256(download));
+        return stageArtifact(download, identity, version, true);
+    }
+
+    /// Snapshots, verifies and stages either an official or deliberately selected test artifact.
+    private SaoData.LauncherUpdate stageArtifact(Path download, SaoData.LauncherArtifact identity, String version, boolean beta) throws IOException {
         if (identity.size() > MAX_JAR_BYTES) throw new IOException("启动器文件过大，请下载完整启动器");
         return locked(() -> {
             State old = settleHealthy(read());
@@ -75,11 +102,12 @@ public final class SaoSelfUpdate {
             try {
                 if (identity.file().endsWith(".zip")) unwrap(snapshot, jar);
                 else Files.copy(snapshot, jar, StandardCopyOption.REPLACE_EXISTING);
-                validateJar(jar, release.latest());
-                Artifact artifact = new Artifact(release.latest(), SaoUpdates.sha256(jar), Files.size(jar));
+                validateJar(jar, version, beta);
+                Artifact artifact = new Artifact(version, SaoUpdates.sha256(jar), Files.size(jar));
                 Path retained = artifactPath(artifact);
                 SaoPackFiles.atomicMove(jar, retained);
-                write(new State(old.active(), old.previous(), artifact, null, 0, 0, "启动器更新已校验，重新打开启动器后生效"));
+                write(new State(old.active(), old.previous(), artifact, null, 0, 0,
+                        beta ? "Beta 启动器已准备好，重新打开启动器后生效" : "启动器更新已校验，重新打开启动器后生效"));
                 return status();
             } finally { Files.deleteIfExists(snapshot); Files.deleteIfExists(jar); }
         });
@@ -101,6 +129,11 @@ public final class SaoSelfUpdate {
 
     /// Validates the executable entry, exact release version and the bootstrap protocol before accepting a JAR.
     static void validateJar(Path jar, String version) throws IOException {
+        validateJar(jar, version, false);
+    }
+
+    /// New test artifacts use standard launcher builds so opting into updates never changes launch verification defaults.
+    private static void validateJar(Path jar, String version, boolean requireStandardBuild) throws IOException {
         if (!Files.isRegularFile(jar, LinkOption.NOFOLLOW_LINKS) || Files.size(jar) <= 0 || Files.size(jar) > MAX_JAR_BYTES)
             throw new IOException("启动器 JAR 无效");
         try (JarFile archive = new JarFile(jar.toFile(), true)) {
@@ -119,6 +152,8 @@ public final class SaoSelfUpdate {
             @Nullable String implementation = manifest.getMainAttributes().getValue("Implementation-Version");
             if (!version.equals(properties.getProperty("hmcl.version")) || implementation != null && !version.equals(implementation))
                 throw new IOException("启动器版本不匹配");
+            if (requireStandardBuild && !"false".equals(properties.getProperty("hmcl.sao.beta")))
+                throw new IOException("请使用新版发布构建制作 Beta 启动器更新包");
             for (String entry : List.of("org/jackhuang/hmcl/Main.class", "org/jackhuang/hmcl/Launcher.class",
                     "org/jackhuang/hmcl/sao/SaoLauncherBootstrap.class", "org/jackhuang/hmcl/sao/SaoSelfUpdate.class")) {
                 if (archive.getJarEntry(entry) == null) throw new IOException("启动器 JAR 缺少必要入口");

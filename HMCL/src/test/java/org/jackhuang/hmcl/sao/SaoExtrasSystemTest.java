@@ -81,6 +81,8 @@ class SaoExtrasSystemTest {
             engine.acceptUserNotice(engine.userNoticeVersion()); assertTrue(engine.userNoticeAccepted());
             assertEquals(SaoData.LauncherBehavior.HIDE, engine.launcherBehavior()); engine.setLauncherBehavior(SaoData.LauncherBehavior.CLOSE);
             engine.setGraphicsPreset(SaoData.GraphicsPreset.BALANCED); assertEquals(SaoData.GraphicsPreset.BALANCED, engine.graphicsPreset());
+            assertFalse(engine.betaQuickUpdates()); engine.setBetaQuickUpdates(true);
+            assertFalse(engine.allowModifiedModsOffline()); engine.setAllowModifiedModsOffline(true);
             assertSame(engine.links(), engine.links()); assertSame(engine.notification(), engine.notification()); engine.setLauncherAttention(false, false);
             for (var method : SaoLauncherService.class.getMethods()) {
                 if (method.isDefault()) assertEquals(SaoPackEngine.class,
@@ -90,6 +92,8 @@ class SaoExtrasSystemTest {
         try (var engine = new SaoPackEngine(temporary, null, false)) {
             assertTrue(engine.userNoticeAccepted()); assertEquals(SaoData.LauncherBehavior.CLOSE, engine.launcherBehavior());
             assertEquals(SaoData.GraphicsPreset.BALANCED, engine.graphicsPreset());
+            assertTrue(engine.betaQuickUpdates());
+            assertTrue(engine.allowModifiedModsOffline());
         }
     }
 

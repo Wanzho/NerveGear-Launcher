@@ -41,6 +41,11 @@ public interface ProcessListener {
      */
     void onLog(String log, boolean isErrorStream);
 
+    /// Observes the OS process ending before its output and exit diagnostics are collected.
+    /// Implementations should return promptly and leave diagnostics to [#onExit].
+    default void onProcessExit() {
+    }
+
     /**
      * Called when the game process stops.
      *

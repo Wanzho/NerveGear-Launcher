@@ -1,9 +1,14 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 package org.jackhuang.hmcl.sao;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonPrimitive;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Unmodifiable;
 import java.util.Locale;
+import java.util.Set;
 import java.nio.charset.StandardCharsets;
 import java.util.HexFormat;
 import java.util.regex.Matcher;
@@ -13,6 +18,29 @@ import java.util.regex.Pattern;
 /// Sensitive credential-bearing lines are omitted entirely, including common command and header spellings.
 @NotNullByDefault
 final class SaoFeedbackSanitizer {
+    /// HMCL and Minecraft both start log records with bracketed clock times.
+    private static final Pattern CLOCK = Pattern.compile("^\\[(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](?:[.,][0-9]{1,3})?\\](?= |$)");
+    /// A numeric release tag can have four components and resemble an address.
+    private static final Pattern VERSION = Pattern.compile("[0-9]{1,5}(?:\\.[0-9]{1,5}){1,5}(?:-(?:pre|rc)[0-9]{1,5})?");
+    /// Only launcher-generated summary fields identify an unambiguous release tag.
+    private static final Pattern SUMMARY_VERSION = Pattern.compile("(?:Launcher|Embedded pack|Installed pack): " + VERSION);
+    /// Only known launcher diagnostic stages may bypass whole-line authentication redaction.
+    private static final String STEP = "(?:microsoft-session|microsoft-refresh|microsoft-skin|accept|session-validate|session-refresh"
+            + "|game-token|launch-ticket|mojang-join|skin-profile|texture-image|premium-(?:challenge|complete|login)"
+            + "|account-(?:proof|register|state|http)|player-card|textures|social)";
+    /// Structured diagnostic rows contain only fixed stage and failure codes plus numeric metadata.
+    private static final Pattern SAFE_DIAGNOSTIC = Pattern.compile(
+            "(?:\\[@\\.sao\\.(?:SaoAccountClient\\.request|SaoLoginSteps\\.(?:timed|elapsed))/(?:INFO|WARNING)\\] )?"
+            + "(?:Sign-in timing step=" + STEP + " elapsedMs=[0-9]{1,19}"
+            + "|ARGUS HTTP failure: step=" + STEP + " status=[1-5][0-9]{2}"
+            + "|(?:ARGUS transport failure:|Sign-in failure) step=" + STEP
+            + " kind=(?:dns|tls|connect-timeout|request-timeout|connect|transport|account|cancelled))");
+    /// Shared marker used for sensitive text lines and sanitized JSON string values.
+    private static final String OMITTED = "[authentication data omitted]";
+    /// Only metadata emitted by the pack installer and active-cache pointer is exported.
+    private static final @Unmodifiable Set<String> PACK_FIELDS = Set.of("version", "minecraft", "neoforge",
+            "server", "newsUrl", "accountApi", "serverNodes", "files", "path", "sha1", "size", "entry",
+            "downloads", "sha512", "removals", "acceptedArchive", "archive", "manifest");
     /// Identifies credential context, including common underscored/hyphenated protocol spellings.
     private static final Pattern AUTH = Pattern.compile("(?i)password|passwd|proxypass|client[_. -]?id|microsoft[_. -]?auth[_. -]?id|(?:api|access|client|encryption)[_. -]?key|user[_. -]?properties|\\bpwd\\b|token|ticket|secret|credential|authorization|authentication|bearer|cookie|session|sao[_. -]?auth|(?:^|[\\s\"'])/(?:login|register|l|reg|changepassword)\\b|private[ _-]?key");
     /// A sensitive command flag on its own line owns the next argument, even when a command is line-wrapped.
@@ -62,27 +90,78 @@ final class SaoFeedbackSanitizer {
         /// Scrubs one line without losing context when a password or ticket spans multiple callbacks.
         String line(String line) {
             line = decoded(line);
+            Matcher clock = CLOCK.matcher(line);
+            String prefix = clock.find() ? clock.group() : "";
             String lower = line.toLowerCase(Locale.ROOT);
             if (lower.contains("-----begin") && lower.contains("private key")) privateKey = true;
             if (privateKey) {
                 if (lower.contains("-----end")) privateKey = false;
-                return "[authentication data omitted]";
+                return omitted(prefix);
             }
             if (sensitiveDepth > 0) {
-                sensitiveDepth += structureDelta(line); return "[authentication data omitted]";
+                sensitiveDepth += structureDelta(line); return omitted(prefix);
             }
             if (continuation) {
-                continuation = line.strip().isEmpty();
+                continuation = line.substring(prefix.length()).strip().isEmpty();
                 sensitiveDepth = Math.max(0, structureDelta(line));
-                return "[authentication data omitted]";
+                return omitted(prefix);
             }
+            String message = line.substring(prefix.length());
+            if (SAFE_DIAGNOSTIC.matcher(message.stripLeading()).matches() || SUMMARY_VERSION.matcher(message).matches())
+                return line;
             if (AUTH.matcher(line).find() || ARGUMENT_KEY.matcher(line).find()) {
                 String tail = line.stripTrailing(); continuation = tail.endsWith(":") || tail.endsWith("=") || ARGUMENT_KEY.matcher(tail).find();
                 sensitiveDepth = Math.max(0, structureDelta(line));
-                return "[authentication data omitted]";
+                return omitted(prefix);
             }
-            return publicText(line);
+            return prefix + publicText(message);
         }
+    }
+
+    /// Leaves the clock visible even when the entire message is sensitive.
+    private static String omitted(String prefix) {
+        return prefix.isEmpty() ? OMITTED : prefix + " " + OMITTED;
+    }
+
+    /// Redacts structured pack diagnostics without breaking JSON or modifying valid file digests.
+    JsonElement scrubJson(JsonElement value, String key) {
+        if (value.isJsonObject()) {
+            JsonObject result = new JsonObject();
+            for (var field : value.getAsJsonObject().entrySet()) {
+                String name = field.getKey();
+                if (PACK_FIELDS.contains(name)) result.add(name, scrubJson(field.getValue(), name));
+            }
+            return result;
+        }
+        if (value.isJsonArray()) {
+            JsonArray result = new JsonArray();
+            for (JsonElement item : value.getAsJsonArray()) result.add(scrubJson(item, key));
+            return result;
+        }
+        if (!value.isJsonPrimitive() || !value.getAsJsonPrimitive().isString()) return value;
+        String original = value.getAsString();
+        if (((key.equals("version") || key.equals("minecraft") || key.equals("neoforge")) && VERSION.matcher(original).matches())
+                || (key.equals("sha1") && original.matches("[0-9a-f]{40}"))
+                || (key.equals("sha512") && original.matches("[0-9a-f]{128}"))
+                || ((key.equals("acceptedArchive") || key.equals("archive")) && original.matches("[0-9a-f]{40,64}\\.zip")))
+            return value;
+        String safe = decoded(original);
+        if (key.equals("downloads") || key.equals("newsUrl") || key.equals("accountApi")) {
+            try {
+                var uri = java.net.URI.create(original);
+                if (uri.getUserInfo() != null) return new JsonPrimitive(OMITTED);
+                safe = decoded(original.split("[?#]", 2)[0]);
+            } catch (IllegalArgumentException invalid) {
+                return new JsonPrimitive(OMITTED);
+            }
+        }
+        if (key.equals("path") || key.equals("entry") || key.equals("removals")) {
+            try { SaoPackManifest.validatePath(safe); }
+            catch (IllegalArgumentException invalid) { return new JsonPrimitive(OMITTED); }
+        } else if (AUTH.matcher(safe).find()) {
+            return new JsonPrimitive(OMITTED);
+        }
+        return new JsonPrimitive(publicText(safe));
     }
 
     /// Removes identifying literals from otherwise public text, including JSON-escaped Windows home paths.

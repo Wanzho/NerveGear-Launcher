@@ -24,6 +24,8 @@ class SaoAccountHttpTest {
         assertEquals("session-refresh", SaoAccountClient.timingStep("/authserver/refresh"));
         assertEquals("game-token", SaoAccountClient.timingStep("/sao/game-token"));
         assertEquals("launch-ticket", SaoAccountClient.timingStep("/sao/launch"));
+        assertEquals("account-proof", SaoAccountClient.timingStep("/sao/pow"));
+        assertEquals("account-register", SaoAccountClient.timingStep("/sao/register"));
         assertEquals("account-http", SaoAccountClient.timingStep("/secret-profile-value"));
     }
 

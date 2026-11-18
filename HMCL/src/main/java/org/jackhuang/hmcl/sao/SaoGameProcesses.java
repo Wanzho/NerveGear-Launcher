@@ -70,7 +70,12 @@ final class SaoGameProcesses {
             // Fresh installations have no process holding this directory. Unknown existence still needs a scan.
             if (Files.notExists(instance, LinkOption.NOFOLLOW_LINKS)) return List.of();
             try { return windows(instance); }
-            catch (Exception failure) { throw new java.io.UncheckedIOException(new IOException("无法检查后台游戏进程，请稍后重试", failure)); }
+            catch (IOException failure) {
+                throw new java.io.UncheckedIOException(new IOException("无法检查后台游戏进程（" + failure.getMessage() + "）", failure));
+            } catch (InterruptedException failure) {
+                Thread.currentThread().interrupt();
+                throw new java.io.UncheckedIOException(new IOException("后台游戏进程检查已中断", failure));
+            }
         }
         boolean windows = com.sun.jna.Platform.isWindows();
         try (var processes = ProcessHandle.allProcesses()) {
@@ -93,9 +98,9 @@ final class SaoGameProcesses {
     }
 
     /// Windows Java 17 exposes the executable but not arguments; CIM supplies bounded, in-memory command metadata.
-    private static @Unmodifiable List<Running> windows(Path instance) throws Exception {
+    private static @Unmodifiable List<Running> windows(Path instance) throws IOException, InterruptedException {
         List<Running> result = new ArrayList<>();
-        for (WindowsCommand command : windowsCommands()) {
+        for (WindowsCommand command : discoverWindowsCommands(SaoWindowsProcessSnapshot::hasOtherJava, SaoGameProcesses::windowsCommands)) {
             if (command.pid() == ProcessHandle.current().pid()) continue;
             if (!matches(command.executable(), tokens(command.line()), instance.toString(), true)) continue;
             @Nullable ProcessHandle handle = ProcessHandle.of(command.pid()).orElse(null);
@@ -120,6 +125,33 @@ final class SaoGameProcesses {
             });
         }
         return List.copyOf(result);
+    }
+
+    /// Reads a complete, native process-name snapshot before deciding whether CIM is necessary.
+    @FunctionalInterface
+    @NotNullByDefault
+    interface JavaProcessProbe {
+        /// Reports whether another JVM may need instance ownership verification.
+        boolean hasOtherJava() throws IOException;
+    }
+
+    /// Supplies CIM command metadata when the native snapshot sees a possible Java process.
+    @FunctionalInterface
+    @NotNullByDefault
+    interface WindowsCommandProbe {
+        /// Returns command metadata or reports why the inspection could not finish.
+        @Unmodifiable List<WindowsCommand> query() throws IOException, InterruptedException;
+    }
+
+    /// Skips PowerShell only after complete enumeration proves there is no other Java process to inspect.
+    static @Unmodifiable List<WindowsCommand> discoverWindowsCommands(JavaProcessProbe snapshot, WindowsCommandProbe cim)
+            throws IOException, InterruptedException {
+        try {
+            if (!snapshot.hasOtherJava()) return List.of();
+        } catch (IOException | LinkageError failure) {
+            org.jackhuang.hmcl.util.logging.Logger.LOG.warning("Windows process name snapshot unavailable; querying CIM");
+        }
+        return cim.query();
     }
 
     /// Protects the discovery-to-confirmation interval against PID reuse.
@@ -151,16 +183,21 @@ final class SaoGameProcesses {
     }
 
     /// Queries only java/javaw; a timeout or unavailable CIM service aborts the action without killing anything.
-    private static @Unmodifiable List<WindowsCommand> windowsCommands() throws Exception {
+    private static @Unmodifiable List<WindowsCommand> windowsCommands() throws IOException, InterruptedException {
         String script = "$ErrorActionPreference='Stop'; [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); "
                 + "@(Get-CimInstance Win32_Process -Filter \"Name='java.exe' OR Name='javaw.exe'\" | ForEach-Object { "
                 + "[pscustomobject]@{pid=$_.ProcessId; started=([DateTimeOffset]$_.CreationDate).ToUnixTimeMilliseconds(); "
                 + "executable=$_.ExecutablePath; line=$_.CommandLine} }) | ConvertTo-Json -Compress";
         String encoded = Base64.getEncoder().encodeToString(script.getBytes(java.nio.charset.StandardCharsets.UTF_16LE));
         String system = Objects.requireNonNullElse(System.getenv("SystemRoot"), "C:\\Windows");
-        Process query = new ProcessBuilder(system + "\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
-                "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-EncodedCommand", encoded)
-                .redirectError(ProcessBuilder.Redirect.DISCARD).start();
+        Process query;
+        try {
+            query = new ProcessBuilder(system + "\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+                    "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-EncodedCommand", encoded)
+                    .redirectError(ProcessBuilder.Redirect.DISCARD).start();
+        } catch (IOException failure) {
+            throw new IOException("无法启动 Windows PowerShell", failure);
+        }
         var output = java.util.concurrent.CompletableFuture.supplyAsync(() -> {
             try { return query.getInputStream().readNBytes(1048577); }
             catch (IOException failure) { throw new java.io.UncheckedIOException(failure); }
@@ -168,9 +205,14 @@ final class SaoGameProcesses {
         try {
             // Cold CIM startup can exceed ten seconds on Windows on ARM and busy disks.
             byte @Unmodifiable [] bytes = output.get(30, TimeUnit.SECONDS);
-            if (bytes.length > 1048576 || !query.waitFor(2, TimeUnit.SECONDS) || query.exitValue() != 0)
-                throw new IOException("无法读取后台进程信息");
+            if (bytes.length > 1048576) throw new IOException("CIM 响应超出上限");
+            if (!query.waitFor(2, TimeUnit.SECONDS)) throw new IOException("CIM 未正常退出");
+            if (query.exitValue() != 0) throw new IOException("CIM 退出码 " + query.exitValue());
             return decodeWindows(new String(bytes, java.nio.charset.StandardCharsets.UTF_8));
+        } catch (java.util.concurrent.TimeoutException failure) {
+            throw new IOException("CIM 查询超时", failure);
+        } catch (java.util.concurrent.ExecutionException failure) {
+            throw new IOException("无法读取 CIM 输出", failure);
         } finally { if (query.isAlive()) query.destroyForcibly(); query.getInputStream().close(); }
     }
 

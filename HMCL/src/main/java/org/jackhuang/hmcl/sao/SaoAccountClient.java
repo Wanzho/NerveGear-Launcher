@@ -228,6 +228,7 @@ final class SaoAccountClient {
     /// Executes one request with fixed timeouts and a streaming cap, exposing only curated public failures.
     private byte[] request(URI target, String method, @Nullable byte[] body, String contentType, @Nullable String bearer) throws SaoAccountException {
         long started = System.nanoTime();
+        String step = timingStep(target.getPath());
         try {
             HttpRequest.Builder builder = HttpRequest.newBuilder(target).timeout(REQUEST_TIMEOUT)
                     .header("Accept-Language", language()).header("Accept", "application/json,image/png");
@@ -235,26 +236,29 @@ final class SaoAccountClient {
             if (bearer != null) builder.header("Authorization", "Bearer " + bearer);
             builder.method(method, body == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofByteArray(body));
             HttpResponse<InputStream> response = http.send(builder.build(), HttpResponse.BodyHandlers.ofInputStream());
+            int status = response.statusCode();
             byte[] bytes;
             try (InputStream input = response.body()) {
+                if (status < 200 || status >= 300)
+                    org.jackhuang.hmcl.util.logging.Logger.LOG.warning("ARGUS HTTP failure: step=" + step + " status=" + status);
                 SaoClockCheck.SYSTEM.observe(response.headers().firstValue("Date").orElse(null));
                 SaoClockCheck.SYSTEM.requireCorrect();
                 bytes = readBody(input, started);
                 if (bytes.length > MAX_RESPONSE) throw new SaoAccountException("账号服务响应过大", "invalidResponse");
             }
-            if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                try { throw mapped(response.statusCode(), bytes, target.getPath()); }
+            if (status < 200 || status >= 300) {
+                try { throw mapped(status, bytes, target.getPath()); }
                 finally { Arrays.fill(bytes, (byte) 0); }
             }
             return bytes;
         } catch (SaoAccountException failure) { throw failure; }
         catch (InterruptedException failure) { Thread.currentThread().interrupt(); throw new SaoAccountException("账号操作已取消", "cancelled"); }
         catch (IOException | RuntimeException failure) {
-            org.jackhuang.hmcl.util.logging.Logger.LOG.warning("ARGUS transport failure: step=" + timingStep(target.getPath())
+            org.jackhuang.hmcl.util.logging.Logger.LOG.warning("ARGUS transport failure: step=" + step
                     + " kind=" + networkFailureKind(failure));
             SaoClockCheck.SYSTEM.requireCorrect(); throw new SaoAccountException("连接账号服务器失败", "network");
         }
-        finally { SaoLoginSteps.elapsed(timingStep(target.getPath()), started); }
+        finally { SaoLoginSteps.elapsed(step, started); }
     }
 
     /// HttpClient's stream response completes at headers; close its stream at the remaining total deadline.
@@ -305,6 +309,8 @@ final class SaoAccountClient {
         if (path.contains("/textures/")) return "texture-image";
         for (String route : java.util.List.of("challenge", "complete", "login"))
             if (path.endsWith("/sao/premium/" + route)) return "premium-" + route;
+        if (path.endsWith("/sao/pow")) return "account-proof";
+        if (path.endsWith("/sao/register")) return "account-register";
         if (path.endsWith("/sao/account")) return "account-state";
         if (path.endsWith("/sao/card")) return "player-card";
         if (path.endsWith("/sao/textures")) return "textures";

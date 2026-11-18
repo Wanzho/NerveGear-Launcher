@@ -17,7 +17,7 @@ final class SaoLauncherLifecycle {
         default void cancel() {}
         /// Keeps JavaFX alive and hides the main window.
         void hide();
-        /// Restores the main window after crash analysis has been published.
+        /// Restores the main window when the game process ends.
         void show();
         /// Exits the launcher after the launch handoff is complete.
         void close();
@@ -85,8 +85,8 @@ final class SaoLauncherLifecycle {
         }
     }
 
-    /// Invalidates a pending fade immediately; window restoration waits for crash analysis to finish.
-    synchronized void processEnded() {
+    /// Invalidates any pending fade for this game run.
+    void processEnded() {
         if (!active) return;
         active = false;
         long expected = generation;
@@ -97,7 +97,7 @@ final class SaoLauncherLifecycle {
         });
     }
 
-    /// Restores the launcher only after the engine has published this run's exit diagnostics.
+    /// Restores the launcher independently of this run's exit diagnostics.
     synchronized void exited() {
         processEnded();
         long expected = generation;

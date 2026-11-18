@@ -438,6 +438,11 @@ final class SaoApps {
         VBox localPlay = new VBox(5, row(key("离线游玩允许修改模组"), modifiedMods), modHelp);
         localPlay.setVisible(!Metadata.SAO_BETA);
         localPlay.managedProperty().bind(localPlay.visibleProperty());
+        ToggleButton beta = toggle(s.betaQuickUpdates());
+        beta.selectedProperty().addListener((o, a, b) -> s.setBetaQuickUpdates(b));
+        Text betaHelp = dim("开启后可拖入你信任的模组和启动器测试更新包。", 10.5);
+        betaHelp.setWrappingWidth(305);
+        VBox betaUpdates = new VBox(5, row(key("Beta 测试更新"), beta), betaHelp);
         @Nullable String installedPack = s.installedVersion().get();
         VBox right = column(318,
                 row(key("画质"), suggested), presetRow,
@@ -448,6 +453,7 @@ final class SaoApps {
                 key(installedPack != null ? "整合包 v" + installedPack : "整合包 · 未安装"),
                 new HBox(8, repair, folder),
                 localPlay,
+                betaUpdates,
                 SaoDialogs.exportButton(s),
                 rule(),
                 gameLocation(s),

@@ -97,6 +97,12 @@ public interface SaoLauncherService {
     /// Whether this installation came from a manually selected, unregistered Beta patch.
     default boolean betaPatchedPack() { return false; }
 
+    /// Enables manual imports of explicitly selected test updates on this installation.
+    boolean betaQuickUpdates();
+
+    /// Persists independent permission to accept test updates without changing game launch checks.
+    void setBetaQuickUpdates(boolean enabled);
+
     /// The pack version embedded in this launcher.
     String embeddedVersion();
 
@@ -133,14 +139,10 @@ public interface SaoLauncherService {
     }
 
     /// Whether the offline launch route may start with individually modified or missing mods.
-    default boolean allowModifiedModsOffline() {
-        return Boolean.parseBoolean(preference("allowModifiedModsOffline", "false"));
-    }
+    boolean allowModifiedModsOffline();
 
     /// Saves the local singleplayer option. Online launch and official imports do not read it.
-    default void setAllowModifiedModsOffline(boolean allow) {
-        setPreference("allowModifiedModsOffline", Boolean.toString(allow));
-    }
+    void setAllowModifiedModsOffline(boolean allow);
 
     /// Checks every pack file against the manifest and fixes what is missing or changed,
     /// keeping the player's options, saves and screenshots.

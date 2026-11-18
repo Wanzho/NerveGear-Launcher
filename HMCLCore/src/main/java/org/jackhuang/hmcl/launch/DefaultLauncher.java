@@ -1030,7 +1030,7 @@ public class DefaultLauncher extends Launcher {
             managedProcess.addLine(it);
         }, encoding), "stderr-pump", isDaemon);
         managedProcess.addRelatedThread(stderr);
-        managedProcess.addRelatedThread(Lang.thread(new ExitWaiter(managedProcess, Arrays.asList(stdout, stderr), (exitCode, exitType) -> {
+        managedProcess.addRelatedThread(Lang.thread(new ExitWaiter(managedProcess, Arrays.asList(stdout, stderr), processListener::onProcessExit, (exitCode, exitType) -> {
             processListener.onExit(exitCode, exitType);
 
             if (StringUtils.isNotBlank(options.getPostExitCommand())) {

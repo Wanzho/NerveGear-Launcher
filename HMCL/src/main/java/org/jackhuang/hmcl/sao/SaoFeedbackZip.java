@@ -1,6 +1,9 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 package org.jackhuang.hmcl.sao;
 
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonParseException;
+import com.google.gson.JsonParser;
 import org.jetbrains.annotations.*;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
@@ -54,7 +57,10 @@ final class SaoFeedbackZip {
                 long total = add(zip, "system-summary.txt", summary);
                 total += add(zip, "info.txt", summary);
                 total += write(zip, "mods-sha1.txt", modList(), MAX_TEXT);
-                total += add(zip, "captured-game.log", capturedText(captured));
+                List<String> omitted = new ArrayList<>();
+                if (captured.stream().anyMatch(line -> !line.isBlank()))
+                    total += add(zip, "captured-game.log", capturedText(captured));
+                else omitted.add("captured-game.log: 启动器未捕获到游戏进程输出");
                 Map<String, Path> sources = new LinkedHashMap<>();
                 for (String path : List.of("logs/latest.log", "logs/debug.log", "options.txt")) {
                     Path source = SaoPackFiles.resolve(instance, path);
@@ -90,14 +96,19 @@ final class SaoFeedbackZip {
                 SaoPackFiles.resolve(instance, "diagnostic-path-check");
                 Path receipt = instance.resolve(SaoPackInstaller.RECEIPT);
                 if (Files.isRegularFile(receipt, LinkOption.NOFOLLOW_LINKS)) sources.put("pack/installed-inventory.json", receipt);
-                List<String> omitted = new ArrayList<>();
                 for (var entry : sources.entrySet()) {
                     if (total >= MAX_TOTAL) { omitted.add(entry.getKey() + ": 超出反馈大小上限"); continue; }
+                    int limit = (int) Math.min(MAX_TEXT, MAX_TOTAL - total);
                     String text;
                     try { text = entry.getKey().equals("logs/debug.log") ? tail(entry.getValue(), 5 * 1024 * 1024)
-                            : read(entry.getValue(), (int) Math.min(MAX_TEXT, MAX_TOTAL - total)); }
+                            : read(entry.getValue(), limit); }
                     catch (IOException unavailable) { omitted.add(entry.getKey() + ": 文件不可读"); continue; }
-                    total += add(zip, entry.getKey(), text, (int) Math.min(MAX_TEXT, MAX_TOTAL - total));
+                    if (entry.getKey().endsWith(".json")) {
+                        try { total += addJson(zip, entry.getKey(), text, limit); }
+                        catch (JsonParseException invalid) { omitted.add(entry.getKey() + ": JSON 无效或超出大小上限"); }
+                    } else {
+                        total += add(zip, entry.getKey(), text, limit);
+                    }
                 }
                 add(zip, "export-notes.txt", "仅包含诊断白名单。日志过长时截断；缺失文件不包含。所有内容均已脱敏。\n" + String.join("\n", omitted));
             }
@@ -114,6 +125,16 @@ final class SaoFeedbackZip {
     /// Bounds after scrubbing too, because replacement markers can expand a diagnostic's UTF-8 size.
     private long add(ZipOutputStream zip, String name, String text, int maximum) throws IOException {
         return write(zip, name, sanitizer.scrub(text), maximum);
+    }
+
+    /// Preserves valid JSON or notes an omitted file instead of truncating through a field.
+    private long addJson(ZipOutputStream zip, String name, String text, int maximum) throws IOException {
+        var json = JsonParser.parseString(text);
+        if (!json.isJsonObject()) throw new JsonParseException("Expected diagnostic JSON object");
+        String scrubbed = new GsonBuilder().disableHtmlEscaping().create().toJson(sanitizer.scrubJson(json, ""));
+        if (scrubbed.getBytes(StandardCharsets.UTF_8).length > maximum)
+            throw new JsonParseException("Diagnostic JSON exceeds export limit");
+        return write(zip, name, scrubbed, maximum);
     }
 
     /// Writes already scrubbed text; generated mod digests remain exact even if a short OS username resembles hex.
