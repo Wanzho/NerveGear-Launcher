@@ -1,6 +1,24 @@
+/*
+ * Hello Minecraft! Launcher
+ * Copyright (C) 2026 huangyuhui <huanghongxun2008@126.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 package org.jackhuang.hmcl.terracotta;
 
+import javafx.application.Platform;
 import org.jackhuang.hmcl.sao.SaoData;
 import org.jackhuang.hmcl.util.gson.JsonUtils;
 import org.jetbrains.annotations.NotNullByDefault;
@@ -10,10 +28,12 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.jackhuang.hmcl.sao.SaoPackEngine;
 import org.jackhuang.hmcl.sao.SaoPackArchive;
-import org.jackhuang.hmcl.sao.SaoPackState;
 import java.nio.file.Path;
 
 import java.util.*;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -67,18 +87,36 @@ class SaoRoomTest {
         });
         var constructor = SaoPackEngine.class.getDeclaredConstructor(Path.class, SaoPackArchive.class, boolean.class);
         constructor.setAccessible(true);
+        var ready = SaoPackEngine.class.getDeclaredField("packReady");
+        ready.setAccessible(true);
         try (SaoPackEngine engine = constructor.newInstance(temporary, null, false)) {
-            assertTimeoutPreemptively(java.time.Duration.ofSeconds(10), () -> {
-                while (engine.state().get() == SaoPackState.CHECKING) Thread.sleep(10);
-            });
-            engine.hostRoom(); engine.hostRoom();
-            assertEquals(1, sessions.size()); assertNotNull(engine.lastError().get());
+            ((CompletableFuture<?>) ready.get(engine)).get(10, TimeUnit.SECONDS);
+            engine.hostRoom();
+            engine.hostRoom();
+            drainFx();
+            assertEquals(1, sessions.size(), "duplicate host must leave the original transport active");
+            assertEquals("联机操作被拒绝: 请先离开当前联机房间", engine.lastError().get());
+
             sessions.get(0).changed.accept(new SaoData.Room(SaoData.RoomState.HOSTING, "original", 1, "ready"));
+            drainFx();
             assertEquals("original", engine.room().get().code());
+
             engine.leaveRoom();
             sessions.get(0).changed.accept(new SaoData.Room(SaoData.RoomState.HOSTING, "late", 1, "late"));
+            drainFx();
             assertEquals(SaoData.Room.OFF, engine.room().get());
         }
+    }
+
+    /// Waits for queued room publications if JavaFX is active.
+    private static void drainFx() throws InterruptedException {
+        CountDownLatch published = new CountDownLatch(1);
+        try {
+            Platform.runLater(published::countDown);
+        } catch (IllegalStateException noToolkit) {
+            return;
+        }
+        assertTrue(published.await(10, TimeUnit.SECONDS), "room publications must finish");
     }
 
     /// Actual HMCL JSON state adapters provide host codes, member counts and the guest's real connection URL.
@@ -104,10 +142,12 @@ class SaoRoomTest {
         private boolean closed;
         /// Creates a dormant fixture without network, process or toolkit activity.
         private FixtureSession(@Nullable String code, Consumer<SaoData.Room> changed) { this.code = code; this.changed = changed; }
+
         /// Emits the corresponding initial state and records exactly one start.
         @Override public void start() {
             starts++; changed.accept(new SaoData.Room(code == null ? SaoData.RoomState.PREPARING : SaoData.RoomState.JOINING, code, 0, null));
         }
+
         /// Records cancellation without affecting any real application.
         @Override public void close() { closed = true; }
     }
