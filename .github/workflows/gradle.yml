@@ -34,24 +34,28 @@ jobs:
     - name: Upload JAR
       uses: actions/upload-artifact@v7
       with:
-        name: HMCL-${{ env.SHORT_SHA }}-jar
-        path: HMCL/build/libs/HMCL-*.jar
+        name: NerveGear-Launcher-${{ env.SHORT_SHA }}-jar
+        path: HMCL/build/libs/NerveGear-Launcher-*.jar
         archive: false
+        if-no-files-found: error
     - name: Upload EXE
       uses: actions/upload-artifact@v7
       with:
-        name: HMCL-${{ env.SHORT_SHA }}-exe
-        path: HMCL/build/libs/HMCL-*.exe
+        name: NerveGear-Launcher-${{ env.SHORT_SHA }}-exe
+        path: HMCL/build/libs/NerveGear-Launcher-*.exe
         archive: false
+        if-no-files-found: error
     - name: Upload SH
       uses: actions/upload-artifact@v7
       with:
-        name: HMCL-${{ env.SHORT_SHA }}-sh
-        path: HMCL/build/libs/HMCL-*.sh
+        name: NerveGear-Launcher-${{ env.SHORT_SHA }}-sh
+        path: HMCL/build/libs/NerveGear-Launcher-*.sh
         archive: false
+        if-no-files-found: error
     - name: Upload DEB
       uses: actions/upload-artifact@v7
       with:
-        name: HMCL-${{ env.SHORT_SHA }}-deb
-        path: HMCL/build/libs/HMCL-*.deb
+        name: NerveGear-Launcher-${{ env.SHORT_SHA }}-deb
+        path: HMCL/build/libs/NerveGear-Launcher-*.deb
         archive: false
+        if-no-files-found: error

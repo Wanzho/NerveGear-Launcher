@@ -37,7 +37,7 @@ val launcherArtifactName = if (saoBeta) "NerveGear-Launcher-Beta" else "NerveGea
 val microsoftAuthId = System.getenv("MICROSOFT_AUTH_ID") ?: ""
 val curseForgeApiKey = System.getenv("CURSEFORGE_API_KEY") ?: ""
 val launcherExe = System.getenv("HMCL_LAUNCHER_EXE") ?: ""
-version = providers.gradleProperty("saoVersion").getOrElse("0.1.3.1").also {
+version = providers.gradleProperty("saoVersion").getOrElse("0.1.4").also {
     // The launcher compares versions numerically (self-update, launcher.min); a suffix such as -rc1 would break that.
     require(it.matches(Regex("[0-9]+(\\.[0-9]+)*"))) { "saoVersion must be numeric, like 0.3.0" }
 }

@@ -29,7 +29,7 @@ Reuse pinned toolchains without copying them with `--toolchain-cache /path/to/wo
 To reuse a previously built launcher without another Gradle build:
 
 ```sh
-packaging/build-all.sh --jar HMCL/build/libs/NerveGear-Launcher-0.1.3.1.jar
+packaging/build-all.sh --jar HMCL/build/libs/NerveGear-Launcher-0.1.4.jar
 ```
 
 The build lock is `~/Developer/sao-launcher-runs/build.lock`. A competing build is
@@ -57,7 +57,7 @@ named UTF-8 `.cfg` in `app/`. Its `app.mainclass` and `app.classpath` invoke the
 bundled `org.jackhuang.hmcl.sao.SaoLauncherBootstrap`. macOS and Linux invoke the
 same class with `-cp app/launcher.jar`, using only their bundled runtime.
 
-The same Windows folder is also wrapped in `NerveGear启动器-安装-0.1.3.1.exe`, a per-user
+The same Windows folder is also wrapped in `NerveGear启动器-安装-0.1.4.exe`, a per-user
 NSIS installer (`windows-installer.nsi`; needs `brew install makensis`, NSIS 3.13). It
 installs to `%LOCALAPPDATA%\Programs\NerveGear-Launcher` without admin, refuses a folder
 the player cannot write to, adds Start-menu and desktop shortcuts and an HKCU Uninstall
@@ -71,10 +71,10 @@ standard launcher JAR for the matching version and the Windows icon produced by
 the packaging build.
 
 ```sh
-jar_path="$(pwd)/HMCL/build/libs/NerveGear-Launcher-0.1.3.1.jar"
-makensis -WX -DVERSION=0.1.3.1 "-DPAYLOAD=$jar_path" \
+jar_path="$(pwd)/HMCL/build/libs/NerveGear-Launcher-0.1.4.jar"
+makensis -WX -DVERSION=0.1.4 "-DPAYLOAD=$jar_path" \
   "-DPAYLOAD_BYTES=$(wc -c < "$jar_path" | tr -d ' ')" \
-  "-DICON=/absolute/path/to/icon.ico" "-DOUTFILE=$(pwd)/NerveGear-0.1.3.1-Patch.exe" \
+  "-DICON=/absolute/path/to/icon.ico" "-DOUTFILE=$(pwd)/NerveGear-0.1.4-Patch.exe" \
   packaging/windows-launcher-patch.nsi
 ```
 
