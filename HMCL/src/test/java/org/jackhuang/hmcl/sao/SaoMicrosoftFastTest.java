@@ -1,3 +1,20 @@
+/*
+ * Hello Minecraft! Launcher
+ * Copyright (C) 2026 huangyuhui <huanghongxun2008@126.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 package org.jackhuang.hmcl.sao;
 
@@ -279,12 +296,14 @@ class SaoMicrosoftFastTest {
                 new SaoOathAccounts.PremiumProof() {
                     /// Identity is available without authentication.
                     public AuthInfo known() { return fixture.auth; }
+
                     /// Fake latency can hold credential renewal independently of identity publication.
                     public AuthInfo session() throws Exception {
                         fixture.sessions.incrementAndGet(); fixture.sessionEntered.countDown();
                         if (fixture.holdSession) assertTrue(fixture.sessionRelease.await(3, TimeUnit.SECONDS));
                         return fixture.auth;
                     }
+
                     /// No public provider request is allowed in these transport fixtures.
                     public SaoMicrosoftSkin.@Nullable Skin skin(AuthInfo auth) throws Exception {
                         if (fixture.holdSkin) {
@@ -294,10 +313,12 @@ class SaoMicrosoftFastTest {
                         if (fixture.skinOffline) throw new java.io.IOException("Fixture offline");
                         return fixture.skin;
                     }
+
                     /// Supplies premium library pixels without filesystem or network source reads.
                     public @Unmodifiable List<SaoPremiumSkins.Entry> library(@Nullable String name) throws Exception {
                         return List.of(new SaoPremiumSkins.Entry(fixture.manual ? "Refreshed" : "Signed in", sampleSkin().png(), true));
                     }
+
                     /// Manual actions use only this stored fixture session, never session().
                     public @Nullable AuthInfo stored(@Nullable String name) { return fixture.stored ? fixture.auth : null; }
                 }, fixture.uri().resolve("join"), account -> fail("No game"), error -> { });
@@ -441,8 +462,10 @@ class SaoMicrosoftFastTest {
             });
             server.start();
         }
+
         /// Captured literal-loopback origin.
         URI uri() { return URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/"); }
+
         /// Releases held handlers before stopping only fixture-owned resources.
         public void close() { skinRelease.countDown(); release.countDown(); sessionRelease.countDown(); server.stop(0); executor.shutdownNow(); }
     }

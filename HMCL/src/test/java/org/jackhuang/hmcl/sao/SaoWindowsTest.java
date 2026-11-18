@@ -1,10 +1,24 @@
+/*
+ * Hello Minecraft! Launcher
+ * Copyright (C) 2026 huangyuhui <huanghongxun2008@126.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 package org.jackhuang.hmcl.sao;
 
-import com.google.gson.JsonParser;
-import javafx.collections.ObservableList;
 import org.jetbrains.annotations.NotNullByDefault;
-import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -37,6 +51,7 @@ class SaoWindowsTest {
         IOException failure = assertThrows(IOException.class, () -> SaoPackEngine.checkedMemoryMiB(8192, 6144));
         assertTrue(failure.getMessage().contains("内存"));
     }
+
     /// Disposable launcher roots and fixture exports.
     @TempDir Path temporary;
 
@@ -161,6 +176,7 @@ class SaoWindowsTest {
         subscriber.onSubscribe(new Flow.Subscription() {
             /// The fixture supplies its chunks directly.
             @Override public void request(long count) { }
+
             /// Records the real subscriber cancellation fence.
             @Override public void cancel() { cancelled.set(true); }
         });
@@ -234,10 +250,10 @@ class SaoWindowsTest {
         assertEquals(2, files.backups().size());
         boolean preserved = false;
         for (SaoData.Backup item : files.backups()) try (ZipFile zip = new ZipFile(item.file().toFile())) {
-            try (InputStream input = zip.getInputStream(zip.getEntry("practice/marker.txt"))) {
-                preserved |= new String(input.readAllBytes(), StandardCharsets.UTF_8).equals("current before restore");
+                try (InputStream input = zip.getInputStream(zip.getEntry("practice/marker.txt"))) {
+                    preserved |= new String(input.readAllBytes(), StandardCharsets.UTF_8).equals("current before restore");
+                }
             }
-        }
         assertTrue(preserved);
         Path exported = temporary.resolve("world-export.zip");
         files.export(files.worlds().get(0), exported);
@@ -459,9 +475,9 @@ class SaoWindowsTest {
             assertNull(zip.getEntry("sao/password.txt")); assertNull(zip.getEntry("logs/sao_auth-private.txt"));
             var entries = zip.entries();
             while (entries.hasMoreElements()) try (InputStream input = zip.getInputStream(entries.nextElement())) {
-                String exported = new String(input.readAllBytes(), StandardCharsets.UTF_8);
-                assertFalse(exported.contains(secret)); assertFalse(exported.contains(encoded)); assertFalse(exported.contains("SAO-AUTH-V1"));
-            }
+                    String exported = new String(input.readAllBytes(), StandardCharsets.UTF_8);
+                    assertFalse(exported.contains(secret)); assertFalse(exported.contains(encoded)); assertFalse(exported.contains("SAO-AUTH-V1"));
+                }
         }
         try (SaoPackEngine engine = engine()) {
             await(() -> engine.state().get() != SaoPackState.CHECKING);
@@ -536,16 +552,20 @@ class SaoWindowsTest {
 
     /// Creates a no-distribution service so tests cannot accidentally materialize the full embedded archive.
     private SaoPackEngine engine() { return new SaoPackEngine(temporary.resolve("engine-" + UUID.randomUUID()), null, false); }
+
     /// Creates a toolkit-free bridge without installing or launching anything.
     private SaoGameBridge bridge() { return new SaoGameBridge(temporary.resolve("bridge-" + UUID.randomUUID()), (label, fraction) -> { }); }
+
     /// Finds a resource pack by its actual file-derived label.
     private static SaoData.Pack pack(SaoInstanceFiles files, String name) throws IOException {
         return files.packs(false).stream().filter(pack -> pack.name().equals(name)).findFirst().orElseThrow();
     }
+
     /// Polls asynchronous service publication with a fixed short deadline and no GUI event loop.
     private static void await(BooleanSupplier ready) {
         assertTimeoutPreemptively(Duration.ofSeconds(10), () -> { while (!ready.getAsBoolean()) Thread.sleep(10); });
     }
+
     /// Writes a valid compressed Minecraft level.dat without needing a running game.
     private static void world(Path directory, String name, long lastPlayed, int mode) throws IOException {
         Files.createDirectories(directory);
@@ -557,6 +577,7 @@ class SaoWindowsTest {
             output.writeByte(0); output.writeByte(0);
         }
     }
+
     /// Writes a tiny zip for shader mods, resource packs and invalid-backup fixtures.
     private static void zip(Path destination, Map<String, String> entries) throws IOException {
         try (ZipOutputStream zip = new ZipOutputStream(Files.newOutputStream(destination))) {
@@ -565,19 +586,22 @@ class SaoWindowsTest {
             }
         }
     }
+
     /// Builds a complete small release whose options can act as required-resource defaults.
     private SaoPackArchive release(Map<String, String> overrides, Map<String, String> extra) throws Exception {
         List<SaoPackManifest.PackFile> files = new ArrayList<>(); Map<String, String> entries = new LinkedHashMap<>(extra);
         for (var entry : overrides.entrySet()) {
             byte[] bytes = entry.getValue().getBytes(StandardCharsets.UTF_8);
             files.add(new SaoPackManifest.PackFile(entry.getKey(), SaoPackArchive.sha1(new ByteArrayInputStream(bytes)), bytes.length,
-                    "overrides/" + entry.getKey(), List.of())); entries.put("overrides/" + entry.getKey(), entry.getValue());
+                "overrides/" + entry.getKey(), List.of()));
+            entries.put("overrides/" + entry.getKey(), entry.getValue());
         }
         SaoPackManifest manifest = new SaoPackManifest("0.8", "1.20.1", "47.1.106", "", files, List.of());
         entries.put(SaoPackManifest.NAME, manifest.toJson());
         Path archive = Files.createTempFile(temporary, "release-", ".zip"); zip(archive, entries);
         return SaoPackArchive.open(archive);
     }
+
     /// Hosts one minimal real status exchange, optionally trickling a response until the client closes its deadline.
     private static CompletableFuture<Void> serve(ServerSocket server, boolean slow, AtomicInteger connections) {
         return CompletableFuture.runAsync(() -> {

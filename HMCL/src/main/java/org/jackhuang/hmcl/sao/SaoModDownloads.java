@@ -1,7 +1,23 @@
+/*
+ * Hello Minecraft! Launcher
+ * Copyright (C) 2026 huangyuhui <huanghongxun2008@126.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 package org.jackhuang.hmcl.sao;
 
-import org.glavo.url.WebURL;
 import org.jackhuang.hmcl.Metadata;
 import org.jackhuang.hmcl.download.DownloadCandidate;
 import org.jackhuang.hmcl.download.DownloadCandidates;
@@ -203,12 +219,12 @@ final class SaoModDownloads implements SaoPackInstaller.Downloader, AutoCloseabl
             if (localRoot != null && SaoOfflineBundle.copyMod(localRoot, file, staged)) {
                 task.finalHost = "offline-bundle";
             } else try (@Nullable InputStream bundled = SaoModDownloads.class.getResourceAsStream("/assets/sao/files/" + file.sha1())) {
-                if (bundled != null) Files.copy(bundled, staged, StandardCopyOption.REPLACE_EXISTING);
-                else {
-                    task = new TransferTask(officialOnly ? resolved : candidates.apply(file.downloads()), staged, file, officialOnly);
-                    task.run();
+                    if (bundled != null) Files.copy(bundled, staged, StandardCopyOption.REPLACE_EXISTING);
+                    else {
+                        task = new TransferTask(officialOnly ? resolved : candidates.apply(file.downloads()), staged, file, officialOnly);
+                        task.run();
+                    }
                 }
-            }
             if (closed || worker.isInterrupted()) throw new InterruptedException();
             if (Files.size(staged) != file.size()) throw new IOException("Pack size mismatch: " + file.path());
             try (InputStream input = Files.newInputStream(staged)) { actualSha1 = SaoPackArchive.sha1(input); }

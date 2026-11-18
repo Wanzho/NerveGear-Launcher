@@ -1,3 +1,20 @@
+/*
+ * Hello Minecraft! Launcher
+ * Copyright (C) 2026 huangyuhui <huanghongxun2008@126.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 package org.jackhuang.hmcl.sao;
 
@@ -6,7 +23,6 @@ import com.google.gson.JsonParser;
 import org.jackhuang.hmcl.auth.AuthInfo;
 import org.jackhuang.hmcl.game.Arguments;
 import org.jetbrains.annotations.NotNullByDefault;
-import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.junit.jupiter.api.io.TempDir;
@@ -248,6 +264,7 @@ class SaoArgusTest {
     private SaoLocalPremiumFixture fixture(String name) throws Exception {
         return new SaoLocalPremiumFixture(temporary.resolve(name), Path.of(System.getProperty("sao.account.proof.serverJar")));
     }
+
     /// Injects Microsoft proof and encrypted fallback storage; never calls the native/UI Microsoft sign-in bridge.
     private SaoPackEngine engine(Path root, SaoLocalPremiumFixture server) throws Exception {
         AuthInfo microsoft = new AuthInfo("PremiumFixture", server.premiumId(), server.microsoftToken(), "msa", "{}");
@@ -255,17 +272,22 @@ class SaoArgusTest {
         assertTimeoutPreemptively(Duration.ofSeconds(10), () -> { while (engine.state().get() == SaoPackState.CHECKING) Thread.sleep(10); });
         return engine;
     }
+
     /// Produces private test credentials in memory only.
     private static char[] secret() { return ("Proof" + UUID.randomUUID().toString().replace("-", "")).toCharArray(); }
+
     /// Returns the account published before its corresponding future completed.
     private static SaoData.OathAccount account(SaoPackEngine engine) { return Objects.requireNonNull(engine.oathAccount().get()); }
+
     /// Awaits a safe public future without serializing request data.
     private static void await(CompletableFuture<Void> operation) throws Exception { operation.get(30, TimeUnit.SECONDS); }
+
     /// Checks curated error codes without printing any server response or credential.
     private static void failure(CompletableFuture<Void> operation, String code) {
         ExecutionException error = assertThrows(ExecutionException.class, () -> operation.get(30, TimeUnit.SECONDS));
         assertInstanceOf(SaoAccountException.class, error.getCause()); assertEquals(code, ((SaoAccountException) Objects.requireNonNull(error.getCause())).code());
     }
+
     /// Synthesizes a private handoff response without committing any ticket literal.
     private static JsonObject ticket(long expiry) {
         byte[] random = new byte[32]; new java.security.SecureRandom().nextBytes(random);

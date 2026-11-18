@@ -1,3 +1,20 @@
+/*
+ * Hello Minecraft! Launcher
+ * Copyright (C) 2026 huangyuhui <huanghongxun2008@126.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 package org.jackhuang.hmcl.sao;
 
 import org.jetbrains.annotations.NotNullByDefault;
@@ -39,6 +56,7 @@ class SaoOathUninstallTest {
             SaoUninstallHelper.Factory helper = (roots, apps) -> new SaoUninstallHelper.Prepared() {
                 /// The helper is inert and merely verifies primary removal completed first.
                 @Override public void arm() { assertFalse(Files.exists(root)); armed.set(true); }
+
                 /// Cancellation is unexpected on this successful synthetic uninstall.
                 @Override public void cancel() { fail("Successful uninstall must not cancel"); }
             };
@@ -72,16 +90,20 @@ class SaoOathUninstallTest {
         SaoOathCredentials credentials = new SaoOathCredentials() {
             /// No real or synthetic remembered pair is exposed by this refusal fixture.
             @Override public @Nullable Credential read() { return null; }
+
             /// Credential writes are not needed by this uninstall-only fixture.
             @Override public void write(String name, char[] password) { }
+
             /// Models a locked native keychain whose item cannot be removed silently.
             @Override public void delete() throws IOException { throw new IOException("Protected-store refusal"); }
+
             /// Reports no account information in diagnostics.
             @Override public String backend() { return "fixture-refusal"; }
         };
         SaoUninstallHelper.Factory helper = (roots, apps) -> new SaoUninstallHelper.Prepared() {
             /// A failed credential deletion must prevent native post-exit cleanup.
             @Override public void arm() { fail("Refused credential deletion must not arm cleanup"); }
+
             /// Records cancellation without executing a platform helper.
             @Override public void cancel() { cancelled.set(true); }
         };
@@ -102,6 +124,7 @@ class SaoOathUninstallTest {
         return new SaoUninstaller(List.of(root), root.resolve("minecraft/versions/sao-oath"), temporary.resolve("Desktop"), new SaoUninstaller.Trash() {
             /// Avoids AWT and native desktop initialization entirely.
             @Override public boolean supported() { return false; }
+
             /// Fails if a test accidentally attempts native desktop removal.
             @Override public void move(Path path) { throw new AssertionError("Unexpected native Trash"); }
         }, false);

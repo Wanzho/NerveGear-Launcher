@@ -1,3 +1,20 @@
+/*
+ * Hello Minecraft! Launcher
+ * Copyright (C) 2026 huangyuhui <huanghongxun2008@126.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 package org.jackhuang.hmcl.sao;
 
@@ -59,10 +76,13 @@ final class SaoWindowsProcessSnapshot {
     public interface Kernel extends StdCallLibrary {
         /// Creates a non-inheritable snapshot handle.
         @Nullable Pointer CreateToolhelp32Snapshot(int flags, int pid);
+
         /// Reads the first process using the Unicode structure.
         boolean Process32FirstW(Pointer snapshot, Entry entry);
+
         /// Reads the next process from the same snapshot.
         boolean Process32NextW(Pointer snapshot, Entry entry);
+
         /// Releases the snapshot after enumeration.
         boolean CloseHandle(Pointer snapshot);
     }

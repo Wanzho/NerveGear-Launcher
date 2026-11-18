@@ -1,3 +1,20 @@
+/*
+ * Hello Minecraft! Launcher
+ * Copyright (C) 2026 huangyuhui <huanghongxun2008@126.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 package org.jackhuang.hmcl.sao;
 
@@ -38,15 +55,19 @@ final class SaoOathAccounts implements AutoCloseable {
     interface PremiumProof {
         /// Returns the original Microsoft session; its access token is used only for Mojang proof and the Microsoft profile API.
         AuthInfo session() throws Exception;
+
         /// Returns a stored identity before network authentication, or null for a new sign-in.
         default @Nullable AuthInfo known() throws Exception { return null; }
+
         /// Reads a stored session only; never authenticates or opens a login window.
         default @Nullable AuthInfo stored(@Nullable String name) throws Exception {
             @Nullable AuthInfo auth = known();
             return auth != null && (name == null || name.equalsIgnoreCase(auth.getUsername())) ? auth : null;
         }
+
         /// Supplies premium library fixtures; production overrides this without interactive authentication.
         default @org.jetbrains.annotations.Unmodifiable List<SaoPremiumSkins.Entry> library(@Nullable String name) throws Exception { return List.of(); }
+
         /// Fetches public cosmetics through the bounded Microsoft provider; fixtures never use public endpoints.
         default SaoMicrosoftSkin.@Nullable Skin skin(AuthInfo auth) throws Exception {
             return SaoMicrosoftSkin.fetch(auth.getAccessToken(), SaoMicrosoftSkin::download);
@@ -240,21 +261,27 @@ final class SaoOathAccounts implements AutoCloseable {
 
     /// Stable read-only display identity; null after logout or cancellation.
     ReadOnlyObjectProperty<@Nullable SaoMicrosoftIdentity> microsoftIdentity() { return identity.getReadOnlyProperty(); }
+
     /// Stable read-only ARGUS admission progress, independent of pack installation.
     ReadOnlyObjectProperty<SaoOathLinking> oathLinking() { return linking.getReadOnlyProperty(); }
+
     /// True only while a Link Start request waits for background admission.
     javafx.beans.property.ReadOnlyBooleanProperty oathLinkWaiting() { return linkWaiting.getReadOnlyProperty(); }
+
     /// Restores a remembered Microsoft identity without opening a login window when none exists.
     void restoreMicrosoft() { startPremium(true); }
+
     /// Invalidates the attempt before any late network response can publish or launch.
     void cancelMicrosoftLink() {
         synchronized (gate) { generation.incrementAndGet(); clear(); }
         publish(this::publishState);
     }
+
     /// Refuses stale network results at each admission boundary.
     private void checkGeneration(long expected) throws SaoAccountException {
         if (closed.get() || expected != generation.get()) throw new SaoAccountException("账号操作已取消", "cancelled");
     }
+
     /// Publishes a captured identity and status only while the owning attempt remains current.
     private void publishIdentity(long expected) {
         @Nullable SaoMicrosoftIdentity snapshot = currentIdentity;
@@ -266,16 +293,22 @@ final class SaoOathAccounts implements AutoCloseable {
 
     /// The current account property; only refreshed server values are published.
     ReadOnlyObjectProperty<SaoData.@Nullable OathAccount> account() { return account.getReadOnlyProperty(); }
+
     /// Returns the stable card property, cleared on signout.
     ReadOnlyObjectProperty<SaoData.@Nullable PlayerCard> playerCard() { return card.getReadOnlyProperty(); }
+
     /// Returns the observable current source choices and inherited previews.
     ReadOnlyObjectProperty<SaoTextureState> inheritedTextures() { return inherited.getReadOnlyProperty(); }
+
     /// Chooses the uploaded or linked premium skin without replacing either image.
     CompletableFuture<Void> setSkinSource(String source) { return submit(() -> { Session active = requireSession(); currentInherited = client.textureChoices(active.root(), source, null, active.access()); refreshSkin(requireSession()); }); }
+
     /// Chooses a cape provider, own upload or none, preserving every other source slot.
     CompletableFuture<Void> setCapeSource(String source) { return submit(() -> { Session active = requireSession(); currentInherited = client.textureChoices(active.root(), null, source, active.access()); refreshSkin(requireSession()); }); }
+
     /// Refreshes inherited images on the account worker, polling queued work without blocking JavaFX or launching a browser.
-    CompletableFuture<Void> refreshInheritedTextures() { return submit(() -> {
+    CompletableFuture<Void> refreshInheritedTextures() {
+        return submit(() -> {
         Session active = requireSession(); currentInherited = client.refreshInheritedTextures(active.root(), active.access());
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(45);
         while (currentInherited.status().equals("syncing") && System.nanoTime() < deadline) {
@@ -287,8 +320,10 @@ final class SaoOathAccounts implements AutoCloseable {
         if (currentInherited.status().equals("syncing")) { scheduleAppearancePoll(active); throw new SaoAccountException("同步中", "textureSyncPending"); }
         if (currentInherited.status().equals("failed")) throw new SaoAccountException("同步失败", "textureSyncFailed");
     }); }
+
     /// Explicitly replaces cosmetics from the stored Microsoft session, publishing the preview before ARGUS writes.
-    CompletableFuture<Void> syncMicrosoftSkin() { return submit(() -> {
+    CompletableFuture<Void> syncMicrosoftSkin() {
+        return submit(() -> {
         long expected = generation.get();
         try {
             @Nullable AuthInfo microsoft = premium.stored(current == null ? null : current.premiumName());
@@ -325,18 +360,25 @@ final class SaoOathAccounts implements AutoCloseable {
 
     /// Returns the protected remembered name from memory, or null.
     @Nullable String rememberedName() { return remembered; }
+
     /// Returns the current account's downloaded texture, or null for the server's default skin.
     @Nullable Path skin() { return skin; }
+
     /// Returns the current profile texture arm model.
     boolean skinSlim() { return slim; }
+
     /// Returns the stable read-only per-user library.
     @UnmodifiableView ObservableList<SaoData.SavedSkin> savedSkins() { return savedView; }
+
     /// Whether queued account work must finish before uninstall.
     boolean busy() { return pending.get() != 0; }
+
     /// Freezes new account/library writes only when no queued or active operation remains.
     boolean tryFreeze() { synchronized (gate) { if (closed.get() || frozen || pending.get() != 0) return false; frozen = true; return true; } }
+
     /// Restores account operations after an uninstall failure before the terminal commit point.
     void unfreeze() { synchronized (gate) { if (!closed.get()) frozen = false; } }
+
     /// Identifies the storage provider without exposing credentials.
     String credentialBackend() { return credentials.backend(); }
 
@@ -387,12 +429,15 @@ final class SaoOathAccounts implements AutoCloseable {
 
     /// Consumes an email code and refreshes the unlocked/verification state from the server.
     CompletableFuture<Void> verify(String code) { return authenticated("sao/verify", object("code", code), false); }
+
     /// Requests another verification message without claiming actual inbox delivery.
-    CompletableFuture<Void> resend() { return submit(() -> {
+    CompletableFuture<Void> resend() {
+        return submit(() -> {
         Session active = requireSession();
         mailPost("sao/resend", "resend", active.name(), new JsonObject(), active.access());
         refresh();
     }); }
+
     /// Uses the non-enumerating recovery operation and refreshes any existing session.
     CompletableFuture<Void> forgot(String name) {
         return submit(() -> { mailPost("sao/forgot", "forgot", name, object("username", name), null); if (session != null) refresh(); });
@@ -589,7 +634,8 @@ final class SaoOathAccounts implements AutoCloseable {
         publish(this::publishState);
         if (previous != null && !closed.get()) {
             pending.incrementAndGet();
-            try { worker.execute(() -> {
+            try {
+                worker.execute(() -> {
                 try { if (previous.root().equals(client.root())) client.json("POST", "authserver/invalidate", object("accessToken", previous.access()), null); }
                 catch (SaoAccountException ignored) { }
                 finally { pending.decrementAndGet(); }
@@ -696,13 +742,13 @@ final class SaoOathAccounts implements AutoCloseable {
     /// Saves a sanitized 64×64 entry in the per-user library, also while signed out.
     SaoData.SavedSkin saveSkin(String name, byte[] png, boolean slim) {
         synchronized (gate) {
-        try {
-            if (frozen) throw new IOException("启动器正在卸载");
-            SaoOathSkins storage = requireLibrary();
-            if (closed.get()) throw new IOException("账号服务已关闭");
-            SaoData.SavedSkin kept = storage.save(name, png, slim);
-            publishLibrary(storage); return kept;
-        } catch (IOException | SaoAccountException failure) { throw new IllegalArgumentException("保存皮肤失败"); }
+            try {
+                if (frozen) throw new IOException("启动器正在卸载");
+                SaoOathSkins storage = requireLibrary();
+                if (closed.get()) throw new IOException("账号服务已关闭");
+                SaoData.SavedSkin kept = storage.save(name, png, slim);
+                publishLibrary(storage); return kept;
+            } catch (IOException | SaoAccountException failure) { throw new IllegalArgumentException("保存皮肤失败"); }
         }
     }
 
@@ -710,8 +756,8 @@ final class SaoOathAccounts implements AutoCloseable {
     void deleteSavedSkin(SaoData.SavedSkin skin) {
         if (skin.premium()) return;
         synchronized (gate) {
-        try { if (frozen) throw new IOException("启动器正在卸载"); SaoOathSkins storage = requireLibrary(); storage.delete(skin); publishLibrary(storage); }
-        catch (IOException | SaoAccountException failure) { errors.accept("删除皮肤失败"); }
+            try { if (frozen) throw new IOException("启动器正在卸载"); SaoOathSkins storage = requireLibrary(); storage.delete(skin); publishLibrary(storage); }
+            catch (IOException | SaoAccountException failure) { errors.accept("删除皮肤失败"); }
         }
     }
 
@@ -742,8 +788,8 @@ final class SaoOathAccounts implements AutoCloseable {
         if (previous != null && !previous.id().equalsIgnoreCase(id)) { currentInherited = SaoTextureState.empty(); skin = null; profileCache = null; }
         Logger.registerAccessToken(access);
         session = new Session(client.root(), access, clientToken, name, id);
-        @Nullable GameRun running=gameRun;
-        friends.playing(running!=null&&running.id().equalsIgnoreCase(id)&&running.api().equals(client.root()));
+        @Nullable GameRun running = gameRun;
+        friends.playing(running != null && running.id().equalsIgnoreCase(id) && running.api().equals(client.root()));
         friends.session(new SaoFriends.Session(client.root(), access, id, name));
     }
 
@@ -832,7 +878,8 @@ final class SaoOathAccounts implements AutoCloseable {
     /// Polls first-link work without delaying sign-in; completions update both the source property and current skin.
     private void scheduleAppearancePoll(Session active) {
         if (closed.get() || session != active || !appearancePolling.compareAndSet(false, true)) return;
-        try { appearanceTimer.schedule(() -> submit(() -> {
+        try {
+            appearanceTimer.schedule(() -> submit(() -> {
             if (closed.get() || session != active) return;
             currentInherited = client.inheritedTextures(active.root(), active.access());
             if (!awaitingAppearance(currentInherited)) refreshSkin(active);
@@ -891,8 +938,8 @@ final class SaoOathAccounts implements AutoCloseable {
 
     /// Records the actual created process under its prepared account, independently of later signout or renames.
     synchronized void gameStarted(SaoOathLaunchAccount launched) {
-        @Nullable Session active=session;
-        friends.playing(active!=null&&active.id().equalsIgnoreCase(launched.profileId())&&active.root().equals(launched.apiRoot()));
+        @Nullable Session active = session;
+        friends.playing(active != null && active.id().equalsIgnoreCase(launched.profileId()) && active.root().equals(launched.apiRoot()));
         try { gameRun = new GameRun(launched.apiRoot(), launched.profileId(), playTime.start(launched.apiRoot(), launched.profileId())); }
         catch (IOException failure) { errors.accept("保存游玩记录失败"); }
         refreshCard();
@@ -903,7 +950,7 @@ final class SaoOathAccounts implements AutoCloseable {
         friends.playing(false);
         @Nullable GameRun running = gameRun;
         if (running != null) try { running.time().close(); gameRun = null; }
-        catch (IOException failure) { errors.accept("保存游玩记录失败"); }
+            catch (IOException failure) { errors.accept("保存游玩记录失败"); }
         refreshCard();
     }
 
@@ -962,10 +1009,13 @@ final class SaoOathAccounts implements AutoCloseable {
             SaoMicrosoftSkin.sync(fetched, () -> { }, new SaoMicrosoftSkin.Target() {
                 /// Uses the successful authenticated read from this refresh, never a previous snapshot.
                 public SaoTextureState state() { return freshState; }
+
                 /// Selects the server's inherited premium slot.
                 public void premium() throws Exception { currentInherited = client.textureChoices(active.root(), "premium", null, active.access()); }
+
                 /// Reuses the existing upload transport and model semantics.
                 public void upload(byte[] png, boolean model) throws Exception { client.skin(active.id(), png, model, active.access()); }
+
                 /// Lets the server fetch all cape providers asynchronously.
                 public void refresh() throws Exception { currentInherited = client.refreshInheritedTextures(active.root(), active.access()); }
             });
@@ -983,19 +1033,19 @@ final class SaoOathAccounts implements AutoCloseable {
         @Nullable String texture = null;
         boolean modelSlim = false;
         if (profile.has("properties")) for (JsonElement element : profile.getAsJsonArray("properties")) {
-            JsonObject property = element.getAsJsonObject();
-            if ("textures".equals(optional(property, "name"))) {
-                String value = required(property, "value");
-                if (value.length() > 65536) throw new SaoAccountException("皮肤信息无效", "invalidTexture");
-                JsonObject decoded = JsonParser.parseString(new String(Base64.getDecoder().decode(value), StandardCharsets.UTF_8)).getAsJsonObject();
-                @Nullable JsonObject textures = decoded.getAsJsonObject("textures");
-                if (textures != null && textures.has("SKIN")) {
-                    JsonObject skinData = textures.getAsJsonObject("SKIN");
-                    texture = required(skinData, "url");
-                    if (skinData.get("metadata") instanceof JsonObject model) modelSlim = "slim".equals(optional(model, "model"));
+                JsonObject property = element.getAsJsonObject();
+                if ("textures".equals(optional(property, "name"))) {
+                    String value = required(property, "value");
+                    if (value.length() > 65536) throw new SaoAccountException("皮肤信息无效", "invalidTexture");
+                    JsonObject decoded = JsonParser.parseString(new String(Base64.getDecoder().decode(value), StandardCharsets.UTF_8)).getAsJsonObject();
+                    @Nullable JsonObject textures = decoded.getAsJsonObject("textures");
+                    if (textures != null && textures.has("SKIN")) {
+                        JsonObject skinData = textures.getAsJsonObject("SKIN");
+                        texture = required(skinData, "url");
+                        if (skinData.get("metadata") instanceof JsonObject model) modelSlim = "slim".equals(optional(model, "model"));
+                    }
                 }
             }
-        }
         SaoOathSkins storage = Objects.requireNonNull(profileCache);
         if (texture == null && microsoftSkin != null) return;
         byte @Nullable [] png = texture == null ? null : client.textureAt(active.root(), texture);
@@ -1024,8 +1074,10 @@ final class SaoOathAccounts implements AutoCloseable {
 
     /// Clears invalid credentials from protected storage, as required by an explicit forget or password change.
     private void forget() throws IOException { synchronized (gate) { credentials.delete(); remembered = null; } }
+
     /// Drops all ephemeral account/texture state without deleting an explicitly remembered password.
     private void clear() { premiumEntries = List.of(); visibleEntries = libraryEntries; currentIdentity = null; currentLinking = SaoOathLinking.idle(); microsoftSkinPending = false; microsoftSkin = null; currentInherited = SaoTextureState.empty(); friends.session(null); session = null; current = null; currentCard = null; skin = null; slim = false; premiumOnly = false; profileCache = null; }
+
     /// Invalidates state from a launch-token check and publishes the signout.
     private void invalidSession() { clear(); publish(this::publishState); }
 

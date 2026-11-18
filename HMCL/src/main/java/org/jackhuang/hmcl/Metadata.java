@@ -134,16 +134,21 @@ public final class Metadata {
 
     /// This fork has no HMCL release channel announcements.
     public static boolean isStable() { return true; }
+
     /// This fork has no HMCL development channel announcements.
     public static boolean isDev() { return false; }
+
     /// This fork has no HMCL nightly channel announcements.
     public static boolean isNightly() { return false; }
+
     /// Java downloads use HMCL's runtime installer, never its documentation website.
     public static @Nullable String getSuggestedJavaDownloadLink() { return null; }
+
     /// Legacy bundled-pack directory, retained for source compatibility.
     public static final String BUNDLED_MODPACK_DIRECTORY_NAME = "modpack";
     /// Returns the legacy bundled-pack directory inside this launcher's isolated storage.
     public static Path getBundledModpackDirectory() { return HMCL_LOCAL_HOME.resolve(BUNDLED_MODPACK_DIRECTORY_NAME); }
+
     /// Legacy auto-import is disabled; the SAO engine exclusively manages the embedded pack.
     public static @Nullable Path findBundledModpackFile() { return null; }
 }

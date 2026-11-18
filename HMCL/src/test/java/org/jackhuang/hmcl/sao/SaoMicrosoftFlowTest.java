@@ -1,3 +1,20 @@
+/*
+ * Hello Minecraft! Launcher
+ * Copyright (C) 2026 huangyuhui <huanghongxun2008@126.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 package org.jackhuang.hmcl.sao;
 
@@ -40,15 +57,18 @@ class SaoMicrosoftFlowTest {
             emit.accept(new SaoMicrosoftFlow.State(SaoMicrosoftFlow.Kind.SIGNING_IN, "", "", "", "正在验证 Xbox 账号", "", ""));
             return new SaoMicrosoftFlowEngine.Result("TestProfile", installs::incrementAndGet);
         }
+
         /// Records cleanup without forcing completion, so stale-result guards are exercised.
         @Override public void close() { closed.countDown(); }
     }
+
     /// Waits with a bounded deadline for asynchronous state publication.
     private static void await(SaoMicrosoftFlow flow, SaoMicrosoftFlow.Kind kind) throws Exception {
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
         while (flow.state().get().kind() != kind && System.nanoTime() < deadline) Thread.sleep(5);
         assertEquals(kind, flow.state().get().kind());
     }
+
     /// Successful OAuth opens once, permits reopening, installs before DONE and fires the continuation once.
     @Test void successAndContinuation() throws Exception {
         Transport transport = new Transport(); AtomicInteger opens = new AtomicInteger(); AtomicInteger continued = new AtomicInteger();
@@ -66,6 +86,7 @@ class SaoMicrosoftFlowTest {
         assertEquals(1, continued.get()); flow.cancel(); flow.useDeviceCode();
         assertEquals(SaoMicrosoftFlow.Kind.DONE, flow.state().get().kind());
     }
+
     /// Switching modes closes the old server and rejects its late successful credentials.
     @Test void deviceSwitchRejectsOldResult() throws Exception {
         Transport old = new Transport(); Transport device = new Transport(); AtomicInteger attempts = new AtomicInteger();
@@ -77,6 +98,7 @@ class SaoMicrosoftFlowTest {
         device.release.countDown(); await(flow, SaoMicrosoftFlow.Kind.DONE);
         assertEquals(0, old.installs.get()); assertEquals(1, device.installs.get());
     }
+
     /// Cancel publishes immediately, closes resources and suppresses all later progress and account writes.
     @Test void cancellationRejectsLateResult() throws Exception {
         Transport transport = new Transport();
@@ -86,6 +108,7 @@ class SaoMicrosoftFlowTest {
         await(flow, SaoMicrosoftFlow.Kind.CANCELLED); Thread.sleep(30);
         assertEquals(SaoMicrosoftFlow.Kind.CANCELLED, flow.state().get().kind()); assertEquals(0, transport.installs.get());
     }
+
     /// A short injected deadline exercises the same cleanup path as production's five-minute timeout.
     @Test void timeoutClosesTransport() throws Exception {
         Transport transport = new Transport();
@@ -94,6 +117,7 @@ class SaoMicrosoftFlowTest {
         assertEquals("登录超时", flow.state().get().message()); assertTrue(transport.closed.await(3, TimeUnit.SECONDS));
         transport.release.countDown(); assertEquals(0, transport.installs.get());
     }
+
     /// Worker progress stays queued until UI dispatch, and stale queued browser events cannot open after cancel.
     @Test void queuedUiEventsRespectCancellation() throws Exception {
         BlockingQueue<Runnable> ui = new LinkedBlockingQueue<>(); Transport transport = new Transport();
@@ -116,6 +140,7 @@ class SaoMicrosoftFlowTest {
             @Override public SaoMicrosoftFlowEngine.Result run(boolean device, Consumer<SaoMicrosoftFlow.State> emit) throws Exception {
                 throw new IOException("access_token=SECRET");
             }
+
             /// Records mandatory cleanup.
             @Override public void close() { closed.countDown(); }
         };
@@ -124,6 +149,7 @@ class SaoMicrosoftFlowTest {
         assertEquals("网络连接失败，请重试", flow.state().get().message());
         assertTrue(closed.await(3, TimeUnit.SECONDS));
     }
+
     /// Cancellation during a deferred storage confirmation prevents even an approved late write.
     @Test void lateStorageConfirmationCannotInstall() throws Exception {
         BlockingQueue<Runnable> confirmation = new LinkedBlockingQueue<>(); AtomicInteger installs = new AtomicInteger();
@@ -132,6 +158,7 @@ class SaoMicrosoftFlowTest {
             @Override public SaoMicrosoftFlowEngine.Result run(boolean device, Consumer<SaoMicrosoftFlow.State> emit) {
                 return new SaoMicrosoftFlowEngine.Result("TestProfile", installs::incrementAndGet, confirmation::add);
             }
+
             /// No real resources exist in this transport.
             @Override public void close() { }
         };

@@ -1,3 +1,20 @@
+/*
+ * Hello Minecraft! Launcher
+ * Copyright (C) 2026 huangyuhui <huanghongxun2008@126.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 package org.jackhuang.hmcl.sao;
 
@@ -35,6 +52,7 @@ final class SaoUninstaller {
     interface Trash {
         /// Whether this environment can send a file or directory to Trash.
         boolean supported();
+
         /// Moves the supplied owned path to Trash or throws, leaving permanent deletion disabled.
         void move(Path path) throws IOException;
     }
@@ -63,6 +81,7 @@ final class SaoUninstaller {
             @Override public boolean supported() {
                 return Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.MOVE_TO_TRASH);
             }
+
             /// A false native result is a failure, never permission to delete permanently.
             @Override public void move(Path path) throws IOException {
                 try {
@@ -201,6 +220,7 @@ final class SaoUninstaller {
                     Files.createDirectory(to.resolve(from.relativize(directory)));
                     return FileVisitResult.CONTINUE;
                 }
+
                 /// Copies only ordinary files; a link or device prevents any later removal.
                 @Override public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) throws IOException {
                     if (!attributes.isRegularFile() || attributes.isSymbolicLink()) throw new IOException("存档包含链接或特殊文件，已停止卸载");
@@ -227,6 +247,7 @@ final class SaoUninstaller {
                 result.put(root.relativize(directory).toString(), "directory");
                 return FileVisitResult.CONTINUE;
             }
+
             /// Hashes file streams without loading worlds or screenshots into memory.
             @Override public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) throws IOException {
                 if (!attributes.isRegularFile() || attributes.isSymbolicLink()) throw new IOException("存档包含链接或特殊文件，已停止卸载");
@@ -269,12 +290,14 @@ final class SaoUninstaller {
                 rejectSymlinkAncestors(directory);
                 return FileVisitResult.CONTINUE;
             }
+
             /// Deletes an ordinary file or symbolic-link entry without following it.
             @Override public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) throws IOException {
                 rejectSymlinkAncestors(file.getParent());
                 Files.delete(file);
                 return FileVisitResult.CONTINUE;
             }
+
             /// Removes a visited directory only after all of its entries have been removed.
             @Override public FileVisitResult postVisitDirectory(Path directory, @Nullable IOException failure) throws IOException {
                 if (failure != null) throw failure;

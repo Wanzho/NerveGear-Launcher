@@ -1,3 +1,20 @@
+/*
+ * Hello Minecraft! Launcher
+ * Copyright (C) 2026 huangyuhui <huanghongxun2008@126.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 package org.jackhuang.hmcl.sao;
 
@@ -123,8 +140,10 @@ class SaoRealQuickUpdateTest {
     private static final class PreparedGame implements SaoReadinessCheck.GameSteps {
         /// A quick update must not call the full game installation path.
         @Override public void ensureInstalled(boolean repair) { fail("Unexpected full runtime installation"); }
+
         /// Runtime availability is the sole seam, explicitly outside this archive/update test's scope.
         @Override public @Nullable String missing() { return null; }
+
         /// The test must never launch a game process.
         @Override public void launch(Account account, SaoPackManifest manifest, int memoryMiB, SaoData.GameWindow window,
                                      String jvmArgs, char @Nullable [] password, boolean offline, @Nullable String signedServer,
@@ -156,8 +175,8 @@ class SaoRealQuickUpdateTest {
                 assertEquals(hop.expected().get(file.path()), SaoUpdates.sha256(instance.resolve(file.path())), file.path()); checked++;
             }
             for (String path : hop.removed()) if (!SaoPackManifest.isPlayerFile(path)) {
-                assertFalse(Files.exists(instance.resolve(path)), path); removed++;
-            }
+                    assertFalse(Files.exists(instance.resolve(path)), path); removed++;
+                }
             assertPlayers(instance, playerBytes);
             if ("true".equals(System.getenv("SAO_QUICKTEST_REAL_0811"))) assertRealRelease(instance, hop);
             assertEquals(inode, Files.readAttributes(instance.resolve(untouched), java.nio.file.attribute.BasicFileAttributes.class).fileKey());

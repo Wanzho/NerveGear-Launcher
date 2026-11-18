@@ -33,12 +33,15 @@ import java.util.List;
 public final class UpdateHandler {
     /// Prevents construction.
     private UpdateHandler() { }
+
     /// Rejects legacy updater invocations without reading or replacing another launcher jar.
     public static boolean processArguments(String[] args) {
         return args.length > 0 && args[0].equals("--apply-to");
     }
+
     /// Ignores HMCL upgrade requests; pack updates are handled by the SAO engine.
     public static void updateFrom(RemoteVersion version) { }
+
     /// Restarts the specified local launcher jar; never downloads or applies an update.
     public static void startJava(Path jar, String... appArgs) throws IOException {
         List<String> command = new ArrayList<>();

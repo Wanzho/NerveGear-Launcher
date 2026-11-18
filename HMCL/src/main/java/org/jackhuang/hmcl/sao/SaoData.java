@@ -1,8 +1,21 @@
 /*
- * 刀剑神域·誓约 启动器, a fork of Hello Minecraft! Launcher
+ * Hello Minecraft! Launcher
  * Copyright (C) 2026 huangyuhui <huanghongxun2008@126.com> and contributors
- * Licensed under the GNU General Public License v3 or later; see SaoPackState.java for the full notice.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+// 刀剑神域·誓约 启动器, a fork of Hello Minecraft! Launcher
 package org.jackhuang.hmcl.sao;
 
 import org.jetbrains.annotations.NotNullByDefault;
@@ -86,11 +99,13 @@ public final class SaoData {
                                @Nullable String server, @Nullable String accountApi, @Nullable Maintenance maintenance) {
             this(schema, sequence, quark, pack, updates, launcher, server, accountApi, maintenance, null);
         }
+
         /// Constructs metadata predating optional production settings without changing its signed sequence.
         public VersionMetadata(int schema, long sequence, String quark, PackRelease pack,
                                @Unmodifiable List<QuickRelease> updates, LauncherRelease launcher) {
             this(schema, sequence, quark, pack, updates, launcher, null, null, null);
         }
+
         /// Constructs local builder/test metadata with the initial sequence; network parsing always requires the field.
         public VersionMetadata(int schema, String quark, PackRelease pack, List<QuickRelease> updates, LauncherRelease launcher) {
             this(schema, 0, quark, pack, updates, launcher);
@@ -312,9 +327,10 @@ public final class SaoData {
     @NotNullByDefault
     public record Friend(String name, Presence presence, String where, @Nullable Path head, String id, String remark) {
         /// Protocol-1 and existing UI sample compatibility; new consumers should use the stable UUID.
-        public Friend(String name,Presence presence,String where,@Nullable Path head){this(name,presence,where,head,"","");}
+        public Friend(String name,Presence presence,String where,@Nullable Path head) { this(name,presence,where,head,"",""); }
+
         /// Private display label; the server never substitutes a remark into public nicknames.
-        public String displayName(){return remark.isEmpty()?name:remark;}
+        public String displayName() { return remark.isEmpty() ? name : remark; }
     }
 
     /// A friend request.
@@ -345,7 +361,8 @@ public final class SaoData {
                        String lastText, long lastTime, int mentions, boolean muted, boolean pinned, boolean shouldNotify,
                        long peerRead, @Unmodifiable List<Typing> typing) {
         /// Protocol-1 source compatibility; direct read watermark defaults to zero.
-        public Chat(String id,String title,boolean group,List<String> members,int unread,String lastText,long lastTime){this(id,title,group,members,unread,lastText,lastTime,0,false,false,unread>0,0,List.of());}
+        public Chat(String id,String title,boolean group,List<String> members,int unread,String lastText,long lastTime) { this(id,title,group,members,unread,lastText,lastTime,0,false,false,unread > 0,0,List.of()); }
+
         /// Copies the members so a newer chat never shares a list with an older one.
         public Chat { members = List.copyOf(members); typing = List.copyOf(typing); }
     }
@@ -373,11 +390,12 @@ public final class SaoData {
                               MessageKind kind, @Nullable Quote quote, @Nullable PlayInvite invite,
                               @Unmodifiable List<String> mentions, boolean shouldNotify) {
         /// Protocol-1 source compatibility for existing screens; pending rows have no durable ID.
-        public ChatMessage(String from,String text,long time,boolean mine,boolean pending){this(from,text,time,mine,pending,0,"","","",0,MessageKind.TEXT,null,null,List.of(),!mine);}
+        public ChatMessage(String from,String text,long time,boolean mine,boolean pending) { this(from,text,time,mine,pending,0,"","","",0,MessageKind.TEXT,null,null,List.of(),!mine); }
+
         /// Defensively copies resolved mention UUIDs.
-        public ChatMessage { mentions=List.copyOf(mentions); }
+        public ChatMessage { mentions = List.copyOf(mentions); }
         /// Whether this confirmed outgoing message lies at or below the direct peer's read watermark.
-        public boolean readByPeer(Chat conversation){return !conversation.group()&&mine&&!pending&&id>0&&id<=conversation.peerRead();}
+        public boolean readByPeer(Chat conversation) { return !conversation.group() && mine && !pending && id > 0 && id <= conversation.peerRead(); }
     }
 
     /// Text, a ten-minute Link Start card, or an erased-message notice.
@@ -386,6 +404,7 @@ public final class SaoData {
         TEXT, /// Target is validated against knownServers and revalidated by the authority on acceptance.
         INVITE, /// Original text and invite data were erased by the sender.
         RECALLED }
+
     /// Bounded quoted preview supplied even when the source is outside the local history window.
     @NotNullByDefault
     public record Quote(long replyTo,String sender,String from,String text) { }
@@ -396,7 +415,7 @@ public final class SaoData {
     @NotNullByDefault
     public record Typing(String id,String from,long expiresAt) {
         /// Tests the transient five-second lease against the UI clock.
-        public boolean active(long now){return now<expiresAt;}
+        public boolean active(long now) { return now < expiresAt; }
     }
 
 
@@ -476,6 +495,7 @@ public final class SaoData {
         /// logs and crash-reports
         LOGS
     }
+
     /// Launcher behavior after the OS creates the game process; HIDE restores after every exit.
     @NotNullByDefault
     public enum LauncherBehavior {

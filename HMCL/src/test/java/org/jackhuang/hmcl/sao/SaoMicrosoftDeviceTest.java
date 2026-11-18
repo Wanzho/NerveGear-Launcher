@@ -1,3 +1,20 @@
+/*
+ * Hello Minecraft! Launcher
+ * Copyright (C) 2026 huangyuhui <huanghongxun2008@126.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 package org.jackhuang.hmcl.sao;
 
@@ -24,15 +41,20 @@ class SaoMicrosoftDeviceTest {
         final AtomicReference<String> code = new AtomicReference<>("");
         /// Device mode must not request an authorization-code callback server.
         @Override public OAuth.Session startServer() { throw new AssertionError("Unexpected redirect server"); }
+
         /// Captures only the user code, not the secret device code.
         @Override public void grantDeviceCode(String userCode, String uri) { code.set(userCode); }
+
         /// Marks successful device authorization.
         @Override public void loginCompletedDeviceCode() { completed.incrementAndGet(); }
+
         /// Deliberately does nothing instead of launching a browser.
         @Override public void openBrowser(OAuth.GrantFlow flow, String url) { }
+
         /// Supplies a non-production fixture id.
         @Override public String getClientId() { return "fixture-client"; }
     }
+
     /// Checks the actual form body and ensures device denial cannot be mistaken for successful authorization.
     @Test void deviceUsesSameClientAndRejectsDeniedToken() throws Exception {
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);

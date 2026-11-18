@@ -1,8 +1,21 @@
 /*
- * 刀剑神域·誓约 启动器, a fork of Hello Minecraft! Launcher
+ * Hello Minecraft! Launcher
  * Copyright (C) 2026 huangyuhui <huanghongxun2008@126.com> and contributors
- * Licensed under the GNU General Public License v3 or later; see the LICENSE file.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+// 刀剑神域·誓约 启动器, a fork of Hello Minecraft! Launcher
 package org.jackhuang.hmcl.ui.sao;
 
 import javafx.animation.KeyFrame;
@@ -289,23 +302,32 @@ public final class SaoFakeService implements SaoLauncherService {
     }
 
     @Override public ReadOnlyObjectProperty<SaoData.UpdateStatus> updateStatus() { return updates; }
+
     @Override public ReadOnlyObjectProperty<SaoData.DownloadPrompt> downloadPrompt() { return prompt; }
+
     @Override public ReadOnlyObjectProperty<SaoData.LauncherUpdate> launcherUpdate() { return launcherUpdate; }
+
     @Override public ReadOnlyObjectProperty<org.jackhuang.hmcl.sao.SaoInstallProgress> installProgress() { return install; }
+
     @Override public void openPackDownload() { opened.add("pack"); }
+
     @Override public void openLauncherDownload() { opened.add("launcher"); }
+
     @Override public void watchPackDownload() {
         SaoData.DownloadPrompt p = prompt.get();
         prompt.set(new SaoData.DownloadPrompt(true, p.candidate(), p.message(), p.required(), p.present(), p.missing(), p.fullPackRequired()));
     }
+
     @Override public void cancelPackDownload() {
         SaoData.DownloadPrompt p = prompt.get();
         prompt.set(new SaoData.DownloadPrompt(false, null, p.message(), p.required(), List.of(), p.required(), p.fullPackRequired()));
     }
+
     @Override public void dismissLauncherUpdate() {
         SaoData.UpdateStatus u = updates.get();
         updates.set(new SaoData.UpdateStatus(u.metadata(), u.packUpdateAvailable(), u.launcherBlocked(), false, u.launcherBlocked() ? u.message() : ""));
     }
+
     @Override public CompletableFuture<Void> acceptDroppedFiles(List<Path> paths) {
         drops.add(List.copyOf(paths));
         if ("pending".equals(dropOutcome)) return pendingDrop = new CompletableFuture<>();
@@ -421,23 +443,32 @@ public final class SaoFakeService implements SaoLauncherService {
     private String jvm = "";
 
     @Override public ObservableList<SaoData.News> news() { return news; }
+
     @Override public ReadOnlyObjectProperty<SaoData.@Nullable ServerStatus> serverStatus() { return server; }
+
     @Override public ObservableList<SaoData.World> worlds() { return worlds; }
+
     @Override public ObservableList<SaoData.Backup> backups() { return backups; }
+
     @Override public CompletableFuture<Void> backupWorld(SaoData.World w) {
         backups.add(0, new SaoData.Backup(Path.of("backups/" + w.name() + ".zip"), w.folder(), System.currentTimeMillis(), w.sizeBytes() / 2));
         return CompletableFuture.completedFuture(null);
     }
+
     @Override public ObservableList<SaoData.Pack> shaderPacks() { return shaders; }
+
     @Override public CompletableFuture<Void> setShader(SaoData.@Nullable Pack pack) {
         shaders.replaceAll(p -> new SaoData.Pack(p.name(), p.file(), p.description(), pack != null && p.file().equals(pack.file()), p.icon()));
         return CompletableFuture.completedFuture(null);
     }
+
     @Override public ObservableList<SaoData.Pack> resourcePacks() { return resources; }
+
     @Override public CompletableFuture<Void> setResourcePackEnabled(SaoData.Pack pack, boolean on) {
         resources.replaceAll(p -> p.file().equals(pack.file()) ? new SaoData.Pack(p.name(), p.file(), p.description(), on, p.icon()) : p);
         return CompletableFuture.completedFuture(null);
     }
+
     @Override public ObservableList<Path> screenshots() {
         if (shots.isEmpty()) {
             // The pack's wallpapers stand in for screenshots.
@@ -458,59 +489,91 @@ public final class SaoFakeService implements SaoLauncherService {
         }
         return shots;
     }
+
     @Override public ObservableList<String> gameLog() { return log; }
+
     @Override public ReadOnlyObjectProperty<SaoData.@Nullable Crash> lastCrash() { return crash; }
+
     /// Screenshot tool: the last run ended in a graphics-driver crash.
     public void forceDriverCrash() {
         crash.set(new SaoData.Crash(SaoData.Crash.DRIVER_REASON,
                 "EXCEPTION_ACCESS_VIOLATION (0xc0000005) at pc=0x00007ffb2c1a3f10\n# C  [ig9icd64.dll+0x13f10]", Path.of("hs_err_pid4242.log")));
     }
+
     @Override public CompletableFuture<@Nullable String> graphicsVendor() {
         return CompletableFuture.completedFuture("NVIDIA");
     }
+
     @Override public boolean canPreferDiscreteGpu() { return true; }
+
     @Override public CompletableFuture<Void> preferDiscreteGpu() {
         CompletableFuture<Void> f = new CompletableFuture<>();
         new Timeline(new KeyFrame(Duration.millis(600), e -> f.complete(null))).play();
         return f;
     }
+
     @Override public ReadOnlyObjectProperty<SaoData.Room> room() { return room; }
+
     @Override public void hostRoom() {
         room.set(new SaoData.Room(SaoData.RoomState.PREPARING, null, 1, "准备联机通道"));
         Timeline t = new Timeline(new KeyFrame(Duration.millis(1500), e -> room.set(new SaoData.Room(SaoData.RoomState.HOSTING, "U/7KQ2-9XWA-3MPD", 1, "把房间码发给朋友"))));
         t.play();
     }
+
     @Override public void joinRoom(String code) {
         room.set(new SaoData.Room(SaoData.RoomState.JOINING, code, 0, "连接中"));
         Timeline t = new Timeline(new KeyFrame(Duration.millis(1500), e -> room.set(new SaoData.Room(SaoData.RoomState.JOINED, code, 2, "在多人游戏里选择「誓约联机」"))));
         t.play();
     }
+
     @Override public void leaveRoom() { room.set(SaoData.Room.OFF); }
+
     /// Shows a room state directly (screenshots).
     public void forceRoom(SaoData.Room r) { room.set(r); }
+
     @Override public ObservableList<SaoData.JavaRuntime> javas() { return javas; }
+
     @Override public @Nullable Path java() { return java; }
+
     @Override public CompletableFuture<Void> setJava(@Nullable Path p) { java = p; return CompletableFuture.completedFuture(null); }
+
     @Override public SaoData.Source downloadSource() { return source; }
+
     @Override public void setDownloadSource(SaoData.Source s) { source = s; }
+
     @Override public int downloadThreads() { return threads; }
+
     @Override public void setDownloadThreads(int t) { threads = t; }
+
     @Override public ObservableList<SaoData.Task> tasks() { return tasks; }
+
     @Override public boolean autoMemory() { return autoMemory; }
+
     @Override public void setAutoMemory(boolean a) { autoMemory = a; }
+
     @Override public int systemMemoryMiB() { return 32768; }
+
     @Override public SaoData.GameWindow gameWindow() { return window; }
+
     @Override public void setGameWindow(SaoData.GameWindow w) { window = w; }
+
     @Override public String jvmArgs() { return jvm; }
+
     @Override public void setJvmArgs(String a) { jvm = a; }
+
     @Override public String preference(String key, String fallback) { return prefs.getOrDefault(key, fallback); }
+
     @Override public void setPreference(String key, String value) { prefs.put(key, value); }
+
     /// {@inheritDoc}
     @Override public boolean betaQuickUpdates() { return Boolean.parseBoolean(preference("betaQuickUpdates", "false")); }
+
     /// {@inheritDoc}
     @Override public void setBetaQuickUpdates(boolean enabled) { setPreference("betaQuickUpdates", Boolean.toString(enabled)); }
+
     /// {@inheritDoc}
     @Override public boolean allowModifiedModsOffline() { return Boolean.parseBoolean(preference("allowModifiedModsOffline", "false")); }
+
     /// {@inheritDoc}
     @Override public void setAllowModifiedModsOffline(boolean allow) { setPreference("allowModifiedModsOffline", Boolean.toString(allow)); }
 
@@ -585,7 +648,9 @@ public final class SaoFakeService implements SaoLauncherService {
     }
 
     @Override public ObservableList<SaoData.Friend> friends() { return friends; }
+
     @Override public ObservableList<SaoData.FriendRequest> friendRequests() { return requests; }
+
     @Override public ObservableList<SaoData.Chat> chats() { return chats; }
 
     @Override

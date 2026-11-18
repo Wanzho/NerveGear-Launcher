@@ -38,22 +38,31 @@ public final class UpdateChecker {
     private static final ReadOnlyObjectWrapper<@Nullable Throwable> error = new ReadOnlyObjectWrapper<>();
     /// Prevents construction.
     private UpdateChecker() { }
+
     /// Does not start any background task or request.
     public static void init() { }
+
     /// No HMCL release is available in this fork.
     public static @Nullable RemoteVersion getLatestVersion() { return null; }
+
     /// Exposes the permanently empty release property to legacy bindings.
     public static ReadOnlyObjectProperty<@Nullable RemoteVersion> latestVersionProperty() { return latestVersion.getReadOnlyProperty(); }
+
     /// HMCL update notifications are disabled.
     public static boolean isOutdated() { return false; }
+
     /// Exposes permanently false availability.
     public static ObservableBooleanValue outdatedProperty() { return outdated.getReadOnlyProperty(); }
+
     /// No update request runs.
     public static boolean isCheckingUpdate() { return false; }
+
     /// Exposes permanently false activity.
     public static ReadOnlyBooleanProperty checkingUpdateProperty() { return checkingUpdate.getReadOnlyProperty(); }
+
     /// Exposes the permanently empty error value.
     public static ReadOnlyObjectProperty<@Nullable Throwable> errorProperty() { return error.getReadOnlyProperty(); }
+
     /// Ignores legacy UI requests without initializing networking or JavaFX.
     public static void requestCheckUpdate(UpdateChannel channel, boolean preview) { }
 }

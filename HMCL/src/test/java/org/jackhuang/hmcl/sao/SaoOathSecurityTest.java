@@ -1,3 +1,20 @@
+/*
+ * Hello Minecraft! Launcher
+ * Copyright (C) 2026 huangyuhui <huanghongxun2008@126.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 package org.jackhuang.hmcl.sao;
 
 import org.jetbrains.annotations.NotNullByDefault;
@@ -148,10 +165,13 @@ class SaoOathSecurityTest {
         SaoOathCredentials credentials = new SaoOathCredentials() {
             /// Models an unreadable protected payload without returning or logging its bytes.
             @Override public @Nullable Credential read() throws IOException { throw new IOException("Unreadable fixture"); }
+
             /// This failed-login fixture never writes another credential.
             @Override public void write(String name, char[] password) { fail("Unexpected credential write"); }
+
             /// Records that explicit opt-out removes the unreadable remembered value.
             @Override public void delete() { deleted.incrementAndGet(); }
+
             /// Keeps provider diagnostics free of account fields.
             @Override public String backend() { return "unreadable-fixture"; }
         };

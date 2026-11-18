@@ -1,8 +1,24 @@
+/*
+ * Hello Minecraft! Launcher
+ * Copyright (C) 2026 huangyuhui <huanghongxun2008@126.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 package org.jackhuang.hmcl.sao;
 
 import org.jetbrains.annotations.NotNullByDefault;
-import org.jetbrains.annotations.Unmodifiable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -11,8 +27,6 @@ import java.io.IOException;
 import java.nio.file.*;
 import java.time.Duration;
 import java.util.*;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -118,6 +132,7 @@ class SaoUninstallerTest {
         SaoUninstaller.Trash refuse = new SaoUninstaller.Trash() {
             /// Advertises a real Trash capability for this fixture.
             @Override public boolean supported() { return true; }
+
             /// Proves refusal does not call the permanent-delete fallback.
             @Override public void move(Path path) throws IOException { invoked.set(true); throw new IOException("fixture refusal"); }
         };
@@ -134,6 +149,7 @@ class SaoUninstallerTest {
         SaoUninstaller.Trash adapter = new SaoUninstaller.Trash() {
             /// Uses an ordinary fixture move instead of any operating-system desktop action.
             @Override public boolean supported() { return true; }
+
             /// Rejects unexpected targets before moving the single fixture root.
             @Override public void move(Path path) throws IOException { assertEquals(root, path); Files.move(path, trash); }
         };
@@ -275,6 +291,7 @@ class SaoUninstallerTest {
         SaoUninstaller.Trash refuse = new SaoUninstaller.Trash() {
             /// Simulates a present native Trash API.
             @Override public boolean supported() { return true; }
+
             /// Keeps the synthetic data in place to test engine failure handling.
             @Override public void move(Path path) throws IOException { throw new IOException("fixture refusal"); }
         };
@@ -353,6 +370,7 @@ class SaoUninstallerTest {
         return new SaoUninstaller.Trash() {
             /// Claims unsupported capability without touching AWT.
             @Override public boolean supported() { return false; }
+
             /// Fails loudly if the fallback unexpectedly tries a desktop action.
             @Override public void move(Path path) { throw new AssertionError("Unexpected native Trash call"); }
         };
@@ -363,6 +381,7 @@ class SaoUninstallerTest {
         return new SaoUninstallHelper.Prepared() {
             /// Arming is allowed only after primary synthetic data removal completed.
             @Override public void arm() { assertFalse(Files.exists(root)); events.add("armed"); }
+
             /// Cancellation proves the helper cannot act after primary removal failure.
             @Override public void cancel() { events.add("cancelled"); }
         };

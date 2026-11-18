@@ -1,3 +1,20 @@
+/*
+ * Hello Minecraft! Launcher
+ * Copyright (C) 2026 huangyuhui <huanghongxun2008@126.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 package org.jackhuang.hmcl.sao;
 
@@ -17,9 +34,11 @@ final class SaoMicrosoftFlowEngine implements SaoMicrosoftFlow {
     interface Transport extends AutoCloseable {
         /// Authenticates and returns an FX-thread account installation action.
         Result run(boolean device, Consumer<State> emit) throws Exception;
+
         /// Releases the server; worker interruption stops device polling.
         @Override void close();
     }
+
     /// Profile display name and the account installation action, never credentials.
     @NotNullByDefault
     record Result(String name, Runnable install, Consumer<Runnable> authorize) {
@@ -53,27 +72,35 @@ final class SaoMicrosoftFlowEngine implements SaoMicrosoftFlow {
         timer.schedule(() -> finish(Kind.FAILED, "登录超时"), timeoutMillis, TimeUnit.MILLISECONDS);
         start(false);
     }
+
     /// Creates an empty payload for a lifecycle stage.
     static State stateOf(Kind kind) { return new State(kind, "", "", "", "", "", ""); }
+
     /// Exposes the immutable-property view.
     @Override public ReadOnlyObjectProperty<State> state() { return value.getReadOnlyProperty(); }
+
     /// Dispatches browser opening and ignores requests after completion.
-    @Override public void openBrowser() { ui.accept(() -> {
+    @Override public void openBrowser() {
+        ui.accept(() -> {
         synchronized (this) {
             if (terminal) return;
             String url = value.get().url().isEmpty() ? value.get().verificationUri() : value.get().url();
             if (!url.isEmpty()) browser.accept(url);
         }
     }); }
+
     /// Replaces the active attempt; late browser results cannot install accounts.
     @Override public void useDeviceCode() { start(true); }
+
     /// Cancels all owned resources exactly once.
     @Override public void cancel() { finish(Kind.CANCELLED, ""); }
+
     /// Stops transport before interrupting its worker.
     private void stop() {
         if (transport != null) transport.close();
         if (worker != null) worker.interrupt();
     }
+
     /// Starts an isolated attempt and publishes only results from its current generation.
     private synchronized void start(boolean device) {
         if (terminal) return;
@@ -110,14 +137,17 @@ final class SaoMicrosoftFlowEngine implements SaoMicrosoftFlow {
         }, "sao-ms-login");
         worker.setDaemon(true); worker.start();
     }
+
     /// Publishes nonterminal progress, automatically opening only the authorization-code browser link.
-    private void emit(int id, State state) { ui.accept(() -> {
+    private void emit(int id, State state) {
+        ui.accept(() -> {
         synchronized (this) {
             if (terminal || generation != id) return;
             value.set(state);
             if (state.kind() == Kind.BROWSER) browser.accept(state.url());
         }
     }); }
+
     /// Invalidates queued progress before releasing resources and publishing the terminal state.
     private synchronized void finish(Kind kind, String message) {
         if (terminal) return;

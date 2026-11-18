@@ -1,3 +1,20 @@
+/*
+ * Hello Minecraft! Launcher
+ * Copyright (C) 2026 huangyuhui <huanghongxun2008@126.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 package org.jackhuang.hmcl.sao;
 
@@ -23,6 +40,7 @@ class SaoMicrosoftSkinTest {
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         ImageIO.write(image, "png", output); return output.toByteArray();
     }
+
     /// Fixtures an inactive first skin, active model and active cape, asserting bearer isolation.
     private static SaoMicrosoftSkin.Skin skin(String variant) throws Exception {
         return Objects.requireNonNull(SaoMicrosoftSkin.fetch("fixture-secret", (uri, bearer) -> {
@@ -35,6 +53,7 @@ class SaoMicrosoftSkinTest {
             assertNull(bearer); assertEquals(URI.create(URL), uri); return png(64);
         }));
     }
+
     /// Records server effects and verifies the preview existed before the first server read.
     @NotNullByDefault
     private static final class Target implements SaoMicrosoftSkin.Target {
@@ -52,39 +71,48 @@ class SaoMicrosoftSkinTest {
         private boolean fail;
         /// Adds an available image slot.
         void slot(String key) { slots.put(key, new SaoTextureState.Image("a".repeat(64), "", URI.create(URL))); }
+
         /// Returns authoritative fixture state after preview publication.
         public SaoTextureState state() throws IOException {
             assertTrue(preview); calls.add("state"); if (fail) throw new IOException("fixture");
             return new SaoTextureState(true,"own","own","own","none",slots,0,cooldown,"idle");
         }
+
         /// Records source selection.
         public void premium() { calls.add("premium"); }
+
         /// Records validated upload and model.
         public void upload(byte[] png, boolean model) throws Exception {
             assertEquals(64, Objects.requireNonNull(ImageIO.read(new ByteArrayInputStream(png))).getHeight());
             calls.add("upload"); slim = model;
         }
+
         /// Records inheritance request.
         public void refresh() { calls.add("refresh"); }
+
         /// Exercises the production policy with a fixture preview callback.
         void sync(SaoMicrosoftSkin.Skin skin) throws Exception { SaoMicrosoftSkin.sync(skin, () -> preview = true, this); }
     }
+
     /// Premium availability selects its source without replacing an existing own slot.
     @Test void premiumAvailable() throws Exception {
         Target target = new Target(); target.slot("premiumSkin"); target.slot("ownSkin"); target.sync(skin("CLASSIC"));
         assertEquals(List.of("state", "premium"), target.calls);
     }
+
     /// Missing slots upload the active slim skin, then ask for cape inheritance.
     @Test void uploadWhenEmptyAndSlim() throws Exception {
         Target target = new Target(); SaoMicrosoftSkin.Skin skin = skin("SLIM"); target.sync(skin);
         assertTrue(target.slim); assertEquals(URI.create(URL), skin.cape());
         assertEquals(List.of("state", "upload", "refresh"), target.calls);
     }
+
     /// Existing own skins are never uploaded over, and manual cooldown is honored.
     @Test void keepExistingOwnAndCooldown() throws Exception {
         Target target = new Target(); target.slot("ownSkin"); target.cooldown = 60; target.sync(skin("CLASSIC"));
         assertEquals(List.of("state"), target.calls);
     }
+
     /// Unknown server slots cannot cause an upload, while the local preview remains available.
     @Test void failureKeepsPreviewWithoutUpload() throws Exception {
         Target target = new Target(); target.fail = true;
@@ -92,12 +120,14 @@ class SaoMicrosoftSkinTest {
         assertTrue(target.preview); assertEquals(List.of("state"), target.calls);
         assertThrows(IOException.class, () -> SaoMicrosoftSkin.fetch("fixture", (uri, bearer) -> { throw new IOException("offline"); }));
     }
+
     /// No active custom skin leaves the existing appearance unchanged and downloads nothing else.
     @Test void noSkin() throws Exception {
         assertNull(SaoMicrosoftSkin.fetch("fixture", (uri, bearer) -> {
             assertNotNull(bearer); return "{\"skins\":[],\"capes\":[]}".getBytes(StandardCharsets.UTF_8);
         }));
     }
+
     /// Rejects spoofed hosts, redirect-style paths, alternate ports, oversized and invalid PNGs.
     @Test void rejectsHostSizeAndPng() throws Exception {
         for (String value : List.of(URL.replace("textures.minecraft.net", "textures.minecraft.net.evil.test"),
@@ -108,6 +138,7 @@ class SaoMicrosoftSkinTest {
         assertThrows(IOException.class, () -> SaoMicrosoftSkin.fetch("fixture", (uri, bearer) -> new byte[SaoMicrosoftSkin.LIMIT + 1]));
         assertEquals(URI.create(URL), SaoMicrosoftSkin.texture(URL.replace("https:", "http:")));
     }
+
     /// Legacy conversion mirrors limb faces into the 64-square upload layout.
     @Test void legacyConversion() throws Exception {
         BufferedImage image = Objects.requireNonNull(ImageIO.read(new ByteArrayInputStream(SaoMicrosoftSkin.normalize(png(32)))));

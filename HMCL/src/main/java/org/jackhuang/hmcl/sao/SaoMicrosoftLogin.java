@@ -1,3 +1,20 @@
+/*
+ * Hello Minecraft! Launcher
+ * Copyright (C) 2026 huangyuhui <huanghongxun2008@126.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 package org.jackhuang.hmcl.sao;
 
@@ -22,8 +39,10 @@ final class SaoMicrosoftLogin {
         return new SaoOathAccounts.PremiumProof() {
             /// Acquires a valid session without repeating a fresh login.
             public AuthInfo session() throws Exception { return SaoMicrosoftLogin.session(); }
+
             /// Reads an existing profile without network access or a login window.
             public @Nullable AuthInfo known() throws Exception { return SaoMicrosoftLogin.known(); }
+
             /// Reads optional premium sources; missing or expired sessions still allow the local library.
             public java.util.@org.jetbrains.annotations.Unmodifiable List<SaoPremiumSkins.Entry> library(@Nullable String name) {
                 @Nullable AuthInfo auth = null;
@@ -32,6 +51,7 @@ final class SaoMicrosoftLogin {
                         SaoPremiumSkins.officialFile(System.getProperty("os.name"), java.nio.file.Path.of(System.getProperty("user.home")), System.getenv("APPDATA")),
                         SaoMicrosoftSkin::download);
             }
+
             /// Uses only the linked stored account, without renewal or interactive fallback.
             public @Nullable AuthInfo stored(@Nullable String name) throws Exception {
                 return name == null ? SaoMicrosoftLogin.known() : SaoMicrosoftLogin.available(name);
@@ -42,7 +62,8 @@ final class SaoMicrosoftLogin {
     /// Finds the preferred stored Microsoft identity on JavaFX without authenticating it.
     static @Nullable AuthInfo known() throws Exception {
         CompletableFuture<@Nullable AuthInfo> result = new CompletableFuture<>();
-        try { Platform.runLater(() -> {
+        try {
+            Platform.runLater(() -> {
             try {
                 if (Accounts.getSelectedAccount() instanceof MicrosoftAccount selected) result.complete(selected.playOffline());
                 else {
@@ -65,7 +86,8 @@ final class SaoMicrosoftLogin {
     /// Reads only an already stored matching session; never opens login UI or refreshes credentials.
     static @Nullable AuthInfo available(String name) throws Exception {
         CompletableFuture<@Nullable AuthInfo> result = new CompletableFuture<>();
-        try { Platform.runLater(() -> {
+        try {
+            Platform.runLater(() -> {
             try {
                 for (Account account : Accounts.getAccounts())
                     if (account instanceof MicrosoftAccount microsoft && microsoft.getProfileName().equalsIgnoreCase(name)) {
@@ -80,7 +102,8 @@ final class SaoMicrosoftLogin {
     /// Runs on the account worker; selected or existing Microsoft accounts are preferred over a new sign-in.
     static AuthInfo session() throws Exception {
         CompletableFuture<AuthInfo> result = new CompletableFuture<>();
-        try { Platform.runLater(() -> {
+        try {
+            Platform.runLater(() -> {
             @Nullable MicrosoftAccount microsoft = Accounts.getSelectedAccount() instanceof MicrosoftAccount selected ? selected : null;
             if (microsoft == null) for (Account account : Accounts.getAccounts()) if (account instanceof MicrosoftAccount found) { microsoft = found; break; }
             if (microsoft != null) {

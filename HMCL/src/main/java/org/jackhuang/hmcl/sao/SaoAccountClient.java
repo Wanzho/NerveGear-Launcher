@@ -1,3 +1,20 @@
+/*
+ * Hello Minecraft! Launcher
+ * Copyright (C) 2026 huangyuhui <huanghongxun2008@126.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 package org.jackhuang.hmcl.sao;
 
@@ -47,6 +64,7 @@ final class SaoAccountClient {
 
     /// Shares the same pool with the long-lived social stream without installing global authorization headers.
     static HttpClient sharedHttp() { return http; }
+
     /// The current configured endpoint is resolved when an operation begins.
     private final Supplier<URI> endpoint;
     /// The launcher's current locale, normalized for the server.
@@ -210,7 +228,8 @@ final class SaoAccountClient {
 
     /// Builds the original Mojang URI from components so injector constant rewriting cannot replace its origin.
     static URI originalMojangJoin() {
-        try { return new URI("https", null, String.join(".", "sessionserver", "mojang", "com"), -1,
+        try {
+            return new URI("https", null, String.join(".", "sessionserver", "mojang", "com"), -1,
                 "/session/minecraft/join", null, null); }
         catch (java.net.URISyntaxException impossible) { throw new AssertionError(impossible); }
     }

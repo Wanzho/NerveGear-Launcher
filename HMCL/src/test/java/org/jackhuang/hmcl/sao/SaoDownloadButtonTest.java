@@ -1,3 +1,20 @@
+/*
+ * Hello Minecraft! Launcher
+ * Copyright (C) 2026 huangyuhui <huanghongxun2008@126.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 package org.jackhuang.hmcl.sao;
 
@@ -58,8 +75,10 @@ class SaoDownloadButtonTest {
             installs.incrementAndGet();
             if (installFailure != null) throw installFailure;
         }
+
         /// Returns the fixture readiness reason.
         @Override public @Nullable String missing() { return missing; }
+
         /// Records a launch and optionally fails before any game process exists.
         @Override public void launch(Account account, SaoPackManifest manifest, int memoryMiB, SaoData.GameWindow window, String jvmArgs,
                                      char @Nullable [] password, boolean offline, @Nullable String signedServer,
@@ -81,20 +100,28 @@ class SaoDownloadButtonTest {
         Runnable exit = () -> { };
         /// No input is sent to a child.
         @Override public OutputStream getOutputStream() { return OutputStream.nullOutputStream(); }
+
         /// No child output exists.
         @Override public InputStream getInputStream() { return InputStream.nullInputStream(); }
+
         /// No child error output exists.
         @Override public InputStream getErrorStream() { return InputStream.nullInputStream(); }
+
         /// A termination has already completed synchronously.
         @Override public int waitFor() { return exitValue(); }
+
         /// Reports whether the synchronous termination occurred.
         @Override public boolean waitFor(long timeout, TimeUnit unit) { return !alive; }
+
         /// Implements Process's running-state contract.
         @Override public int exitValue() { if (alive) throw new IllegalThreadStateException(); return 0; }
+
         /// Completes the synthetic exit only once.
         @Override public void destroy() { if (alive) { alive = false; exit.run(); } }
+
         /// No OS force operation is needed.
         @Override public Process destroyForcibly() { destroy(); return this; }
+
         /// Returns synthetic liveness.
         @Override public boolean isAlive() { return alive; }
     }
@@ -266,10 +293,12 @@ class SaoDownloadButtonTest {
         List<String> events = Collections.synchronizedList(new ArrayList<>());
         SaoUninstaller plan = new SaoUninstaller(List.of(root2), instance(root2), temporary.resolve("Desktop"), new SaoUninstaller.Trash() {
             @Override public boolean supported() { return false; }
+
             @Override public void move(Path path) { throw new AssertionError("Unexpected native Trash call"); }
         }, false);
         SaoUninstallHelper.Factory helper = (roots, apps) -> new SaoUninstallHelper.Prepared() {
             @Override public void arm() { events.add("armed"); }
+
             @Override public void cancel() { events.add("cancelled"); }
         };
         try (SaoPackEngine engine = new SaoPackEngine(root2, plan, helper, () -> { }, () -> events.add("quit"))) {

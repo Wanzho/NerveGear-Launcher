@@ -1,3 +1,20 @@
+/*
+ * Hello Minecraft! Launcher
+ * Copyright (C) 2026 huangyuhui <huanghongxun2008@126.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 package org.jackhuang.hmcl.sao;
 
 import com.google.gson.JsonObject;
@@ -155,11 +172,13 @@ final class SaoLocalPremiumFixture implements AutoCloseable {
     void delayLogin() {
         loginReached = new java.util.concurrent.CountDownLatch(1); loginRelease = new java.util.concurrent.CountDownLatch(1);
     }
+
     /// Waits only for the real API to have completed authentication, without inspecting its sensitive response.
     void awaitDelayedLogin() throws InterruptedException {
         if (!java.util.Objects.requireNonNull(loginReached).await(10, java.util.concurrent.TimeUnit.SECONDS))
             throw new AssertionError("Delayed login did not arrive");
     }
+
     /// Allows the delayed synthetic HTTP response to complete.
     void releaseLogin() { java.util.Objects.requireNonNull(loginRelease).countDown(); }
 
@@ -178,9 +197,9 @@ final class SaoLocalPremiumFixture implements AutoCloseable {
             Map<String, String> query = new HashMap<>();
             @Nullable String rawQuery = exchange.getRequestURI().getRawQuery();
             if (rawQuery != null) for (String pair : rawQuery.split("&")) {
-                String[] parts = pair.split("=", 2);
-                if (parts.length == 2) query.put(java.net.URLDecoder.decode(parts[0], StandardCharsets.UTF_8), java.net.URLDecoder.decode(parts[1], StandardCharsets.UTF_8));
-            }
+                    String[] parts = pair.split("=", 2);
+                    if (parts.length == 2) query.put(java.net.URLDecoder.decode(parts[0], StandardCharsets.UTF_8), java.net.URLDecoder.decode(parts[1], StandardCharsets.UTF_8));
+                }
             Object request = type("YggdrasilService$Request").getConstructor(String.class, String.class, Map.class, Map.class,
                     byte[].class, String.class).newInstance(exchange.getRequestMethod(), exchange.getRequestURI().getPath(),
                     query, headers, body, "127.0.0.1");
