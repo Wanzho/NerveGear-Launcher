@@ -1,3 +1,20 @@
+/*
+ * Hello Minecraft! Launcher
+ * Copyright (C) 2026 huangyuhui <huanghongxun2008@126.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 package org.jackhuang.hmcl.task;
 
@@ -192,12 +209,16 @@ final class SegmentedDownload implements Closeable {
 
     /// Inclusive range start; integer arithmetic covers every byte even for uneven lengths.
     private long start(int index) { return size / COUNT * index; }
+
     /// Inclusive range end, with the remainder assigned to the last worker.
     private long end(int index) { return index == COUNT - 1 ? size - 1 : start(index + 1) - 1; }
+
     /// Removes a request from the cancellation set before disconnecting its socket.
     private void release(HttpURLConnection connection) { active.remove(connection); owner.forgetDownloadConnection(connection); connection.disconnect(); }
+
     /// Rejects retained ranges after invalid support, changed content, or a failed final digest.
     void invalidate() { Arrays.fill(complete, false); validator = null; }
+
     /// Deletes the private spool after all workers have drained, on success, failure and cancellation.
     @Override public void close() throws IOException { if (spool != null) Files.deleteIfExists(spool); }
 }

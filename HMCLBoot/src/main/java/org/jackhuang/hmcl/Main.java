@@ -25,7 +25,6 @@ import java.nio.file.FileSystemNotFoundException;
 import java.nio.file.Paths;
 import java.security.CodeSource;
 import java.security.ProtectionDomain;
-import java.util.ResourceBundle;
 
 /**
  * @author Glavo

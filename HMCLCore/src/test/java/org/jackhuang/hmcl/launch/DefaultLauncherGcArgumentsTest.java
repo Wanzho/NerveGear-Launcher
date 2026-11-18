@@ -1,3 +1,20 @@
+/*
+ * Hello Minecraft! Launcher
+ * Copyright (C) 2026 huangyuhui <huanghongxun2008@126.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 package org.jackhuang.hmcl.launch;
 
@@ -108,8 +125,10 @@ final class DefaultLauncherGcArgumentsTest {
     private static final class TestRepository extends DefaultGameRepository {
         /// Binds all synthetic files to the JUnit temporary directory.
         private TestRepository(Path root) { super(root); }
+
         /// Uses the production official versions/libraries/assets layout.
         @Override protected DefaultGameRepositoryLayout createLayout(Path root) { return new DefaultGameRepositoryLayout(root); }
+
         /// Creates isolated immutable snapshot members during save and refresh.
         @Override protected DefaultGameInstance createInstance(DefaultGameRepositorySnapshot snapshot, GameInstanceID id,
                 GameInstanceManifest manifest, @Nullable Path manifestFile) {
@@ -123,14 +142,17 @@ final class DefaultLauncherGcArgumentsTest {
         /// Preserves the storage id and optional nonconventional JSON location supplied by repository discovery.
         private TestInstance(DefaultGameRepositorySnapshot snapshot, GameInstanceID id,
                 GameInstanceManifest manifest, @Nullable Path manifestFile) { super(snapshot, id, manifest, manifestFile); }
+
         /// Rebinds the same immutable manifest to a newly published repository snapshot.
         @Override protected DefaultGameInstance withNewSnapshot(DefaultGameRepositorySnapshot snapshot) {
             return new TestInstance(snapshot, getId(), getManifest(), getManifestFile());
         }
+
         /// Rebinds a changed manifest while retaining the storage location.
         @Override protected DefaultGameInstance withManifest(DefaultGameRepositorySnapshot snapshot, GameInstanceManifest manifest) {
             return new TestInstance(snapshot, getId(), manifest, getManifestFile());
         }
+
         /// Isolates logs, natives, saves and configuration below the fixed instance directory.
         @Override public Path getRunDirectory() { return getInstanceRoot(); }
     }

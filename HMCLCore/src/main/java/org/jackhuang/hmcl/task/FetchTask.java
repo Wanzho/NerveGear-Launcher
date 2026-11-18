@@ -79,8 +79,10 @@ public abstract class FetchTask<T extends @UnknownNullability Object> extends Ta
 
     /// Production throughput observation window; subclasses can inject shorter fixture windows.
     protected Duration slowDownloadWindow() { return Duration.ofSeconds(10); }
+
     /// Production handoff threshold in bytes per second.
     protected long minimumDownloadSpeed() { return 200 * 1024L; }
+
     /// Observes a slow attempt before its sockets are disconnected.
     protected void slowDownload(double seconds, long bytes) {
         LOG.warning("Download below " + minimumDownloadSpeed() + " B/s for " + seconds
@@ -177,7 +179,6 @@ public abstract class FetchTask<T extends @UnknownNullability Object> extends Ta
     /// Whether a recoverable failure should retry this candidate; false advances to the next candidate.
     /// Subclasses can reject stalled or permanently invalid responses without retrying the same host.
     protected boolean shouldRetry(Exception failure) { return true; }
-
 
     protected abstract void useCachedResult(Path cachedFile) throws IOException;
 
