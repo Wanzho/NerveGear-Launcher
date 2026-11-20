@@ -749,7 +749,9 @@ public final class SaoPackEngine implements SaoLauncherService, AutoCloseable {
     @Override public CompletableFuture<Boolean> oathNameAvailable(String name) { return oath.nameAvailable(name); }
 
     /// {@inheritDoc}
-    @Override public CompletableFuture<Void> oathRename(String name) { return oath.rename(name); }
+    @Override public CompletableFuture<Void> oathRename(String name, char[] password) { return oath.rename(name, password); }
+
+    @Override public boolean oathPremiumOnly() { return oath.premiumOnly(); }
 
     /// Stable live friends list for the ARGUS friends screen.
     @Override public @UnmodifiableView ObservableList<SaoData.Friend> friends() { return oath.friends.friends(); }

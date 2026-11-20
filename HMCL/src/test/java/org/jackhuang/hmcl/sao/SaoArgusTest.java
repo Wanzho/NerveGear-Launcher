@@ -58,7 +58,7 @@ class SaoArgusTest {
                 engine.oathLogout(); assertNull(engine.oathAccount().get());
                 await(engine.oathPremiumLogin()); assertEquals(id, account(engine).profileId());
                 assertEquals("PremiumFixture", account(engine).premiumName());
-                await(engine.oathRename("LinkedNickname")); engine.oathLogout();
+                await(engine.oathRename("LinkedNickname", new char[0])); engine.oathLogout();
                 await(engine.oathPremiumLogin());
                 assertEquals("LinkedNickname", account(engine).name()); assertEquals(id, account(engine).profileId());
                 assertEquals("PremiumFixture", account(engine).premiumName()); server.assertHealthy();
@@ -84,11 +84,15 @@ class SaoArgusTest {
             assertEquals(holderId, account(engine).profileId());
             assertTrue(account(engine).mustRename()); assertFalse(account(engine).canJoin());
             assertNotEquals("premiumfixture", account(engine).name().toLowerCase(java.util.Locale.ROOT));
+            engine.state.set(SaoPackState.READY);
             engine.linkStartOath();
+            assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
+                while (engine.lastError().get() == null) Thread.sleep(10);
+            });
             assertEquals("昵称已被正版玩家使用，请在启动器里更换昵称", engine.lastError().get());
             SaoAccountException refusal = assertThrows(SaoAccountException.class, () -> engine.accounts().prepareLaunchAccount());
             assertEquals("mustRename", refusal.code()); assertNotNull(engine.oathAccount().get());
-            await(engine.oathRename("HolderNewName"));
+            await(engine.oathRename("HolderNewName", password.toCharArray()));
             assertEquals(holderId, account(engine).profileId()); assertFalse(account(engine).mustRename());
             engine.oathLogout();
             failure(engine.oathLogin("PremiumFixture", password.toCharArray(), false), "invalidCredentials");
@@ -110,12 +114,12 @@ class SaoArgusTest {
                 id = account(engine).profileId();
                 await(engine.oathLogin("RenameStart", privatePassword.toCharArray(), true));
                 assertFalse(engine.oathNameAvailable("reservedname").get(10, TimeUnit.SECONDS));
-                failure(engine.oathRename("rEsErVeDnAmE"), "nameTaken");
+                failure(engine.oathRename("rEsErVeDnAmE", privatePassword.toCharArray()), "nameTaken");
                 assertTrue(engine.oathNameAvailable("RenameOne").get(10, TimeUnit.SECONDS));
-                await(engine.oathRename("RenameOne")); assertEquals(id, account(engine).profileId());
+                await(engine.oathRename("RenameOne", privatePassword.toCharArray())); assertEquals(id, account(engine).profileId());
                 assertTrue(engine.oathNameAvailable("renamestart").get(10, TimeUnit.SECONDS));
-                await(engine.oathRename("RenameTwo")); await(engine.oathRename("RenameThree"));
-                failure(engine.oathRename("RenameFour"), "renameLimit");
+                await(engine.oathRename("RenameTwo", privatePassword.toCharArray())); await(engine.oathRename("RenameThree", privatePassword.toCharArray()));
+                failure(engine.oathRename("RenameFour", privatePassword.toCharArray()), "renameLimit");
                 assertEquals("RenameThree", account(engine).name()); assertEquals(id, account(engine).profileId());
                 assertEquals("RenameThree", engine.rememberedOathName());
             }

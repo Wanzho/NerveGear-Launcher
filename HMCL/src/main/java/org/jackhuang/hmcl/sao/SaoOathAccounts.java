@@ -56,6 +56,9 @@ final class SaoOathAccounts implements AutoCloseable {
         /// Returns the original Microsoft session; its access token is used only for Mojang proof and the Microsoft profile API.
         AuthInfo session() throws Exception;
 
+        /// Reuses the linked account if present before obtaining a fresh ownership proof.
+        default AuthInfo session(@Nullable String preferredName) throws Exception { return session(); }
+
         /// Returns a stored identity before network authentication, or null for a new sign-in.
         default @Nullable AuthInfo known() throws Exception { return null; }
 
@@ -602,13 +605,34 @@ final class SaoOathAccounts implements AutoCloseable {
                 .thenApply(ignored -> available.get());
     }
 
-    /// Replaces tokens after the server's atomic stable-ID rename and updates an opted-in protected name.
-    CompletableFuture<Void> rename(String name) {
+    /// Whether the account must prove Microsoft ownership instead of supplying a password.
+    boolean premiumOnly() { return premiumOnly; }
+
+    /// Confirms the current credential, then replaces tokens and updates an opted-in protected name.
+    CompletableFuture<Void> rename(String name, char[] supplied) {
+        char @Nullable [] password = supplied.length == 0 ? null : own(supplied);
         long expected = generation.get();
         return submit(() -> {
             Session active = requireSession();
             if (!name.matches("[A-Za-z0-9_]{3,16}")) throw new SaoAccountException("昵称限 3—16 位字母、数字或下划线", "invalidName");
-            JsonObject reply = client.json("POST", "sao/rename", object("name", name), active.access());
+            JsonObject body = object("name", name);
+            JsonObject reply;
+            try {
+                if (premiumOnly) {
+                    SaoData.@Nullable OathAccount state = current;
+                    JsonObject proof = premiumProof(premium.session(state == null ? null : state.premiumName()), expected);
+                    try { body.addProperty("premiumToken", required(proof, "premiumToken")); }
+                    finally { proof.remove("premiumToken"); }
+                } else {
+                    if (password == null) throw new SaoAccountException("请输入当前密码", "missingPassword");
+                    body.addProperty("password", new String(password));
+                }
+                checkGeneration(expected);
+                reply = client.json("POST", "sao/rename", body, active.access());
+            } finally {
+                body.remove("password");
+                body.remove("premiumToken");
+            }
             accept(reply);
             if (!active.id().equalsIgnoreCase(requireSession().id())) { clear(); throw new SaoAccountException("角色信息无效", "invalidResponse"); }
             synchronized (gate) {
@@ -619,7 +643,7 @@ final class SaoOathAccounts implements AutoCloseable {
                 } finally { Arrays.fill(stored.password(), '\0'); }
             }
             refresh();
-        });
+        }, password);
     }
 
     /// Forgets the protected pair before returning, fences pending saves, and asynchronously revokes the old session.

@@ -818,7 +818,8 @@ public final class SaoFakeService implements SaoLauncherService {
     }
 
     @Override
-    public CompletableFuture<Void> oathRename(String name) {
+    public CompletableFuture<Void> oathRename(String name, char[] password) {
+        Arrays.fill(password, '\0');
         if (!oathNameAvailable(name).join()) return CompletableFuture.failedFuture(new SaoAccountException("这个昵称已经有人用了", "nameTaken"));
         if (++renames > 3) return CompletableFuture.failedFuture(new SaoAccountException("今天已经改了 3 次，明天再来", "renameLimit"));
         SaoData.@Nullable OathAccount a = oath.get();

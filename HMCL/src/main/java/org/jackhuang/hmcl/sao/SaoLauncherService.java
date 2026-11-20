@@ -771,9 +771,14 @@ public interface SaoLauncherService {
     /// server counts, per account, over the last 24 hours).
     ///
     /// @param name the new name, 3 to 16 letters, digits or underscores
-    default CompletableFuture<Void> oathRename(String name) {
+    /// @param password current password, or an empty array for a passwordless Microsoft account
+    default CompletableFuture<Void> oathRename(String name, char[] password) {
+        java.util.Arrays.fill(password, '\0');
         return unsupported();
     }
+
+    /// Whether a rename requires fresh Microsoft ownership instead of a password.
+    default boolean oathPremiumOnly() { return false; }
 
     /// Changes the signed-in account's password (`POST /sao/password`).
     default CompletableFuture<Void> oathChangePassword(char[] password, char[] newPassword) {

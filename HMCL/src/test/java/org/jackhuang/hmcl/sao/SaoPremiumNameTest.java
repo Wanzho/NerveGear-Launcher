@@ -59,7 +59,7 @@ class SaoPremiumNameTest {
                 assertEquals("mustRename", refused.code());
                 assertNotNull(accounts.account().get());
                 assertEquals(0, server.refreshes.get(), "Known mandatory rename must stop before launch preparation");
-                accounts.rename("Replacement").get(10, TimeUnit.SECONDS);
+                accounts.rename("Replacement", secret()).get(10, TimeUnit.SECONDS);
                 SaoData.OathAccount renamed = Objects.requireNonNull(accounts.account().get());
                 assertEquals("Replacement", renamed.name());
                 assertEquals(Fixture.ID, renamed.profileId());
@@ -86,7 +86,7 @@ class SaoPremiumNameTest {
                 assertNotNull(accounts.account().get(), "The holder must keep access to rename management");
                 assertTrue(Objects.requireNonNull(accounts.account().get()).mustRename());
                 assertEquals(0, launches.get());
-                accounts.rename("Replacement").get(10, TimeUnit.SECONDS);
+                accounts.rename("Replacement", secret()).get(10, TimeUnit.SECONDS);
                 assertFalse(Objects.requireNonNull(accounts.account().get()).mustRename());
             }
         }
@@ -150,12 +150,22 @@ class SaoPremiumNameTest {
             http = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
             http.createContext("/", exchange -> {
                 String path = exchange.getRequestURI().getPath();
-                exchange.getRequestBody().readAllBytes();
+                byte[] request = exchange.getRequestBody().readAllBytes();
                 int status = 200;
                 JsonObject reply = new JsonObject();
                 switch (path) {
                     case "/sao/launch" -> { status = 403; reply.addProperty("error", "mustRename"); reply.addProperty("errorMessage", "untrusted fixture detail"); }
-                    case "/sao/rename" -> { name = "Replacement"; mustRename = false; reply = session(); }
+                    case "/sao/rename" -> {
+                        JsonObject fields = com.google.gson.JsonParser.parseString(new String(request, StandardCharsets.UTF_8)).getAsJsonObject();
+                        if (!fields.has("password") || fields.get("password").getAsString().isEmpty()) {
+                            status = 403;
+                            reply.addProperty("error", "powRequired");
+                        } else {
+                            name = "Replacement";
+                            mustRename = false;
+                            reply = session();
+                        }
+                    }
                     case "/sao/login" -> reply = session();
                     case "/authserver/refresh" -> { refreshes.incrementAndGet(); reply = session(); }
                     case "/sao/account" -> reply = state();

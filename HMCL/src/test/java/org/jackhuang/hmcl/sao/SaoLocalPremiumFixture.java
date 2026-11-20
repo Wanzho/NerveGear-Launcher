@@ -99,7 +99,9 @@ final class SaoLocalPremiumFixture implements AutoCloseable {
             if (method.getName().equals("operator")) return false;
             if (method.getName().equals("rename")) {
                 // Match the server's shared stable-ID transaction; the dedicated harness verifies game coordination.
-                Object target = java.util.Objects.requireNonNull(args)[0], expected = args[1];
+                Object[] parameters = java.util.Objects.requireNonNull(args);
+                if (parameters.length == 5) ((Runnable) parameters[4]).run();
+                Object target = parameters[0], expected = parameters[1];
                 String previous = (String) type("AccountStore$Account").getMethod("name").invoke(expected);
                 if (type("AccountStore").getMethod("find", String.class).invoke(target, previous) != expected)
                     throw new IOException("Fixture account changed");

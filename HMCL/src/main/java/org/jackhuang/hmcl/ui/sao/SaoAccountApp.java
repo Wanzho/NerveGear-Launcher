@@ -287,14 +287,28 @@ final class SaoAccountApp {
             // 游戏昵称 (James, 7 Nov: "把名字换成游戏昵称"): the pencil beside it on the home screen opens here. At most
             // three changes a day; the server says so when the fourth is tried.
             TextField newName = field("新昵称");
+            boolean premiumOnly = s.oathPremiumOnly();
+            PasswordField renamePassword = password("当前密码");
+            renamePassword.sceneProperty().addListener((o, previous, scene) -> {
+                if (scene == null) renamePassword.clear();
+            });
+            Text renameMicrosoft = dim("确认时验证 Microsoft 账号", 12);
             Button rename = button("修改");
             rename.setOnAction(e -> {
+                SaoData.@Nullable OathAccount active = s.oathAccount().get();
+                if (active == null || !a.profileId().equals(active.profileId())) {
+                    renamePassword.clear();
+                    go(Page.MANAGE);
+                    return;
+                }
                 String n = newName.getText().strip();
                 if (!NAME.matcher(n).matches()) {
                     problem.setText("! 昵称 3-16 位：字母、数字、下划线");
                     return;
                 }
-                call(rename, problem, () -> s.oathRename(n), () -> go(Page.MANAGE));
+                char[] supplied = renamePassword.getText().toCharArray();
+                renamePassword.clear();
+                call(rename, problem, () -> s.oathRename(n, supplied), () -> go(Page.MANAGE), supplied);
             });
             HBox.setHgrow(newName, Priority.ALWAYS);
 
@@ -343,8 +357,8 @@ final class SaoAccountApp {
             VBox left = new VBox(10, name, mail, rule(), key("Microsoft"), premium, out);
             left.setMinWidth(260);
             left.setMaxWidth(260);
-            VBox right = new VBox(7,
-                    key("游戏昵称"), new HBox(8, newName, rename),
+            VBox right = new VBox(5,
+                    key("游戏昵称"), new HBox(8, newName, rename), premiumOnly ? renameMicrosoft : renamePassword,
                     rule(),
                     key("邮箱"), email, new HBox(8, mailPw, changeMail),
                     rule(),

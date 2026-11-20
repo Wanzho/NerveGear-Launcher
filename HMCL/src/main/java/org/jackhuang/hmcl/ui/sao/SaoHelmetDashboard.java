@@ -28,6 +28,7 @@ import javafx.scene.Node;
 import javafx.application.Platform;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
+import javafx.scene.control.PasswordField;
 import javafx.scene.control.TextField;
 import javafx.scene.image.ImageView;
 import javafx.scene.layout.FlowPane;
@@ -352,10 +353,12 @@ final class SaoHelmetDashboard {
         owner.confirmName.setVisible(false);
         owner.confirmName.getProperties().put("answers", nameAnswers);
         owner.confirmName.visibleProperty().addListener((o, a, shown) -> bodyRow.setVisible(!shown && !owner.confirmOut.isVisible()));
-        nameNo.setOnAction(e -> owner.confirmName.setVisible(false));
+        nameNo.setOnAction(e -> cancelRenamePrompt());
         nameYes.setOnAction(e -> {
             owner.confirmName.setVisible(false);
-            owner.confirmNameAction.run();
+            Runnable action = owner.confirmNameAction;
+            owner.confirmNameAction = () -> { };
+            action.run();
         });
         // 离线游玩: a name, and the warning that it cannot reach the 誓约 server.
         Text offTitle = ink("离线游玩", 17);
@@ -401,7 +404,10 @@ final class SaoHelmetDashboard {
         StackPane body = new StackPane(bodyRow, owner.confirmOut, owner.confirmName);
         VBox.setVgrow(body, Priority.ALWAYS);
 
-        owner.service.oathAccount().addListener((o, a, b) -> refreshAccount());
+        owner.service.oathAccount().addListener((o, a, b) -> {
+            if (a != null && (b == null || !a.profileId().equals(b.profileId()))) cancelRenamePrompt();
+            refreshAccount();
+        });
         owner.service.playerCard().addListener((o, a, b) -> refreshAccount());
         Accounts.getAccounts().addListener((ListChangeListener<Account>) c -> refreshAccount());
         // Shown from the last session's snapshot until the background sign-in answers; if nothing is signing in a few
@@ -613,9 +619,9 @@ final class SaoHelmetDashboard {
                 return;
             }
             // James, 7 Nov: "确定的时候弹个确认框出来".
-            askName(n, () -> {
+            confirmRename(n, password -> {
                 ok.setDisable(true);
-                owner.service.oathRename(n).whenComplete((v, err) -> Platform.runLater(() -> {
+                owner.service.oathRename(n, password).whenComplete((v, err) -> Platform.runLater(() -> {
                     ok.setDisable(false);
                     if (err != null) {
                         owner.problem.setText("! " + SaoSkinApp.message(err));
@@ -686,11 +692,42 @@ final class SaoHelmetDashboard {
 
     /// Asks before saving a new 游戏昵称.
     void askName(String name, Runnable yes) {
+        showRenamePrompt(name, null, yes);
+    }
+
+    /// Closes confirmation and clears the current credential before leaving the account.
+    private void cancelRenamePrompt() {
+        owner.confirmName.getChildren().forEach(node -> {
+            if (node instanceof PasswordField field) field.clear();
+        });
+        owner.confirmNameAction = () -> { };
+        owner.confirmName.setVisible(false);
+    }
+
+    /// Requests the current password or confirms a fresh Microsoft verification.
+    private void confirmRename(String name, java.util.function.Consumer<char[]> submit) {
+        if (owner.service.oathPremiumOnly()) {
+            showRenamePrompt(name, dim("确认时验证 Microsoft 账号", 12), () -> submit.accept(new char[0]));
+            return;
+        }
+        PasswordField password = SaoAccountApp.password("当前密码");
+        password.setMaxWidth(220);
+        showRenamePrompt(name, password, () -> {
+            char[] supplied = password.getText().toCharArray();
+            password.clear();
+            submit.accept(supplied);
+        });
+        password.requestFocus();
+    }
+
+    /// Presents the existing rename confirmation with any required credential field.
+    private void showRenamePrompt(String name, @Nullable Node proof, Runnable yes) {
         Text sure = ink("确定把昵称改成", 16);
         SaoUiKit.font(sure, 16, true);
         Text n = sao(name, 30, true);
         Text after = dim("一天最多改 3 次", 12);
         owner.confirmName.getChildren().setAll(sure, n, after, (Node) owner.confirmName.getProperties().get("answers"));
+        if (proof != null) owner.confirmName.getChildren().add(3, proof);
         owner.confirmNameAction = yes;
         owner.confirmName.setVisible(true);
     }

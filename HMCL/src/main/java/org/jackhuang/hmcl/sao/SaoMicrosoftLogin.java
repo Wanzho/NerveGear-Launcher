@@ -40,6 +40,10 @@ final class SaoMicrosoftLogin {
             /// Acquires a valid session without repeating a fresh login.
             public AuthInfo session() throws Exception { return SaoMicrosoftLogin.session(); }
 
+            /// Refreshes the stored linked Microsoft profile when the account needs to prove ownership.
+            @Override
+            public AuthInfo session(@Nullable String preferredName) throws Exception { return SaoMicrosoftLogin.session(preferredName); }
+
             /// Reads an existing profile without network access or a login window.
             public @Nullable AuthInfo known() throws Exception { return SaoMicrosoftLogin.known(); }
 
@@ -101,10 +105,24 @@ final class SaoMicrosoftLogin {
 
     /// Runs on the account worker; selected or existing Microsoft accounts are preferred over a new sign-in.
     static AuthInfo session() throws Exception {
+        return session(null);
+    }
+
+    /// Acquires a session for the preferred stored profile, if available, before falling back to the selected one.
+    private static AuthInfo session(@Nullable String preferredName) throws Exception {
         CompletableFuture<AuthInfo> result = new CompletableFuture<>();
         try {
             Platform.runLater(() -> {
-            @Nullable MicrosoftAccount microsoft = Accounts.getSelectedAccount() instanceof MicrosoftAccount selected ? selected : null;
+            @Nullable MicrosoftAccount microsoft = null;
+            if (preferredName != null) {
+                for (Account account : Accounts.getAccounts()) {
+                    if (account instanceof MicrosoftAccount match && match.getProfileName().equalsIgnoreCase(preferredName)) {
+                        microsoft = match;
+                        break;
+                    }
+                }
+            }
+            if (microsoft == null && Accounts.getSelectedAccount() instanceof MicrosoftAccount selected) microsoft = selected;
             if (microsoft == null) for (Account account : Accounts.getAccounts()) if (account instanceof MicrosoftAccount found) { microsoft = found; break; }
             if (microsoft != null) {
                 MicrosoftAccount existing = microsoft;
