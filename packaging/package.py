@@ -164,14 +164,28 @@ def build_jar(args, work, host):
 
 
 def verify_pack_mode(jar, embed_pack):
-    """Require the native bootstrap and reject implicit embedded-pack player builds."""
+    """Require the native bootstrap and appearance assets, and verify the selected pack mode."""
     with zipfile.ZipFile(jar) as archive:
-        if "org/jackhuang/hmcl/sao/SaoLauncherBootstrap.class" not in archive.namelist():
+        files = {entry.filename: entry.file_size for entry in archive.infolist()}
+        if "org/jackhuang/hmcl/sao/SaoLauncherBootstrap.class" not in files:
             raise RuntimeError("Native packages require a self-update-bootstrap-enabled launcher JAR")
+        required_assets = (
+            "fonts/SAOUITT-Regular.ttf",
+            "fonts/SAOUITT-Bold.ttf",
+            "fonts/SAOWelcomeTT-Regular.ttf",
+            "logo.png",
+            "wallpapers/wallpaper_01.jpg",
+        )
+        missing = [name for name in required_assets if not files.get("assets/sao-launcher/" + name)]
+        if missing:
+            raise RuntimeError(
+                "Launcher artwork is incomplete. Stage the original resources with tools/sao-assets.sh "
+                "and rebuild the JAR. Missing: " + ", ".join(missing)
+            )
         # The authentication helper is also under assets/sao and is required in thin builds.
         embedded = any(name in ("assets/sao/pack.zip", "assets/sao/sao-manifest.json")
                        or name.startswith("assets/sao/files/") and not name.endswith("/")
-                       for name in archive.namelist())
+                       for name in files)
     if embedded and not embed_pack:
         raise RuntimeError("Player packages must be thin; embedded JAR requires --embed-pack (offline tests only)")
     if embed_pack and not embedded:

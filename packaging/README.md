@@ -1,7 +1,9 @@
 # Launcher packages
 
 Run on an Apple Silicon Mac with Xcode Command Line Tools, Python 3, curl and the
-existing offline Gradle dependency cache:
+existing offline Gradle dependency cache. Stage the private launcher resources
+with `tools/sao-assets.sh` before building the JAR. Native packaging requires the
+SAO fonts, logo and a wallpaper.
 
 ```sh
 packaging/build-all.sh
