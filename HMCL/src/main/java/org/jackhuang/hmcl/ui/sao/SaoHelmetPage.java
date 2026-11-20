@@ -18,6 +18,7 @@
 // 刀剑神域·誓约 启动器, a fork of Hello Minecraft! Launcher
 package org.jackhuang.hmcl.ui.sao;
 
+import javafx.animation.Animation;
 import javafx.animation.AnimationTimer;
 import org.jackhuang.hmcl.sao.SaoHandoff;
 import javafx.animation.Interpolator;
@@ -144,8 +145,10 @@ public final class SaoHelmetPage extends StackPane {
     /// The reflection texture under `/assets/sao-launcher/glint/` (-Dsao.glintTex=double|corner|arc): soft sheens on
     /// the glass and a faint rim along its edge, outshone over the lit plates so their text reads as before.
     private static final String GLINT_TEXTURE = System.getProperty("sao.glintTex", "double").replaceAll("[^a-z]", "");
-    /// The windows, back to front.
+    /// The shared turn of the dashboard and its foreground apps.
     private final Group windows = new Group();
+    /// The dashboard can reorder its own panels without ever drawing them in front of an app.
+    private final Group homeWindows = new Group();
     /// The flat layer on the ear pad (version and window buttons), in design coordinates.
     private final Pane pad = new Pane();
     private final Scale padFit = new Scale(1, 1, 0, 0);
@@ -176,6 +179,8 @@ public final class SaoHelmetPage extends StackPane {
     private final SaoFloatWindow news, player, server, dock;
     /// The power-on and the hand-over to the game.
     private final SaoBoot boot;
+    /// Brief pause between the game exiting and the helmet power-on animation.
+    private final PauseTransition returnFromGame = new PauseTransition(Duration.millis(200));
     /// App windows asked for during the power-on, opened when it ends.
     /// The Link Start hand-over to the game's visor (SaoBoot.putAway). Off until its risks are worked through (James,
     /// 13 Nov: "你风险考虑的还不够多，在此之前只把启动器开启的这个东西先给我"); off, Link Start powers the display down
@@ -338,7 +343,8 @@ public final class SaoHelmetPage extends StackPane {
         server = dashboard.buildServer();
         player = dashboard.buildPlayer();
         dock = buildDock();
-        windows.getChildren().addAll(news, server, player);
+        homeWindows.getChildren().addAll(news, server, player);
+        windows.getChildren().add(homeWindows);
         space.getChildren().addAll(windows, dock);
         boot = new SaoBoot(new SaoBoot.Page() {
             @Override
@@ -655,10 +661,15 @@ public final class SaoHelmetPage extends StackPane {
 
     // ------------------------------------------------------------------ apps
 
+    /// The next power-on owns the dashboard until its animation finishes.
+    private boolean openingHome() {
+        return boot.busy() || returnFromGame.getStatus() == Animation.Status.RUNNING;
+    }
+
     /// Opens an app's window in front; the home windows move back and dim.
     void openApp(SaoApps.App a, @Nullable Button b) {
-        // An app opens once the power-on is over (the first start's 安装整合包 window, a file dropped meanwhile).
-        if (boot.busy()) {
+        // An app requested before or during a power-on opens after the dashboard settles.
+        if (openingHome()) {
             afterBoot.add(() -> openApp(a, b));
             return;
         }
@@ -678,8 +689,14 @@ public final class SaoHelmetPage extends StackPane {
         app = w;
         appButton = b;
         if (b != null) b.getStyleClass().add("vr-dock-on");
-        for (SaoFloatWindow home : new SaoFloatWindow[]{news, server, player}) home.moveBack(300, 0.22, 320);
+        dimHome();
         requestFocus();
+    }
+
+    /// Keeps the dashboard behind the foreground app and blocks presses through the glass.
+    private void dimHome() {
+        homeWindows.setMouseTransparent(true);
+        for (SaoFloatWindow home : new SaoFloatWindow[]{news, server, player}) home.moveBack(300, 0.22, 320);
     }
 
     /// The 整合包 window's dock label (it has no dock button).
@@ -687,7 +704,7 @@ public final class SaoHelmetPage extends StackPane {
 
     /// Opens the 整合包 / 启动器更新 window (it replaces another app; Esc closes it).
     void openPack(SaoPackApp.Mode mode) {
-        if (boot.busy()) {
+        if (openingHome()) {
             afterBoot.add(() -> openPack(mode));
             return;
         }
@@ -727,6 +744,7 @@ public final class SaoHelmetPage extends StackPane {
         if (appButton != null) appButton.getStyleClass().remove("vr-dock-on");
         appButton = null;
         w.close(() -> windows.getChildren().remove(w));
+        homeWindows.setMouseTransparent(false);
         for (SaoFloatWindow home : new SaoFloatWindow[]{news, server, player}) home.moveBack(0, 1, 320);
         // A skin put on or an account changed in the app shows on the player at once.
         dashboard.refreshAccount();
@@ -1066,6 +1084,7 @@ public final class SaoHelmetPage extends StackPane {
         windowNormal();
         // James, 13 Nov: the boot he approved (see SaoBoot), played in full every time ("2.9秒跳啥").
         boot.open(() -> {
+            if (app != null) dimHome();
             List<Runnable> queued = new java.util.ArrayList<>(afterBoot);
             afterBoot.clear();
             queued.forEach(Runnable::run);
@@ -1242,11 +1261,11 @@ public final class SaoHelmetPage extends StackPane {
     private void onState(@Nullable SaoPackState a, SaoPackState b) {
         refreshState();
         if (a == SaoPackState.WORKING && b == SaoPackState.READY) SaoPackApp.refreshChecks(service);
+        if (b == SaoPackState.RUNNING) returnFromGame.stop();
         if (a == SaoPackState.RUNNING && b != SaoPackState.RUNNING) {
             cancelHandoff();
-            PauseTransition p = new PauseTransition(Duration.millis(200));
-            p.setOnFinished(e -> { if (service.state().get() != SaoPackState.RUNNING && !boot.handoff.active()) powerOn(); });
-            p.play();
+            returnFromGame.setOnFinished(e -> { if (service.state().get() != SaoPackState.RUNNING && !boot.handoff.active()) powerOn(); });
+            returnFromGame.playFromStart();
         }
     }
 
@@ -1804,6 +1823,7 @@ public final class SaoHelmetPage extends StackPane {
             packWin = null;
             if (appButton != null) appButton.getStyleClass().remove("vr-dock-on");
             appButton = null;
+            homeWindows.setMouseTransparent(false);
             for (SaoFloatWindow home : new SaoFloatWindow[]{news, server, player}) {
                 home.recede.set(0);
                 home.glass.set(1);
