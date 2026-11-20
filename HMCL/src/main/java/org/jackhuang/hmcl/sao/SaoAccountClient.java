@@ -27,9 +27,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
 import java.net.URLEncoder;
-import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Arrays;
@@ -46,24 +44,8 @@ final class SaoAccountClient {
     static final String DEFAULT_API = "https://argus.saooath.com:20001/";
     /// Largest accepted JSON or texture response.
     private static final int MAX_RESPONSE = 1024 * 1024;
-    /// Process-shared keep-alive client for ARGUS JSON, images and social streams; never follows redirects.
-    private static final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10))
-            .followRedirects(HttpClient.Redirect.NEVER).build();
     /// One total deadline covers response headers and the bounded streaming body.
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(20);
-    /// Daemon deadlines unblock stalled response streams without retaining completed requests.
-    private static final java.util.concurrent.ScheduledThreadPoolExecutor bodyDeadlines = bodyDeadlines();
-
-    /// Creates the shared timer; removing cancelled entries prevents response objects accumulating between polls.
-    private static java.util.concurrent.ScheduledThreadPoolExecutor bodyDeadlines() {
-        var executor = new java.util.concurrent.ScheduledThreadPoolExecutor(1, task -> {
-            Thread thread = new Thread(task, "SAO account body deadline"); thread.setDaemon(true); return thread;
-        });
-        executor.setRemoveOnCancelPolicy(true); return executor;
-    }
-
-    /// Shares the same pool with the long-lived social stream without installing global authorization headers.
-    static HttpClient sharedHttp() { return http; }
 
     /// The current configured endpoint is resolved when an operation begins.
     private final Supplier<URI> endpoint;
@@ -254,15 +236,15 @@ final class SaoAccountClient {
             if (!contentType.isEmpty()) builder.header("Content-Type", contentType);
             if (bearer != null) builder.header("Authorization", "Bearer " + bearer);
             builder.method(method, body == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofByteArray(body));
-            HttpResponse<InputStream> response = http.send(builder.build(), HttpResponse.BodyHandlers.ofInputStream());
+            var response = SaoArgusHttp.INSTANCE.send(builder.build(), body);
             int status = response.statusCode();
             byte[] bytes;
             try (InputStream input = response.body()) {
                 if (status < 200 || status >= 300)
                     org.jackhuang.hmcl.util.logging.Logger.LOG.warning("ARGUS HTTP failure: step=" + step + " status=" + status);
-                SaoClockCheck.SYSTEM.observe(response.headers().firstValue("Date").orElse(null));
+                SaoClockCheck.SYSTEM.observe(response.date());
                 SaoClockCheck.SYSTEM.requireCorrect();
-                bytes = readBody(input, started);
+                bytes = SaoArgusHttp.readBounded(input, started, REQUEST_TIMEOUT, MAX_RESPONSE);
                 if (bytes.length > MAX_RESPONSE) throw new SaoAccountException("账号服务响应过大", "invalidResponse");
             }
             if (status < 200 || status >= 300) {
@@ -278,29 +260,6 @@ final class SaoAccountClient {
             SaoClockCheck.SYSTEM.requireCorrect(); throw new SaoAccountException("连接账号服务器失败", "network");
         }
         finally { SaoLoginSteps.elapsed(step, started); }
-    }
-
-    /// HttpClient's stream response completes at headers; close its stream at the remaining total deadline.
-    /// The existing size cap remains in force, and a timed-out POST is never replayed.
-    private static byte[] readBody(InputStream input, long started) throws IOException {
-        long remaining = REQUEST_TIMEOUT.toNanos() - (System.nanoTime() - started);
-        if (remaining <= 0) throw new java.net.http.HttpTimeoutException("Account response deadline");
-        var expired = new java.util.concurrent.atomic.AtomicBoolean();
-        var deadline = bodyDeadlines.schedule(() -> {
-            expired.set(true);
-            try { input.close(); } catch (IOException ignored) { /* The reader reports the fixed timeout category. */ }
-        }, remaining, java.util.concurrent.TimeUnit.NANOSECONDS);
-        try {
-            byte[] bytes = input.readNBytes(MAX_RESPONSE + 1);
-            if (expired.get() || System.nanoTime() - started >= REQUEST_TIMEOUT.toNanos()) {
-                Arrays.fill(bytes, (byte) 0);
-                throw new java.net.http.HttpTimeoutException("Account response deadline");
-            }
-            return bytes;
-        } catch (IOException failure) {
-            if (expired.get()) throw new java.net.http.HttpTimeoutException("Account response deadline");
-            throw failure;
-        } finally { deadline.cancel(false); }
     }
 
     /// Fixed diagnostic categories only: never logs exception messages, URLs, identities or credentials.

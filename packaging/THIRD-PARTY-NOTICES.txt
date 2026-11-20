@@ -17,7 +17,8 @@ jdk.jpackage.jmod jpackageapplauncherw.exe, with only its icon resources rebrand
 
 The launcher contains third-party Java dependencies, including JFoenix,
 JetBrains Annotations, Gson, JNA, kala-compress, fx-gson, jsoup, tomlj,
-Apache Commons, XZ, lz4-java, QR Code generator, and other HMCL dependencies.
+Apache Commons, Apache HttpComponents, SLF4J, XZ, lz4-java, QR Code generator,
+and other HMCL dependencies.
 The dependency-notices directory preserves original artifact POM metadata and
 license/notice resources for dependencies identified in the shaded launcher.
 Exact configured coordinates are retained in gradle/libs.versions.toml and build

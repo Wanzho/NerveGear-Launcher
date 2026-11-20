@@ -54,6 +54,8 @@ dependencies {
     implementation(libs.monet.fx)
     implementation(libs.nayuki.qrcodegen)
     implementation(libs.uuid.tools)
+    implementation(libs.httpclient5)
+    runtimeOnly(libs.slf4j.nop)
     implementation("org.jcraft:jorbis:0.0.17") // SAO title music (Ogg Vorbis), LGPL
 
     testImplementation(libs.jimfs)

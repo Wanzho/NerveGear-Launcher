@@ -214,7 +214,7 @@ class SaoAccountHttpTest {
             operation.cancel(true);
             assertTrue(finished.await(3, java.util.concurrent.TimeUnit.SECONDS), "Body reader must unblock on cancellation");
             assertEquals("cancelled", code.get());
-            var field = SaoAccountClient.class.getDeclaredField("bodyDeadlines"); field.setAccessible(true);
+            var field = SaoArgusHttp.class.getDeclaredField("DEADLINES"); field.setAccessible(true);
             var timer = (java.util.concurrent.ScheduledThreadPoolExecutor) field.get(null);
             assertTrue(timer.getQueue().isEmpty(), "Finished requests must not retain streams in timer tasks");
         } finally { release.countDown(); server.stop(0); executor.shutdownNow(); }

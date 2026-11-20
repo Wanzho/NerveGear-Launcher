@@ -66,8 +66,6 @@ final class SaoFriends implements AutoCloseable {
     private final ExecutorService worker = Executors.newSingleThreadExecutor(r -> { var t = new Thread(r,"argus-social-api");t.setDaemon(true); return t; });
     /// Reconnection loop owns a single stream; it cannot block mutations or JavaFX.
     private final ExecutorService live = Executors.newSingleThreadExecutor(r -> { var t = new Thread(r,"argus-social-live");t.setDaemon(true); return t; });
-    /// Live transport refuses all redirects, including same-origin redirects.
-    private final HttpClient http = SaoAccountClient.sharedHttp();
     /// Count of successfully opened SSE connections, containing no player or message data.
     final AtomicLong liveConnections = new AtomicLong();
     /// Current subscription body, closed immediately on signout, endpoint switch or process shutdown.
@@ -201,9 +199,9 @@ final class SaoFriends implements AutoCloseable {
             try {
                 String route = "sao/social/events?device=" + device + "&after=" + cursor + "&game=" + playing;
                 HttpRequest request = HttpRequest.newBuilder(s.root().resolve(route)).timeout(Duration.ofSeconds(15)).header("Authorization","Bearer " + s.token()).header("Last-Event-ID",Long.toString(cursor)).header("Accept","text/event-stream").GET().build();
-                var response = http.send(request,HttpResponse.BodyHandlers.ofInputStream());
+                var response = SaoArgusHttp.INSTANCE.send(request, null);
                 try (InputStream body = response.body()) {
-                    input.set(body); if (!valid(s,epoch))break; if (response.statusCode() != 200 || !response.headers().firstValue("Content-Type").orElse("").startsWith("text/event-stream"))throw new IOException();
+                    input.set(body); if (!valid(s,epoch))break; if (response.statusCode() != 200 || !response.contentType().startsWith("text/event-stream"))throw new IOException();
                     liveConnections.incrementAndGet();
                     var line = new ByteArrayOutputStream();int n; while (valid(s,epoch) && (n = body.read()) != -1) { if (n == '\n') { String value = line.toString(StandardCharsets.UTF_8);line.reset(); if (value.startsWith("data: ")) { JsonObject batch = JsonParser.parseString(value.substring(6)).getAsJsonObject();submitBatch(s,epoch,batch).get(15,TimeUnit.SECONDS);failures = 0; } } else { if (line.size() > 1024 * 1024)throw new IOException();line.write(n); } }
                 } finally { input.set(null); }
