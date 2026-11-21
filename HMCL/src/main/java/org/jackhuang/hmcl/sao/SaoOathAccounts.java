@@ -98,11 +98,11 @@ final class SaoOathAccounts implements AutoCloseable {
     });
     /// Limits initial/background polling to one scheduled callback per active account.
     private final AtomicBoolean appearancePolling = new AtomicBoolean();
-    /// Owns all HTTP calls and sensitive state transitions.
+    /// Serializes account state transitions and the network operations that depend on them.
     private final ExecutorService worker = Executors.newSingleThreadExecutor(r -> {
         Thread thread = new Thread(r, "sao-oath-accounts"); thread.setDaemon(true); return thread;
     });
-    /// Bounded pool for independent, read-only network branches; state application remains serialized.
+    /// Bounded pool for independent requests that never mutate the active account state.
     private final ExecutorService reads = Executors.newFixedThreadPool(5, r -> {
         Thread thread = new Thread(r, "sao-account-read"); thread.setDaemon(true); return thread;
     });
@@ -276,7 +276,11 @@ final class SaoOathAccounts implements AutoCloseable {
 
     /// Invalidates the attempt before any late network response can publish or launch.
     void cancelMicrosoftLink() {
-        synchronized (gate) { generation.incrementAndGet(); clear(); }
+        synchronized (gate) {
+            generation.incrementAndGet();
+            linkFuture = null;
+            clear();
+        }
         publish(this::publishState);
     }
 
@@ -559,8 +563,8 @@ final class SaoOathAccounts implements AutoCloseable {
             linkFuture = attempt;
             attempt.whenComplete((ignored, failure) -> {
                 synchronized (gate) {
-                    if (attempt.isCancelled()) { cancelMicrosoftLink(); return; }
                     if (closed.get() || generation.get() != expected) return;
+                    if (attempt.isCancelled()) { cancelMicrosoftLink(); return; }
                     if (failure == null && currentIdentity == null) return;
                     @Nullable Throwable cause = failure instanceof CompletionException ? failure.getCause() : failure;
                     // Player reports 15 Nov: the panel fell back to the form right after premium-challenge with no
@@ -651,19 +655,28 @@ final class SaoOathAccounts implements AutoCloseable {
         @Nullable Session previous;
         synchronized (gate) {
             if (closed.get() || frozen) { clear(); publish(this::publishState); return; }
-            generation.incrementAndGet(); previous = session; clear(); remembered = null;
+            generation.incrementAndGet();
+            linkFuture = null;
+            previous = session;
+            clear();
+            remembered = null;
             try { credentials.delete(); }
             catch (IOException failure) { errors.accept("清除已保存账号失败，请重试退出"); }
+            if (previous != null) pending.incrementAndGet();
         }
         publish(this::publishState);
-        if (previous != null && !closed.get()) {
-            pending.incrementAndGet();
+        if (previous != null) {
             try {
-                worker.execute(() -> {
-                try { if (previous.root().equals(client.root())) client.json("POST", "authserver/invalidate", object("accessToken", previous.access()), null); }
-                catch (SaoAccountException ignored) { }
-                finally { pending.decrementAndGet(); }
-            }); } catch (RejectedExecutionException ignored) { pending.decrementAndGet(); }
+                // Revocation affects only the captured bearer at its issuing API. A slow server must not queue
+                // the player's next sign-in behind cleanup of a session they have already left.
+                reads.execute(() -> {
+                    try {
+                        client.jsonAt(previous.root(), "POST", "authserver/invalidate",
+                                object("accessToken", previous.access()), null);
+                    } catch (SaoAccountException ignored) { }
+                    finally { pending.decrementAndGet(); }
+                });
+            } catch (RejectedExecutionException ignored) { pending.decrementAndGet(); }
         }
     }
 
@@ -736,10 +749,22 @@ final class SaoOathAccounts implements AutoCloseable {
                     () -> { if (session == prepared) invalidSession(); },
                     (instance, server) -> {
                         if (session != prepared || preparedGeneration != generation.get()) throw new SaoAccountException("请重新登录 ARGUS ID", "invalidSession");
-                        JsonObject ticket = client.json("POST", "sao/launch", new JsonObject(), prepared.access());
+                        JsonObject ticket;
+                        try {
+                            ticket = client.json("POST", "sao/launch", new JsonObject(), prepared.access());
+                        } catch (SaoAccountException failure) {
+                            Logger.LOG.info("ARGUS launch ticket request failed");
+                            throw failure;
+                        }
                         try {
                             if (session != prepared || preparedGeneration != generation.get()) throw new SaoAccountException("请重新登录 ARGUS ID", "invalidSession");
-                            return new SaoOathLaunchTicket(launcherRoot, instance, prepared.root().toString(), prepared.id(), server, ticket);
+                            SaoOathLaunchTicket handoff = new SaoOathLaunchTicket(launcherRoot, instance,
+                                    prepared.root().toString(), prepared.id(), server, ticket);
+                            Logger.LOG.info("ARGUS launch ticket handoff ready");
+                            return handoff;
+                        } catch (IOException failure) {
+                            Logger.LOG.info("ARGUS launch ticket handoff could not be written: " + failure.getClass().getSimpleName());
+                            throw new SaoAccountException("无法保存进服凭证，请检查整合包目录是否可写", "ticketStorage");
                         }
                         finally { ticket.remove("launchTicket"); }
                     });

@@ -54,6 +54,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 import static org.jackhuang.hmcl.ui.sao.SaoUiKit.*;
 
@@ -62,6 +63,8 @@ import static org.jackhuang.hmcl.ui.sao.SaoUiKit.*;
 final class SaoHelmetDashboard {
     /// Supplies the existing launcher state and callbacks.
     private final SaoHelmetPage owner;
+    /// Owns the visible progress and result for the current dashboard Microsoft sign-in.
+    private @Nullable CompletableFuture<Void> premiumAttempt;
 
     /// Creates the component for its owning SaoHelmetPage.
     SaoHelmetDashboard(SaoHelmetPage owner) {
@@ -406,6 +409,7 @@ final class SaoHelmetDashboard {
 
         owner.service.oathAccount().addListener((o, a, b) -> {
             if (a != null && (b == null || !a.profileId().equals(b.profileId()))) cancelRenamePrompt();
+            if (a != null && b == null) finishPremiumAttempt();
             refreshAccount();
         });
         owner.service.playerCard().addListener((o, a, b) -> refreshAccount());
@@ -454,14 +458,27 @@ final class SaoHelmetDashboard {
 
     /// 正版 login: Microsoft first when not signed in yet, then ARGUS ID with it.
     private void premiumLogin() {
+        if (premiumAttempt != null) return;
         SaoAccountApp.withMicrosoft(() -> {
-            owner.problem.setText("正在用 Microsoft 登录…");
+            owner.problem.setText("正在连接账号服务器…");
+            owner.useMicrosoft.setDisable(true);
             SaoMotion.busy(owner.useMicrosoft);
-            owner.service.oathPremiumLogin().whenComplete((ok, err) -> Platform.runLater(() -> {
-                SaoMotion.idle(owner.useMicrosoft);
+            CompletableFuture<Void> attempt = owner.service.oathPremiumLogin();
+            premiumAttempt = attempt;
+            attempt.whenComplete((ok, err) -> Platform.runLater(() -> {
+                if (premiumAttempt != attempt) return;
+                finishPremiumAttempt();
                 owner.problem.setText(err == null ? "" : "! " + SaoSkinApp.message(err));
             }));
         });
+    }
+
+    /// Returns the button to its ready state and lets a later sign-in own its own result.
+    private void finishPremiumAttempt() {
+        if (premiumAttempt == null) return;
+        premiumAttempt = null;
+        owner.useMicrosoft.setDisable(false);
+        SaoMotion.idle(owner.useMicrosoft);
     }
 
     /// Link Start inside the player window, bottom right. While the pack downloads or installs, only a progress bar
@@ -905,7 +922,7 @@ final class SaoHelmetDashboard {
         // The snapshot's buttons wait for the real account.
         if (cached != null) for (Node n : owner.signedIn.getChildren()) n.setDisable(true);
         owner.accountMotion(waiting, a);
-        owner.problem.setText(cached != null ? "正在登录…" : "");
+        if (premiumAttempt == null) owner.problem.setText(cached != null ? "正在登录…" : "");
         @Nullable Path worn = owner.service.oathSkin() != null ? owner.service.oathSkin() : owner.service.skin();
         boolean slim = owner.service.skinSlim();
         if (cached != null && cached.skin() != null && Files.isRegularFile(Path.of(cached.skin()))) { worn = Path.of(cached.skin()); slim = cached.slim(); }

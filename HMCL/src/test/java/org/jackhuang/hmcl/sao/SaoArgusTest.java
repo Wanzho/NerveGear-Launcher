@@ -181,6 +181,20 @@ class SaoArgusTest {
         }
     }
 
+    /// A local handoff failure names the pack directory and leaves unrelated files untouched.
+    @Test void launchFileFailureNamesTheUnwritableLocation() throws Exception {
+        try (SaoLocalPremiumFixture server = fixture("blocked-ticket");
+             SaoPackEngine engine = engine(temporary.resolve("blocked-ticket-client"), server)) {
+            await(engine.oathRegister("TicketFixture", "ticket@example.test", secret()));
+            SaoOathLaunchAccount prepared = (SaoOathLaunchAccount) engine.accounts().prepareLaunchAccount();
+            Path instance = Files.writeString(temporary.resolve("unusable-instance"), "leave me");
+            SaoAccountException error = assertThrows(SaoAccountException.class,
+                    () -> prepared.ticket(instance, "127.0.0.1:25565"));
+            assertEquals("ticketStorage", error.code());
+            assertEquals("leave me", Files.readString(instance));
+        }
+    }
+
     /// C-6 against the real sao_auth router: the token handed to the game joins, but cannot read or change the account;
     /// the email change needs the current password.
     @Test void realServerGameTokenJoinsButCannotTouchTheAccount() throws Exception {

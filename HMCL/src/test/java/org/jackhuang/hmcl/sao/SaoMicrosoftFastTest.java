@@ -105,6 +105,42 @@ class SaoMicrosoftFastTest {
         }
     }
 
+    /// A second sign-in after logout owns a fresh attempt even if the previous proof is still returning.
+    @Test void reloginDoesNotReuseCancelledProof() throws Exception {
+        try (Fixture fixture = new Fixture(); SaoOathAccounts accounts = accounts(fixture)) {
+            fixture.holdChallenge = true;
+            CompletableFuture<Void> first = accounts.premiumLogin();
+            assertTrue(fixture.challenge.await(3, TimeUnit.SECONDS));
+            accounts.logout();
+            CompletableFuture<Void> second = accounts.premiumLogin();
+            assertNotSame(first, second);
+            assertSame(second, accounts.premiumLogin());
+            fixture.release.countDown();
+            assertThrows(ExecutionException.class, () -> first.get(5, TimeUnit.SECONDS));
+            second.get(5, TimeUnit.SECONDS);
+            awaitState(accounts, SaoOathLinking.Kind.LINKED);
+            assertNotNull(accounts.account().get());
+            assertEquals(2, fixture.sessions.get());
+        }
+    }
+
+    /// A slow revocation of one bearer must leave the next Microsoft sign-in free to finish.
+    @Test void reloginDoesNotWaitForOldTokenRevocation() throws Exception {
+        try (Fixture fixture = new Fixture(); SaoOathAccounts accounts = accounts(fixture)) {
+            accounts.premiumLogin().get(5, TimeUnit.SECONDS);
+            accounts.logout();
+            assertTrue(fixture.invalidateEntered.await(3, TimeUnit.SECONDS));
+            try {
+                accounts.premiumLogin().get(2, TimeUnit.SECONDS);
+                awaitState(accounts, SaoOathLinking.Kind.LINKED);
+                assertNotNull(accounts.account().get());
+                assertEquals(2, fixture.sessions.get());
+            } finally {
+                fixture.invalidateRelease.countDown();
+            }
+        }
+    }
+
     /// Explicit cancellation has the same generation fence as logout without waiting for an HTTP timeout.
     @Test void cancelMidLink() throws Exception {
         try (Fixture fixture = new Fixture(); SaoOathAccounts accounts = accounts(fixture)) {
@@ -360,6 +396,10 @@ class SaoMicrosoftFastTest {
         final CountDownLatch sessionEntered = new CountDownLatch(1);
         /// Explicit authentication release.
         final CountDownLatch sessionRelease = new CountDownLatch(1);
+        /// Signals revocation of the old launcher bearer.
+        final CountDownLatch invalidateEntered = new CountDownLatch(1);
+        /// Holds revocation without delaying any other endpoint.
+        final CountDownLatch invalidateRelease = new CountDownLatch(1);
         /// Holds proof for cancellation and ordering tests.
         volatile boolean holdChallenge;
         /// Holds session refresh for startup ordering tests.
@@ -440,6 +480,12 @@ class SaoMicrosoftFastTest {
                     } else if (manual && path.equals("/sao/textures/refresh")) {
                         refreshes.incrementAndGet(); body = textures();
                         if (refreshLimited) { status = 429; body = "{\"error\":\"textureRefreshLimited\",\"waitSeconds\":90}"; }
+                    } else if (path.equals("/authserver/invalidate")) {
+                        assertTrue(new String(request, StandardCharsets.UTF_8).contains("\"accessToken\":\"fixture-1\""));
+                        invalidateEntered.countDown();
+                        invalidateRelease.await(5, TimeUnit.SECONDS);
+                        exchange.sendResponseHeaders(204, -1);
+                        return;
                     } else if (path.equals("/sao/premium/challenge")) {
                         chainRequests.incrementAndGet(); challenge.countDown();
                         if (holdChallenge) release.await(3, TimeUnit.SECONDS);
@@ -448,7 +494,8 @@ class SaoMicrosoftFastTest {
                     else if (path.equals("/sao/premium/complete")) { chainRequests.incrementAndGet(); body = "{\"premiumToken\":\"fixture\"}"; }
                     else if (path.equals("/sao/premium/login")) {
                         chainRequests.incrementAndGet();
-                        body = "{\"accessToken\":\"fixture\",\"clientToken\":\"fixture\",\"selectedProfile\":{\"id\":\"11111111111111111111111111111111\",\"name\":\"Fixture\"}}";
+                        body = "{\"accessToken\":\"fixture-" + sessions.get()
+                                + "\",\"clientToken\":\"fixture\",\"selectedProfile\":{\"id\":\"11111111111111111111111111111111\",\"name\":\"Fixture\"}}";
                         if (!failure.isEmpty()) { status = failure.equals("unavailable") ? 503 : 409; body = "{\"error\":\"" + failure + "\"}"; }
                     } else if (path.equals("/sao/account")) { chainRequests.incrementAndGet(); body = "{\"id\":\"11111111111111111111111111111111\",\"name\":\"Fixture\",\"state\":\"ready\",\"emailVerified\":true,\"graceSeconds\":0,\"premiumName\":\"Fixture\"}"; }
                     else if (path.equals("/sao/card")) { chainRequests.incrementAndGet(); body = "{\"id\":\"11111111111111111111111111111111\",\"level\":1,\"col\":0,\"friends\":[]}"; }
@@ -467,6 +514,13 @@ class SaoMicrosoftFastTest {
         URI uri() { return URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/"); }
 
         /// Releases held handlers before stopping only fixture-owned resources.
-        public void close() { skinRelease.countDown(); release.countDown(); sessionRelease.countDown(); server.stop(0); executor.shutdownNow(); }
+        public void close() {
+            skinRelease.countDown();
+            release.countDown();
+            sessionRelease.countDown();
+            invalidateRelease.countDown();
+            server.stop(0);
+            executor.shutdownNow();
+        }
     }
 }
