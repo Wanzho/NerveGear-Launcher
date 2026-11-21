@@ -128,6 +128,9 @@ class SaoExtrasFeedbackTest {
                 "[07:57:04] [@.sao.SaoLoginSteps.timed/WARNING] Sign-in failure step=microsoft-refresh kind=request-timeout",
                 "[07:57:05] [@.sao.SaoAccountClient.request/WARNING] ARGUS HTTP failure: step=launch-ticket status=503",
                 "[07:57:06] [@.sao.SaoAccountClient.request/WARNING] ARGUS transport failure: step=session-refresh kind=dns",
+                "[07:57:06] [@.sao.SaoOathAccounts.lambda$prepareLaunchAccount$28/INFO] ARGUS 进服凭证申请失败",
+                "[07:57:06] [@.sao.SaoOathAccounts.lambda$prepareLaunchAccount$28/INFO] ARGUS 进服凭证写入失败",
+                "[07:57:06] [@.sao.SaoOathAccounts.lambda$prepareLaunchAccount$28/INFO] ARGUS 进服凭证已写入",
                 "[07:57:07] [@.sao.SaoLoginSteps.elapsed/INFO] Sign-in timing step=microsoft-session elapsedMs=3 password=KEEP_PRIVATE");
         Files.write(launcher, diagnostics);
         var builder = new SaoFeedbackZip(temporary, temporary.resolve("instance"), temporary.resolve("Downloads"),
@@ -135,7 +138,7 @@ class SaoExtrasFeedbackTest {
         Map<String, String> entries = unzip(builder.build("fixture", List.of(launcher), List.of("")).path());
         String report = entries.get("launcher/launcher-1.log");
         assertTrue(report.contains("[07:57:02.893] [main/INFO] Ordinary report from [IP omitted]"));
-        for (String diagnostic : diagnostics.subList(1, 5)) assertTrue(report.contains(diagnostic));
+        for (String diagnostic : diagnostics.subList(1, diagnostics.size() - 1)) assertTrue(report.contains(diagnostic));
         assertTrue(report.contains("[07:57:07] [authentication data omitted]"));
         assertFalse(report.contains("KEEP_PRIVATE"));
         assertFalse(entries.containsKey("captured-game.log"));

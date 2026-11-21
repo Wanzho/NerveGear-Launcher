@@ -753,17 +753,17 @@ final class SaoOathAccounts implements AutoCloseable {
                         try {
                             ticket = client.json("POST", "sao/launch", new JsonObject(), prepared.access());
                         } catch (SaoAccountException failure) {
-                            Logger.LOG.info("ARGUS launch ticket request failed");
+                            Logger.LOG.info("ARGUS 进服凭证申请失败");
                             throw failure;
                         }
                         try {
                             if (session != prepared || preparedGeneration != generation.get()) throw new SaoAccountException("请重新登录 ARGUS ID", "invalidSession");
                             SaoOathLaunchTicket handoff = new SaoOathLaunchTicket(launcherRoot, instance,
                                     prepared.root().toString(), prepared.id(), server, ticket);
-                            Logger.LOG.info("ARGUS launch ticket handoff ready");
+                            Logger.LOG.info("ARGUS 进服凭证已写入");
                             return handoff;
                         } catch (IOException failure) {
-                            Logger.LOG.info("ARGUS launch ticket handoff could not be written: " + failure.getClass().getSimpleName());
+                            Logger.LOG.info("ARGUS 进服凭证写入失败");
                             throw new SaoAccountException("无法保存进服凭证，请检查整合包目录是否可写", "ticketStorage");
                         }
                         finally { ticket.remove("launchTicket"); }
